@@ -1,6 +1,10 @@
 BasedOnStyle: LLVM
 IndentWidth: 4
 ColumnLimit: 120
-BreakBeforeBraces: Attach
+BreakBeforeBraces: Allman
 AllowShortFunctionsOnASingleLine: Inline
 SortIncludes: false
+PointerAlignment: Left
+ReferenceAlignment: Pointer
+SpaceAfterLogicalNot: true
+AlwaysBreakTemplateDeclarations: Yes

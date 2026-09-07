@@ -231,6 +231,98 @@ int main()
     if (std::abs(slope0 - 1.0) > 1.0e-6)
         fail("g'(0) != 1 -- the shaper is contributing gain, so gm no longer means transconductance");
 
+    // 6. ADAA (build step 6). The whole method rests on shapeAntiderivative() being the exact
+    //    primitive of shape(); if it is not, ADAA silently becomes a wrong waveshaper rather than a
+    //    less aliased one, and nothing else in the suite would notice. So it is tested against an
+    //    independent numerical integral, not against itself.
+    std::printf("\nADAA: antiderivative is the exact primitive of the shaper\n");
+    if (std::abs(stage.shapeAntiderivative(0.0)) > 1.0e-15)
+        fail("F(0) != 0 -- the two branches no longer meet at the origin");
+
+    {
+        double worstErr = 0.0, worstAt = 0.0;
+        constexpr double kH = 1.0e-6;
+        for (int i = -60; i <= 60; ++i)
+        {
+            const double w = 0.05 * (double) i; // spans +-3 V, straight through the sign branch
+            const double numeric = (stage.shapeAntiderivative(w + kH) - stage.shapeAntiderivative(w - kH)) / (2.0 * kH);
+            const double err = std::abs(numeric - stage.shape(w));
+            if (err > worstErr) { worstErr = err; worstAt = w; }
+        }
+        std::printf("  worst |dF/dw - g(w)| over w in [-3, +3] V: %.3e at w = %+.2f V\n", worstErr, worstAt);
+        if (worstErr > 1.0e-6)
+            fail("shapeAntiderivative is not the primitive of shape -- ADAA would reshape, not antialias");
+    }
+
+    // 6b. The ADAA output must equal the true mean of the shaper over the sample's step. Simpson on
+    //     a fine grid is the independent oracle. A step spanning the origin is included on purpose:
+    //     that is the one place the piecewise definition could come apart.
+    {
+        struct StepCase { double from, to; };
+        const StepCase steps[] = { { 0.10, 0.90 }, { -0.80, 0.70 }, { -1.50, -0.20 }, { 0.02, 0.021 } };
+        double worstErr = 0.0;
+        for (const auto& st : steps)
+        {
+            constexpr int kN = 20000; // even, for Simpson
+            const double h = (st.to - st.from) / kN;
+            double integral = stage.shape(st.from) + stage.shape(st.to);
+            for (int i = 1; i < kN; ++i)
+                integral += (i % 2 ? 4.0 : 2.0) * stage.shape(st.from + h * (double) i);
+            integral *= h / 3.0;
+            const double want = integral / (st.to - st.from);
+
+            stage.reset();
+            stage.shapeAdaa(st.from); // load the ADAA state with the previous sample
+            const double got = stage.shapeAdaa(st.to);
+            const double err = std::abs(got - want);
+            worstErr = std::max(worstErr, err);
+            std::printf("  step %+.3f -> %+.3f V: ADAA %.9f, true mean %.9f, err %.2e\n",
+                        st.from, st.to, got, want, err);
+        }
+        if (worstErr > 1.0e-7)
+            fail("ADAA output is not the true mean of the shaper over the step");
+    }
+
+    // 6c. What ADAA COSTS in the linear regime, stated exactly rather than assumed away.
+    //
+    //     ADAA1 is a two-point average, so on a linear map it is EXACTLY the FIR (1 + z^-1)/2: a
+    //     magnitude of cos(pi*f/fs) and a half-SAMPLE delay. It is tempting to write this test as
+    //     "ADAA must not change the small-signal gain" -- that assertion is false, and asserting it
+    //     would have condemned a correct implementation. The right check is that the deviation is
+    //     that two-point average and NOTHING MORE, which pins the implementation without pretending
+    //     the rolloff is not there.
+    //
+    //     This rolloff is why dsp.md insists the gate be measured at both ends. It is evaluated at
+    //     the OVERSAMPLED rate, so it shrinks fast with the factor -- but at 1x it is severe, and it
+    //     lands on a top octave that is already drooping. OSFidelity and FeatureProfile decide the
+    //     gate; it is currently off at every factor.
+    {
+        stage.setMode(dsp::Mode::Dark);
+        double worstMagErr = 0.0, worstDelayErr = 0.0;
+        for (const double f : { 1000.0, 6000.0, 20000.0 })
+        {
+            stage.setAdaa(false);
+            const auto plain = shelfResponseAt(stage, f);
+            stage.setAdaa(true);
+            const auto adaa = shelfResponseAt(stage, f);
+            stage.setAdaa(false);
+
+            const double theta = M_PI * f / kFs;
+            const double gotDb = db(std::abs(adaa) / std::abs(plain));
+            const double wantDb = db(std::cos(theta));
+            // Half a sample of delay, expressed in samples so it reads as the physical quantity.
+            const double gotDelay = pedal::test::excessDelaySamples(
+                pedal::test::phaseErrorDeg(std::arg(adaa), std::arg(plain)), f, kFs);
+            std::printf("  %5.0f Hz: ADAA cost %+.5f dB (2-point average predicts %+.5f), "
+                        "delay %+.4f smp (predicts +0.5000)\n", f, gotDb, wantDb, gotDelay);
+            worstMagErr = std::max(worstMagErr, std::abs(gotDb - wantDb));
+            worstDelayErr = std::max(worstDelayErr, std::abs(gotDelay - 0.5));
+        }
+        if (worstMagErr > 1.0e-4 || worstDelayErr > 1.0e-3)
+            fail("ADAA's linear-regime response is not exactly the two-point average -- it is doing "
+                 "something beyond antialiasing");
+    }
+
     std::printf(ok ? "\nPASS: JFET stage structure\n" : "\nFAILED: JFET stage structure\n");
     return ok ? 0 : 1;
 }

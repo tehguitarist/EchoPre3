@@ -13,8 +13,17 @@ placeholder as circuit.md gets filled in.
 ```
 Build:  cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
 AU:     cmake --build build --target EchoPre3_AU     (auto-installs; bump VERSION to force Logic rescan)
-Format: clang-format -i src/**/*.{cpp,h}
+Format: clang-format -i <NEW files only>   # see the warning below
 ```
+
+⚠ **This tree is HAND-formatted; `clang-format` cannot reproduce it under any config.** Running the
+old blanket `clang-format -i src/**/*.{cpp,h}` reformats the whole codebase (it did: ~800 lines of
+pure churn across six files in one pass, burying the real diff). The shipped `.clang-format` was the
+template's LLVM default with `BreakBeforeBraces: Attach`, while every file here is Allman with JUCE
+spacing — so it disagreed with the code on braces, pointer alignment and `! x`. It has been corrected
+to describe the code that actually exists, which roughly halves the churn, but aligned trailing
+comments and aligned constant tables are deliberate and clang-format will always reflow them.
+**Run it on NEW files only, then check the diff.**
 
 ## Schematics
 
@@ -210,10 +219,60 @@ high, execute routine work cheap) is what should persist.
 > 4. **The ~2 dB VOLUME fall-back discrepancy is still open** (as-drawn 3.9 dB vs the maker's 1–2 dB).
 >    `OutputNetworkTest` prints the maker's four points every run so it stays visible. Do NOT tune
 >    other constants to close it — it needs a real VOLUME sweep capture.
-> 5. **Not started:** step 6 (ADAA — the shaper's closed-form antiderivatives are noted in
->    JfetStage.h for exactly this), the `OfflineRender` console exe the A/B harness needs, the
->    `PerfBenchmark`/`FeatureProfile`/`OSFidelity` probes, and all calibration.
-> 6. Pre-existing unrelated warning: `src/ui/PedalLookAndFeel.cpp:251` unused parameter.
+> 5. **Not started:** all calibration (it needs the renders). Step 6, `OfflineRender` and the three
+>    probes are DONE — see the step 6 block below.
+> 6. ~~Pre-existing unrelated warning: `src/ui/PedalLookAndFeel.cpp:251` unused parameter.~~ Fixed
+>    (the mouse-over flag is unnamed now — no button on this pedal draws a hover state).
+>
+> **STEP 6 AND THE THREE PROBES ARE DONE (2026-09-07), plus `OfflineRender` — all without captures.**
+> Full write-up in `docs/build-plan.md` §9. Nine tests pass via `ctest`; the build is warning-free.
+>
+> - ✅ **`OfflineRender` exists** with the CLI the five analysis scripts already assumed. ⭐ It
+>   **calls `processBlock` on a real `PedalAudioProcessor` rather than mirroring it** — a mirrored
+>   copy of the gain staging drifts, and the harness would then report a mismatch that exists only in
+>   the harness, which is fatal when every remaining calibration constant is read off exactly those
+>   measurements. Verified: align lag 0, `polarity()` −1 at −178.6°, finite, full length.
+> - ⚠ **A real bug fell out of that:** `setLatencySamples` was TRUNCATING the oversampler's
+>   fractional latency (≈65.9 → 65 at 8×), losing nearly a sample the host's delay compensation never
+>   restores. It rounds now.
+> - ✅ **ADAA is implemented and proven exact** (antiderivative vs an independent Simpson integral to
+>   1e-15, across the sign branch) — **and switched off at every factor**, `kAdaaMaxOsIndex = -1`.
+>   It is free on CPU; it is off because at 1× it triples the top-octave droop (−1.07 → −4.06 dB at
+>   12 kHz) to buy 5.6 dB of a floor already at −63 dBc, and because **1× + ADAA is beaten outright
+>   by plain 2× on both axes for 0.86 pp of CPU**. The 2× row is marginal on placeholder thresholds
+>   and is documented as such — don't misremember it as clear-cut.
+> - ⚠ **A test was nearly written as the wrong assertion:** "ADAA must not change the small-signal
+>   gain" is FALSE — ADAA1 on a linear map is exactly the FIR (1+z⁻¹)/2, so cos(πf/fs) and half a
+>   sample of delay. The test now asserts that two-point-average response itself.
+> - ⚠⚠ **`dsp.md`'s low-OS shelf restore CANNOT be a single fixed shelf on this pedal.** Its
+>   stated premise (the droop is pot-independent) fails here — the 1× droop spreads **1.8 dB across
+>   MODE**, and Bright is *brighter* than 8× at 8–12 kHz. Cause is structural: the JFET's own 1/k(s)
+>   shelf lives inside the oversampled region and its pole moves with MODE. A per-mode shelf is the
+>   right structure. ⛔ **Do NOT fit it yet** — the pole sits at K0 × the bypass corner and
+>   K0 = 1 + gm·R5 with `gm` a placeholder M2 may move 4.5×. At the 4× default the droop is
+>   ≤ 0.14 dB, so nothing a normal session hears is being deferred.
+> - 📌 **CPU is a non-issue: 2.07 % of realtime at the 4× default, 3.51 % at 8×.** So `dsp.md`'s
+>   "polyphase IIR instead of the FIR" optimisation is **not worth scoping** — the linear-phase FIR
+>   the sub-sample null depends on costs nothing worth recovering.
+> - ⭐ **`PerfBenchmark` found the specified bypass optimisation was missing, and it is now in.**
+>   `architecture.md` says the DSP is skipped when bypassed; `processBlock` was running the whole
+>   chain and crossfading regardless, so bypass cost what active cost (3.47 % vs 3.51 % at 8×). It is
+>   now a flat **0.10–0.11 % at every factor** — 33× cheaper at 8×, and no longer scaling with the
+>   factor at all — guarded by `BypassClickTest`.
+> - ⚠⚠ **The oversampler MUST be reset when the skip is entered; the chain's own state is a
+>   judgement call the measurement did not decide.** Leaving the oversampler unreset splices its
+>   stale pre-bypass FIR tail onto the live signal at about one reported latency after the toggle,
+>   and that breaches the crossfade's own step bound by **1.09× / 1.54× / 1.63× at 2× / 4× / 8×** —
+>   a real click, inside a fade that is otherwise working. But **reset-vs-resume of the WDF/shelf
+>   state is a wash**: peak re-engage excursion 0.0148/0.0167/0.0174/0.0176 FS (reset) against
+>   0.0187/0.0154/0.0129/0.0143 (resume) at 1/2/4/8×, neither leading consistently. Once the
+>   oversampler is cleared its FIR ramps the chain's input up from zero instead of stepping it, so
+>   the high-passes are barely kicked either way. **RESET is chosen on determinism, not on sound**:
+>   post-bypass output must not depend on how long ago the pedal was switched off, because
+>   `OfflineRender` drives this same processor and step 9 is a sub-sample null.
+> - ⚠ **A fixed bypass hold of 0.2 s is exactly 200 periods of a 1 kHz probe tone**, which hands a
+>   resumed state a perfect phase match and made resume look free. `BypassClickTest` sweeps the hold
+>   length as well as the toggle instants. Watch for this in any future toggle-timing measurement.
 >
 > NEXT once renders land: phase 1 characterisation (M0–M6 in build-plan.md), starting with M0 (null
 > check) and M1/M2 (mode-differential ratio → resolves the Bright/Dark label mapping and hands us

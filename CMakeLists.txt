@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(EchoPre3 VERSION 0.2.0)   # bump VERSION to force Logic to rescan the AU after changes
+project(EchoPre3 VERSION 0.3.0)   # bump VERSION to force Logic to rescan the AU after changes
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -120,9 +120,84 @@ endforeach()
 #   target_link_libraries(<Name> PRIVATE chowdsp::chowdsp_wdf juce::juce_dsp juce::juce_recommended_config_flags)
 #   add_test(NAME <Name> COMMAND <Name>)
 #
-# An OfflineRender console app (mirrors processBlock) powers the analysis/ A/B harness — add it the
-# same way as a JUCE console app, sourced from analysis/offline_render.cpp.
-#
+# OfflineRender — renders a WAV through the plugin for the analysis/ A/B harness. It does not
+# mirror processBlock, it calls it on a real PedalAudioProcessor (see the header comment in
+# analysis/offline_render.cpp), which is why it links the same sources as UISnapshot: the editor
+# and PedalAssets come along with PluginProcessor.cpp's createEditor(). Not registered with
+# add_test() — it is a tool, not a pass/fail check, and it needs a rendered signal to be useful.
+juce_add_console_app(OfflineRender PRODUCT_NAME "OfflineRender")
+target_sources(OfflineRender PRIVATE
+    analysis/offline_render.cpp src/PluginProcessor.cpp src/PluginEditor.cpp
+    src/ui/PedalLookAndFeel.cpp src/ui/PedalFace.cpp)
+target_include_directories(OfflineRender PRIVATE src)
+target_compile_definitions(OfflineRender PRIVATE
+    JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0 JUCE_STANDALONE_APPLICATION=1 JucePlugin_VersionString="${PROJECT_VERSION}")
+target_link_libraries(OfflineRender PRIVATE juce::juce_gui_extra juce::juce_audio_utils juce::juce_dsp
+    chowdsp::chowdsp_wdf PedalAssets juce::juce_recommended_config_flags)
+target_compile_options(OfflineRender PRIVATE ${PEDAL_WARNING_FLAGS})
+
+# OSFidelity — how close 1x/2x/4x are to 8x, and what ADAA buys at each (build.md probes, build
+# step 6). Registered as a FINITE-ONLY test: it asserts no NaN/Inf and that the wanted distortion
+# does not move with the factor, but never gates on an absolute alias figure — that number is what
+# the probe is for, and freezing it as a threshold would make the report circular.
+juce_add_console_app(OSFidelity PRODUCT_NAME "OSFidelity")
+target_sources(OSFidelity PRIVATE
+    tests/OSFidelity.cpp src/PluginProcessor.cpp src/PluginEditor.cpp
+    src/ui/PedalLookAndFeel.cpp src/ui/PedalFace.cpp)
+target_include_directories(OSFidelity PRIVATE src)
+target_compile_definitions(OSFidelity PRIVATE
+    JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0 JUCE_STANDALONE_APPLICATION=1 JucePlugin_VersionString="${PROJECT_VERSION}")
+target_link_libraries(OSFidelity PRIVATE juce::juce_gui_extra juce::juce_audio_utils juce::juce_dsp
+    chowdsp::chowdsp_wdf PedalAssets juce::juce_recommended_config_flags)
+target_compile_options(OSFidelity PRIVATE ${PEDAL_WARNING_FLAGS})
+add_test(NAME OSFidelity COMMAND OSFidelity)
+
+# PerfBenchmark — CPU % of realtime + reported latency per OS factor x mode (build.md probes).
+# Finite-only, like OSFidelity: CI machine speed varies, so a CPU threshold would fail on a slow
+# runner regardless of whether the DSP actually got dearer.
+juce_add_console_app(PerfBenchmark PRODUCT_NAME "PerfBenchmark")
+target_sources(PerfBenchmark PRIVATE
+    tests/PerfBenchmark.cpp src/PluginProcessor.cpp src/PluginEditor.cpp
+    src/ui/PedalLookAndFeel.cpp src/ui/PedalFace.cpp)
+target_include_directories(PerfBenchmark PRIVATE src)
+target_compile_definitions(PerfBenchmark PRIVATE
+    JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0 JUCE_STANDALONE_APPLICATION=1 JucePlugin_VersionString="${PROJECT_VERSION}")
+target_link_libraries(PerfBenchmark PRIVATE juce::juce_gui_extra juce::juce_audio_utils juce::juce_dsp
+    chowdsp::chowdsp_wdf PedalAssets juce::juce_recommended_config_flags)
+target_compile_options(PerfBenchmark PRIVATE ${PEDAL_WARNING_FLAGS})
+add_test(NAME PerfBenchmark COMMAND PerfBenchmark)
+
+# FeatureProfile — pairs each feature's CPU cost with its accuracy delta and prints the verdict
+# (build.md probes, dsp.md "HQ / Eco mode"). Finite-only, like the other two probes.
+juce_add_console_app(FeatureProfile PRODUCT_NAME "FeatureProfile")
+target_sources(FeatureProfile PRIVATE
+    tests/FeatureProfile.cpp src/PluginProcessor.cpp src/PluginEditor.cpp
+    src/ui/PedalLookAndFeel.cpp src/ui/PedalFace.cpp)
+target_include_directories(FeatureProfile PRIVATE src)
+target_compile_definitions(FeatureProfile PRIVATE
+    JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0 JUCE_STANDALONE_APPLICATION=1 JucePlugin_VersionString="${PROJECT_VERSION}")
+target_link_libraries(FeatureProfile PRIVATE juce::juce_gui_extra juce::juce_audio_utils juce::juce_dsp
+    chowdsp::chowdsp_wdf PedalAssets juce::juce_recommended_config_flags)
+target_compile_options(FeatureProfile PRIVATE ${PEDAL_WARNING_FLAGS})
+add_test(NAME FeatureProfile COMMAND FeatureProfile)
+
+# BypassClickTest — does skipping the DSP while bypassed click, and is the skip transparent
+# (architecture.md "Bypass")? Unlike the three probes above this one DOES gate: the crossfade bound,
+# the exactness of true bypass and the settled equivalence are all machine-independent properties,
+# not speed measurements, so a threshold on them is a real regression check rather than a CI-speed
+# lottery. It carries its own mutation guard so a passing run cannot mean a blind instrument.
+juce_add_console_app(BypassClickTest PRODUCT_NAME "BypassClickTest")
+target_sources(BypassClickTest PRIVATE
+    tests/BypassClickTest.cpp src/PluginProcessor.cpp src/PluginEditor.cpp
+    src/ui/PedalLookAndFeel.cpp src/ui/PedalFace.cpp)
+target_include_directories(BypassClickTest PRIVATE src)
+target_compile_definitions(BypassClickTest PRIVATE
+    JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0 JUCE_STANDALONE_APPLICATION=1 JucePlugin_VersionString="${PROJECT_VERSION}")
+target_link_libraries(BypassClickTest PRIVATE juce::juce_gui_extra juce::juce_audio_utils juce::juce_dsp
+    chowdsp::chowdsp_wdf PedalAssets juce::juce_recommended_config_flags)
+target_compile_options(BypassClickTest PRIVATE ${PEDAL_WARNING_FLAGS})
+add_test(NAME BypassClickTest COMMAND BypassClickTest)
+
 # UISnapshot — headless editor render to PNG (build.md "UI changes"). Needs juce_gui_extra +
 # PedalAssets and the shared UI/processor sources; it's a smoke test (asserts a non-empty image),
 # so add_test() with no CPU/pixel gate.

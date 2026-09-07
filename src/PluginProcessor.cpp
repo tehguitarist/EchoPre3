@@ -136,6 +136,11 @@ void PedalAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     bypassMix.reset(sampleRate, kBypassRampSeconds);
     bypassMix.setCurrentAndTargetValue((pBypass != nullptr && pBypass->load() > 0.5f) ? 1.0 : 0.0);
 
+    // updateOversamplingFactor() above has just reset the chain, so it is already in the state the
+    // skip path resets it to -- but the flag must not survive a re-prepare, or a processor prepared
+    // while bypassed would never take the reset branch again after leaving and re-entering bypass.
+    dspIsIdle = false;
+
     for (auto& l : inputLevel)  l.store(0.0f);
     for (auto& l : outputLevel) l.store(0.0f);
 }
@@ -159,7 +164,28 @@ void PedalAudioProcessor::updateOversamplingFactor(int factorIndex)
         d.reset();
     }
 
-    setLatencySamples((int) os.getLatencyInSamples());
+    applyAdaaPolicy();
+
+    // ROUND, don't truncate. The equiripple FIR's latency is fractional (about 65.9 samples at 8x),
+    // and truncating threw away nearly a whole sample of it -- which the host's delay compensation
+    // then never puts back, and which showed up directly as a 1-sample lag in the OfflineRender
+    // output against the source. Rounding halves the worst-case residual to 0.5 samples; the rest is
+    // sub-sample and is what analyze.py's frac_align exists to remove.
+    setLatencySamples(roundToInt(os.getLatencyInSamples()));
+}
+
+void PedalAudioProcessor::applyAdaaPolicy()
+{
+    adaaActive = (adaaOverride == AdaaOverride::useOsGate) ? (currentOsIndex <= kAdaaMaxOsIndex)
+                                                           : (adaaOverride == AdaaOverride::forceOn);
+    for (auto& d : dsp)
+        d.setAdaa(adaaActive);
+}
+
+void PedalAudioProcessor::setAdaaOverride(AdaaOverride m)
+{
+    adaaOverride = m;
+    applyAdaaPolicy();
 }
 
 bool PedalAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -185,9 +211,79 @@ void PedalAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer&)
                                        : (pOversampling != nullptr ? (int) pOversampling->load() : 2);
     updateOversamplingFactor(wantOs);
 
-    const auto mode = (pedal::dsp::Mode) jlimit(0, 2, (int) pMode->load());
     volumeSmooth.setTargetValue((double) pVolume->load());
     const double volume = volumeSmooth.skip(numSmp);
+    bypassMix.setTargetValue(pBypass->load() > 0.5f ? 1.0 : 0.0);
+
+    // ===================== FULLY BYPASSED: skip the DSP (architecture.md) =====================
+    // The gate is "the crossfade has FINISHED", not "the bypass parameter is set": during the ~5 ms
+    // transition both paths are genuinely needed, and skipping on the parameter alone would replace
+    // the fade with a hard cut. Hence mix parked at its 1.0 target with no ramp outstanding.
+    if (! bypassMix.isSmoothing() && bypassMix.getCurrentValue() >= 1.0)
+    {
+        // ---- RESETTING THE OVERSAMPLER IS NOT OPTIONAL. It stops being fed here, so its FIR delay
+        // line still holds pre-bypass audio; re-engaging without clearing it splices that stale tail
+        // onto the live signal, and the splice lands at about the reported latency after the toggle.
+        // Measured (BypassClickTest, oversampler left unreset): the worst sample-to-sample step
+        // reaches 1.09x / 1.54x / 1.63x the crossfade's own bound at 2x / 4x / 8x -- an audible cut
+        // inside a fade that is otherwise doing its job. It is within bound at 1x only because a 1x
+        // "oversampler" has no filter state to go stale. This is a click the fade cannot cover.
+        //
+        // ---- RESETTING THE CHAIN'S OWN STATE IS A JUDGEMENT CALL, AND THE MEASUREMENT DID NOT MAKE
+        // IT. While skipped the WDF caps and the JFET shelf's x1/y1 freeze, so re-engaging either
+        // resumes from that stale state or starts from a cleared one. Neither is what the hardware
+        // does: a real pedal keeps its input connected and its capacitors keep tracking, which is
+        // precisely the work being removed here. Both were measured, over four factors x eight
+        // toggle phases, with the bypass HOLD LENGTH swept as well as the toggle instants -- a fixed
+        // hold of 0.2 s is exactly 200 periods of the 1 kHz probe tone and hands a resumed state a
+        // perfect phase match it would never get in use. Peak re-engage excursion, FS:
+        //
+        //        factor    reset    resume
+        //          1x     0.0148    0.0187
+        //          2x     0.0167    0.0154
+        //          4x     0.0174    0.0129
+        //          8x     0.0176    0.0143
+        //
+        // That is a wash -- neither leads consistently, and the spread is scatter between phase
+        // draws, not a difference between the two policies. The reason is the paragraph above: with
+        // the oversampler cleared, its FIR ramps the chain's input up from zero over its own
+        // impulse response instead of stepping it, so the high-passes are barely kicked either way
+        // and the frozen charge has little left to matter. Do not re-derive this expecting the
+        // clean-vs-stale argument to show up in the audio; it does not.
+        //
+        // RESET, then, chosen on DETERMINISM rather than on sound: with a cleared chain the output
+        // after re-engaging depends only on the input and the parameters, not on how long ago the
+        // pedal was switched off or what was playing at the time. That matters concretely here --
+        // OfflineRender drives this same processor, and step 9 validates the model with a sub-sample
+        // null against the reference renders. A chain carrying unrecorded history into a render is a
+        // nondeterminism in the instrument the remaining calibration constants are read off.
+        if (! dspIsIdle)
+        {
+            for (auto& d : dsp)
+                d.reset();
+            oversamplers[(size_t) currentOsIndex]->reset();
+            dspIsIdle = true;
+        }
+
+        // Meters keep running, or the VU bars freeze whenever the pedal is off. Both read the DRY
+        // signal: it is what leaves the plugin, and the input trim is genuinely out of circuit here,
+        // so metering the trimmed level would show a control that is doing nothing.
+        for (int ch = 0; ch < numCh; ++ch)
+        {
+            const auto* dry = buffer.getReadPointer(ch);
+            float peak = 0.0f;
+            for (int n = 0; n < numSmp; ++n)
+                peak = jmax(peak, std::abs(dry[n]));
+            inputLevel[(size_t) ch].store(peak);
+            outputLevel[(size_t) ch].store(peak);
+        }
+
+        // buffer already holds the dry signal untouched -- true bypass needs no copy.
+        return;
+    }
+    dspIsIdle = false;
+
+    const auto mode = (pedal::dsp::Mode) jlimit(0, 2, (int) pMode->load());
     for (auto& d : dsp)
     {
         d.setMode(mode);
@@ -196,7 +292,6 @@ void PedalAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer&)
 
     const double inTrim = Decibels::decibelsToGain((double) pInputTrim->load());
     const double outTrim = Decibels::decibelsToGain((double) pOutputTrim->load());
-    bypassMix.setTargetValue(pBypass->load() > 0.5f ? 1.0 : 0.0);
 
     // Volts back to full scale, plus the (still uncalibrated) makeup. VOLUME is NOT here: it lives
     // inside the output network's solve, which is what makes its control law non-monotonic.

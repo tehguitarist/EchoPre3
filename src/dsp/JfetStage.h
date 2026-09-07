@@ -132,6 +132,14 @@ public:
         }
     }
 
+    /** First-order antiderivative anti-aliasing on the shaper (build step 6, dsp.md / nonlinear doc
+     *  section 5.1). A SETTABLE knob rather than a hardcoded `if (osFactor <= N)` inside this class,
+     *  deliberately: dsp.md warns that a hardcoded gate makes the gate's own validation measure the
+     *  gate instead of the mechanism. The processor owns the OS-factor policy; OSFidelity and
+     *  FeatureProfile measure both states. */
+    void setAdaa(bool shouldUseAdaa) noexcept { adaaEnabled = shouldUseAdaa; }
+    bool adaaIsEnabled() const noexcept { return adaaEnabled; }
+
     /** Call at the rate this stage actually runs at -- the OVERSAMPLED rate. The shelf's pole sits at
      *  K0 x the bypass corner (~18 kHz in Bright at nominal gm), close enough to Nyquist at 48 kHz
      *  for the bilinear warp to badly misplace it, so this stage belongs inside the oversampled
@@ -147,6 +155,8 @@ public:
     {
         x1 = 0.0;
         y1 = 0.0;
+        wPrev = 0.0;
+        fPrev = 0.0; // shapeAntiderivative(0) == 0 by construction of both terms' constants
     }
 
     /** Gate volts -> drain Norton current, in amps, signed as the current INJECTED INTO node D.
@@ -158,7 +168,34 @@ public:
         const double w = b0 * vGate + b1 * x1 - a1 * y1;
         x1 = vGate;
         y1 = w;
-        return -params.gm * shape(w);
+        return -params.gm * (adaaEnabled ? shapeAdaa(w) : shape(w));
+    }
+
+    /** First-order ADAA of shape(): the mean of the map over [wPrev, w], evaluated exactly from the
+     *  closed-form antiderivative. The argument is the SHELF OUTPUT, not the stage input, which is
+     *  exactly the case section 5.1 sanctions -- the map is memoryless in w, and the memory upstream
+     *  of it is a linear filter, so w is smooth between samples.
+     *
+     *  !! ADAA1 is a two-point average, so on a LINEAR map it is exactly the FIR (1 + z^-1)/2: a
+     *  cos(pi*f/fs) magnitude and half a sample of delay. That is intrinsic, not a defect, and
+     *  JfetStageTest section 6c asserts it. It is also why this is switched off at every shipped
+     *  factor -- see PedalAudioProcessor::kAdaaMaxOsIndex for the measurements.
+     *
+     *  The fallback below is a numerical necessity, not a nicety: as the step shrinks, the
+     *  difference of two nearly-equal antiderivatives loses its significant digits, so the quotient
+     *  goes to noise precisely where the signal is quiet. The midpoint value is the exact limit of
+     *  that quotient, so the crossover is smooth. */
+    inline double shapeAdaa(double w) noexcept
+    {
+        const double f = shapeAntiderivative(w);
+        const double dw = w - wPrev;
+        const double y = (std::abs(dw) > kAdaaEps) ? (f - fPrev) / dw : shape(0.5 * (w + wPrev));
+
+        // State advances EVERY sample, including through the fallback, so switching ADAA on or off
+        // mid-stream resumes from the real previous sample rather than a stale one.
+        wPrev = w;
+        fPrev = f;
+        return y;
     }
 
     /** Drain Norton impedance, R6 || ro. Stamped into OutputNetwork, never applied here.
@@ -184,6 +221,33 @@ public:
         const double s = params.bumpScale;
         const double t = std::tanh(w / s);
         return core + 0.5 * params.aEven * s * s * t * t;
+    }
+
+    /** F(w) with F(0) = 0 and F'(w) = shape(w) exactly. Both of g()'s terms were chosen for having
+     *  elementary primitives, and this is what that was for -- section 5.1 is explicit that
+     *  substituting quadrature for a missing antiderivative is measured-wrong, not just inelegant.
+     *
+     *  Core, with a = 1/L^2, c = beta + 1.5/L^2, r = 1 + a*w^2 and k = c/a:
+     *      int w(1 + c w^2) (1 + a w^2)^{-3/2} dw = (1/a)[ k*sqrt(r) + (k-1)/sqrt(r) ]
+     *  Even bump, using int tanh^2(x) dx = x - tanh(x):
+     *      int (a_even s^2/2) tanh^2(w/s) dw = (a_even s^2/2)(w - s*tanh(w/s))
+     *
+     *  L is sign-dependent, so F is piecewise -- but each piece is anchored to F(0) = 0, which makes
+     *  F CONTINUOUS at the origin. That matters: a step spanning a zero crossing evaluates one branch
+     *  at each end, and their difference is the true integral only because the two pieces meet. */
+    inline double shapeAntiderivative(double w) const noexcept
+    {
+        const double L = (w >= 0.0) ? params.limitPos : params.limitNeg;
+        const double lSq = L * L;
+        const double c = params.beta + 1.5 / lSq;
+        const double k = c * lSq; // c/a, with a = 1/L^2
+        const double r = 1.0 + (w * w) / lSq;
+        const double sqrtR = std::sqrt(r);
+        const double coreF = lSq * (k * sqrtR + (k - 1.0) / sqrtR - (2.0 * k - 1.0));
+
+        const double s = params.bumpScale;
+        const double bumpF = 0.5 * params.aEven * s * s * (w - s * std::tanh(w / s));
+        return coreF + bumpF;
     }
 
     /** DC degeneration factor K0 = 1 + gm*R5. This IS the mode plateau ratio M2 measures, and the one
@@ -231,7 +295,13 @@ private:
     Mode mode = Mode::Dark;
     double fs = 48000.0;
 
+    // Below this step the antiderivative difference is dominated by cancellation error; see
+    // shapeAdaa(). w is in real gate volts (order 1), so this is a ~1e-6 relative threshold.
+    static constexpr double kAdaaEps = 1.0e-6;
+
     double b0 = 1.0, b1 = 0.0, a1 = 0.0;
     double x1 = 0.0, y1 = 0.0;
+    bool adaaEnabled = false;
+    double wPrev = 0.0, fPrev = 0.0;
 };
 } // namespace pedal::dsp

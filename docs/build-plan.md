@@ -234,3 +234,169 @@ Do not fit the MODE topology to it.
 2. Whether the LF corner probe survives the receptive-field limit — pre-checked in M4.
 3. Where each trainer's reamp level sat, which bounds how hot a render we can believe.
 4. Whether the old pedal's volume network matches the schematic, if we get that far.
+
+---
+
+## 9. Step 6 and the probes — closed out 2026-09-07 (no captures needed)
+
+Everything in this section was done while phase 0c was still blocked, because none of it depends on
+the renders. What it needed instead was the ability to render the plugin at all, which is why the
+`OfflineRender` console app came first.
+
+### 9.1 `OfflineRender` exists, and it calls `processBlock` rather than mirroring it
+
+`analysis/captures.py` had been pointing at `build/OfflineRender_artefacts/Release/OfflineRender`
+and emitting its flags since phase 0b, and five scripts call it. The binary now exists, with the CLI
+those callers already assume: `OfflineRender <in.wav> <out.wav> --os <factor>` plus `--volume`,
+`--mode`, `--input-trim`, `--output-trim`, `--bypass`, `--block`.
+
+⭐ **It instantiates a real `PedalAudioProcessor` and calls `processBlock`.** `build.md` describes
+this exe as one that "mirrors processBlock", and a mirror is a second implementation of the gain
+staging that has to be kept in step with the first. When it drifts, the harness reports a mismatch
+against the reference renders that exists only in the harness — and every calibration constant this
+project has left to fit is read off exactly those measurements. The instrument has to be the thing
+under test. The cost is that it links the editor and the UI assets; that is build time only.
+
+Verified against the test signal: full length, integer alignment lag 0, `polarity()` returns −1 at
+−178.6° (the plugin inverts, as it must), output finite, peak 2.41 at volume 0.5 in Dark.
+
+⚠ **One real bug fell out of that alignment check.** `setLatencySamples` was truncating the
+oversampler's fractional latency — about 65.9 samples at 8× — to 65, throwing away almost a whole
+sample that the host's delay compensation then never puts back. It now rounds. Worst-case residual
+is halved to 0.5 samples, and the rest is sub-sample, which is what `frac_align` is for.
+
+### 9.2 ADAA is implemented, exact, measured — and switched off
+
+The shaper's closed-form antiderivative is derived and implemented (`JfetStage::shapeAntiderivative`),
+and `JfetStageTest` section 6 checks it three ways: F(0) = 0, dF/dw matches g(w) to 1e-9 across
+±3 V through the sign branch, and the ADAA output equals a Simpson integral of the shaper over four
+steps (including one spanning the origin) to 1e-15.
+
+⚠ **Section 6c was nearly written as the wrong assertion.** "ADAA must not change the small-signal
+gain" is false: ADAA1 on a linear map is exactly the FIR (1 + z⁻¹)/2, so it has a cos(πf/fs)
+magnitude and half a sample of delay. Asserting the intuitive property would have condemned a
+correct implementation. The test now asserts the two-point-average response itself, which pins the
+implementation without pretending the rolloff is not there.
+
+**Measured, hot tone (full scale at +12 dB trim, Dark), then rejected:**
+
+| factor | alias floor removed | 12 kHz cost | CPU cost |
+|---|---|---|---|
+| 1× | 5.63 dB | 2.99 dB | ~0 pp |
+| 2× | 1.18 dB | 0.68 dB | ~0 pp |
+| 4× | 0.29 dB | 0.17 dB | ~0 pp |
+| 8× | 0.07 dB | 0.04 dB | 0.15 pp |
+
+CPU was never the question. At 1×, the only factor where either effect exceeds a dB, ADAA buys
+5.6 dB of a floor already at −63 dBc under that drive (−128 dBc at a realistic level) by tripling
+the top-octave droop from −1.07 to −4.06 dB at 12 kHz. And needing no judgement at all: **1× + ADAA
+is beaten outright by plain 2× on both axes** — 10.6 dB quieter and 3.9 dB less dark — for 0.86
+percentage points of CPU. `kAdaaMaxOsIndex = -1`; the mechanism stays, dormant and tested.
+
+⚠ **The 2× row is marginal and should not be misremembered as clear-cut.** It clears a 1 dB
+alias-gain threshold and a 1 dB response budget by 0.18 and 0.32 dB respectively, so its verdict
+flips on where those thresholds sit, and both are stated assumptions rather than measurements. It is
+off there too, on the grounds that a sub-dB effect whose sign depends on a placeholder threshold is
+not a basis for shipping a behaviour. **`FeatureProfile`'s `kHfBudgetDb` is provisional until M6
+measures the real unit-to-unit spread** — if two physical Secret Preamps turn out to differ by
+several dB in the top octave, widen it and re-read the table.
+
+📌 **The alias floor stops improving past 2×: −79.3 dBc at 2×, 4× and 8× alike.** That is no longer
+fold-back but the decimation FIR's own stopband. It also means the "alias gain" at those factors is
+largely ADAA's own high-frequency attenuation being measured a second time — gain and cost track at
+roughly 1.8:1 at *every* factor, which is what a broadband rolloff looks like rather than what
+selective antialiasing looks like.
+
+### 9.3 ⚠⚠ The low-OS shelf restore CANNOT be a single fixed shelf here — and must not be fitted yet
+
+`dsp.md` prescribes a fixed-shape high-shelf to recover the low-OS top octave, on the stated grounds
+that the droop is "essentially POT-INDEPENDENT". **That does not hold on this pedal**, and
+`OSFidelity` section 4 now measures the spread every run. 1× droop, dB re 8×, normalised at 1 kHz:
+
+| mode | 8 kHz | 12 kHz | 16 kHz | 18 kHz |
+|---|---|---|---|---|
+| Bright | +0.40 | +0.02 | −1.60 | −3.27 |
+| Dark | −0.10 | −1.07 | −3.20 | −5.03 |
+| Mid | +0.25 | −0.59 | −2.68 | −4.52 |
+
+Up to **1.8 dB of mode-to-mode spread**, and Bright is *brighter* than 8× at 8–12 kHz, so a single
+shelf would push it the wrong way in that band. The reason is structural: `dsp.md`'s rule was
+written for a build whose HF caps all sat downstream of the nonlinearity, whereas here the JFET's own
+1/k(s) shelf lives *inside* the oversampled region and its pole moves with MODE. A per-mode shelf is
+the correct structure if one is ever built — the mode already selects coefficient sets, so it is
+cheap.
+
+⛔ **Do not fit it now.** The shelf's target depends on where that pole sits, the pole sits at
+K0 × the bypass corner, and K0 = 1 + gm·R5 with `gm` still a placeholder that M2 may move by up to
+4.5×. Fitting the restore today would be fitting to a number we already know is wrong. The
+measurement is standing; the fit waits for M2.
+
+At the shipped 4× default the droop is ≤ 0.14 dB to 18 kHz, so nothing is being deferred that a
+normal session hears.
+
+### 9.4 Performance (this machine; ratios are the durable part)
+
+| factor | CPU, % of realtime | latency, samples |
+|---|---|---|
+| 1× | 0.41 | 0 |
+| 2× | 1.29 | 49 |
+| 4× (default) | 2.07 | 61 |
+| 8× | 3.51 | 65 |
+
+Mode makes no measurable difference. **`dsp.md`'s "IIR instead of FIR" optimisation is not worth
+scoping**: the whole plugin is 3.5% of a core at the highest factor, so the linear-phase FIR the
+sub-sample null depends on is not costing anything worth recovering.
+
+⭐ **The probe found that the specified bypass optimisation was missing, and it has since been
+implemented.** `architecture.md` specifies "DSP skipped when bypassed"; `processBlock` was running
+the whole chain and crossfading it against the dry copy regardless of the mix, so a bypassed
+instance cost what an active one did — 3.47% against 3.51% at 8×. With the skip in, bypass costs a
+flat **0.10–0.11% at every factor**: 33× cheaper at 8×, and no longer a function of the factor.
+`PerfBenchmark` keeps printing both rows so a regression shows up as the two converging again, and
+`BypassClickTest` guards the transition.
+
+⚠⚠ **Resetting the OVERSAMPLER when the skip is entered is not optional, and this is the finding to
+carry forward.** It stops being fed, so its FIR delay line still holds pre-bypass audio; re-engaging
+without clearing it splices that tail onto the live signal at about one reported latency after the
+toggle. Measured with it left unreset, the worst sample-to-sample step reaches **1.09× / 1.54× /
+1.63×** the crossfade's own bound at 2× / 4× / 8× — an audible cut inside a fade that is otherwise
+doing its job. (1× passes only because a 1× oversampler has no filter state to go stale.)
+
+📌 **The chain's own state is RESET too, but for a different reason than the obvious one, and the
+obvious one is wrong.** The intuition is that resuming from frozen capacitors must thump: the caps
+hold a signal from seconds ago, so re-engaging steps their inputs by the difference between two
+unrelated samples and drives the 7.2 Hz input high-pass, whose ~22 ms tail outlives the 5 ms fade.
+**Measured, it is a wash.** Peak re-engage excursion above the steady state, four factors × eight
+toggle phases:
+
+| factor | reset | resume |
+|---|---|---|
+| 1× | 0.0148 | 0.0187 |
+| 2× | 0.0167 | 0.0154 |
+| 4× | 0.0174 | 0.0129 |
+| 8× | 0.0176 | 0.0143 |
+
+Neither leads consistently; the spread is scatter between phase draws. The cause is the paragraph
+above — once the oversampler is cleared, its FIR ramps the chain's input up from zero over its own
+impulse response rather than stepping it, so the high-passes are barely kicked either way and the
+frozen charge has little left to do. **Reset is chosen on DETERMINISM instead:** with a cleared chain
+the output after re-engaging depends only on the input and the parameters, not on how long ago the
+pedal was switched off or what was playing then. `OfflineRender` drives this same processor and step
+9 validates the model with a sub-sample null, so a chain carrying unrecorded history into a render
+is a nondeterminism in the instrument the remaining calibration constants are read off.
+
+⚠ **A measurement trap that inverted this conclusion once already:** a fixed 0.2 s bypass hold is
+*exactly* 200 periods of a 1 kHz probe tone, so a resumed state comes back perfectly in phase and
+looks free. `BypassClickTest` sweeps the hold length as well as the toggle instants. Any future
+toggle-timing measurement on this project needs the same care.
+
+### 9.5 What these probes will and will not tell you
+
+All three are registered with `add_test()` as **finite-only**: they assert no NaN/Inf, and
+`OSFidelity` additionally asserts the wanted distortion does not move with the factor (if it did,
+the oversampling selector would have become a voicing control). None of them gates on an absolute
+CPU or alias figure. CI machine speed varies, and the accuracy numbers are the measurement being
+reported — freezing one as a threshold would make the report circular.
+
+They share `tests/ProbeHarness.h` so that a delta paired across two probes is a delta in the feature
+rather than in the instrument.

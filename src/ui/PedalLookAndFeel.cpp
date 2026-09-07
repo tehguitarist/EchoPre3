@@ -248,8 +248,12 @@ void PedalLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int w, 
 
 void PedalLookAndFeel::drawButtonBackground(juce::Graphics& g, juce::Button& button,
                                               const juce::Colour&,
-                                              bool highlighted, bool down)
+                                              bool /*highlighted*/, bool down)
 {
+    // The mouse-over flag is deliberately unnamed and unused: none of this pedal's buttons draw a
+    // hover state (a footswitch and a pair of lit/dim toggles), and the background colour argument
+    // above is dropped for the same reason. Naming it only produced an unused-parameter warning on
+    // every build, which is exactly the noise that hides a real one.
     auto b = button.getLocalBounds().toFloat();
 
     if (button.getComponentID() == "bypass")

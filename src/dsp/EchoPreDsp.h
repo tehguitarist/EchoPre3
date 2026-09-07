@@ -48,6 +48,10 @@ public:
     }
 
     void setMode(Mode m) { jfet.setMode(m); }
+
+    /** Antiderivative anti-aliasing on the JFET shaper. Policy lives in the processor (it is a
+     *  function of the oversampling factor); this only carries the decision down. */
+    void setAdaa(bool shouldUseAdaa) noexcept { jfet.setAdaa(shouldUseAdaa); }
     void setVolume(double x) { outputNet.setVolume(x); }
 
     /** Runs at the OVERSAMPLED rate. Volts at the input jack -> drain Norton current in amps. */
