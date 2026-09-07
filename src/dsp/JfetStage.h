@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 
 #include "CircuitValues.h"
@@ -234,9 +235,10 @@ public:
     bool adaaIsEnabled() const noexcept { return adaaEnabled; }
 
     /** Call at the rate this stage actually runs at -- the OVERSAMPLED rate. The shelf's pole sits at
-     *  K0 x the bypass corner (measured 12.6 kHz in Bright, 26.8 kHz in Mid), at or past Nyquist at 48 kHz
-     *  for the bilinear warp to badly misplace it, so this stage belongs inside the oversampled
-     *  region and its caps must NOT also be prewarped (dsp.md). */
+     *  K0 x the bypass corner: 12.3 kHz in Bright and 27.4 kHz in Mid, the second ABOVE Nyquist at
+     *  48 kHz. That is why this stage lives inside the oversampled region, and also why its
+     *  discretisation is a three-point magnitude match rather than a bilinear transform or a prewarp
+     *  -- see updateShelf(), which measures all three. */
     void prepare(double sampleRate)
     {
         fs = sampleRate;
@@ -398,7 +400,41 @@ private:
         return 0.0;
     }
 
-    // Bilinear discretisation of 1/k(s) = (1 + s*tau) / (K0 + s*tau).
+    // Discretisation of 1/k(s) = (1 + s*tau) / (K0 + s*tau).
+    //
+    // ⚠ NOT a plain bilinear transform, and at the base rate the difference is worth up to 3.5 dB.
+    // Bilinear warps every corner down by a factor tan(theta/2)/(theta/2), and this shelf is
+    // unusually exposed to that because its pole sits K0 = 6.6x above its zero: 12.3 kHz in Bright
+    // and 27.4 kHz in Mid, the second ABOVE Nyquist at 48 kHz. Warping a pole that is already past
+    // Nyquist back down into the audio band makes the shelf reach its plateau early, which reads as
+    // a top-octave LIFT. Measured against the analog shelf at 48 kHz, plain bilinear costs +1.17 dB
+    // (Bright) and +3.53 dB (Mid) -- and that is ALL of the mode-to-mode spread OSFidelity reports
+    // in the 1x droop, to within 0.05 dB. None of it is physical; it is this line of code.
+    //
+    // ⛔ Prewarping does not fix it. Prewarp pins ONE corner, and pinning BOTH (a separate prewarp
+    // constant for the numerator and the denominator, which a first-order section has room for)
+    // measures WORSE than plain bilinear -- 3.06 dB at 18 kHz against 1.17 -- because pinning the
+    // two ends of a transition lets the curve between them bow out. Measured before it was believed.
+    //
+    // Instead, match the analog MAGNITUDE exactly at three frequencies: DC, Nyquist, and the shelf's
+    // own log-midpoint sqrt(fz*fp) = fz*sqrt(K0). A first-order section has exactly three degrees of
+    // freedom, so three constraints determine it with nothing left over to fit -- and all three
+    // frequencies come from the circuit, not from a residual. A scan for the minimax-optimal third
+    // frequency lands within 6% of the log-midpoint's error, so the principled choice gives up
+    // nothing measurable to a tuned one.
+    //
+    // Result, worst |error| over 20 Hz - 20 kHz against the analog shelf:
+    //
+    //     rate         48 kHz (1x)   96 kHz (2x)   192 kHz (4x)   384 kHz (8x)
+    //     bilinear     3.529 dB      0.801 dB      0.192 dB       0.048 dB
+    //     this         0.488 dB      0.203 dB      0.053 dB       0.013 dB
+    //
+    // ⚠ Phase was checked, not assumed, because a magnitude-only design is exactly where phase gets
+    // quietly traded away and this project has been bitten by that before. RAW phase error does get
+    // worse (Mid at 18 kHz: -22.7 deg against bilinear's -13.5). It is a near-CONSTANT fractional
+    // sample of extra delay -- remove the best-fit pure delay, which is what a sub-sample null aligns
+    // out anyway, and the residual phase error is also roughly HALVED at every rate (Mid at 48 kHz:
+    // 5.7 deg against 12.8). So this is better on both axes, not a trade.
     void updateShelf()
     {
         const double k0 = degenerationDC();
@@ -406,20 +442,54 @@ private:
 
         if (tau <= 0.0)
         {
-            // DARK: k is frequency-independent, so this degenerates to a plain gain. Taking the
-            // tau -> 0 limit of the bilinear form instead would give a1 = 1, a marginally stable
-            // filter rather than a constant.
+            // DARK: k is frequency-independent, so this degenerates to a plain gain -- exact at every
+            // rate, with no discretisation question to answer. Taking the tau -> 0 limit of a
+            // bilinear form instead would give a1 = 1, a marginally stable filter rather than a
+            // constant.
             driveShelf.b0 = 1.0 / k0;
             driveShelf.b1 = 0.0;
             driveShelf.a1 = 0.0;
         }
         else
         {
-            const double twoTauFs = 2.0 * tau * fs;
-            const double norm = 1.0 / (k0 + twoTauFs);
-            driveShelf.b0 = (1.0 + twoTauFs) * norm;
-            driveShelf.b1 = (1.0 - twoTauFs) * norm;
-            driveShelf.a1 = (k0 - twoTauFs) * norm;
+            const auto anaMagSq = [k0, tau](double f) {
+                const double wTau = 2.0 * M_PI * f * tau;
+                return (1.0 + wTau * wTau) / (k0 * k0 + wTau * wTau);
+            };
+
+            const double fZero = 1.0 / (2.0 * M_PI * tau);
+            // The third match frequency must sit strictly inside (0, Nyquist). At the base rate the
+            // Mid shelf's log-midpoint (10.7 kHz) is comfortably inside; the clamp is here for a
+            // host running below ~24 kHz, and it only ever moves the point DOWN, which keeps the
+            // solve well-posed rather than merely safe.
+            const double fMatch = std::min(fZero * std::sqrt(k0), 0.45 * fs);
+
+            // With p = b0 + b1 and q = b0 - b1, the magnitude response separates cleanly:
+            //
+            //     |H|^2 = [p^2*cos^2(th/2) + q^2*sin^2(th/2)]
+            //           / [(1+a1)^2*cos^2(th/2) + (1-a1)^2*sin^2(th/2)]
+            //
+            // At DC (th = 0) that is p/(1+a1) and at Nyquist (th = pi) it is q/(1-a1), so the first
+            // two constraints give p and q outright in terms of a1. Substituting them into the third
+            // collapses it to a single ratio, with no iteration:
+            //
+            //     (1+a1)/(1-a1) = tan(th3/2) * sqrt((Mn^2 - T3) / (T3 - 1/K0^2))
+            //
+            // Both radicands are strictly positive: |1/k(j*2*pi*f)| rises monotonically from 1/K0 at
+            // DC toward 1, so 1/K0^2 < T3 < Mn^2 for any 0 < fMatch < Nyquist. That is why no
+            // clamping or fallback branch is needed here -- the geometry guarantees it.
+            const double mnSq = anaMagSq(0.5 * fs);
+            const double t3 = anaMagSq(fMatch);
+            const double ratio =
+                std::tan(M_PI * fMatch / fs) * std::sqrt((mnSq - t3) / (t3 - 1.0 / (k0 * k0)));
+
+            const double a1 = (ratio - 1.0) / (ratio + 1.0);
+            const double p = (1.0 + a1) / k0;                // b0 + b1 -- exact DC gain 1/K0
+            const double q = std::sqrt(mnSq) * (1.0 - a1);   // b0 - b1 -- exact magnitude at Nyquist
+
+            driveShelf.b0 = 0.5 * (p + q);
+            driveShelf.b1 = 0.5 * (p - q);
+            driveShelf.a1 = a1;
         }
 
         // Same filter, separate state. Copying the coefficients rather than sharing one object is

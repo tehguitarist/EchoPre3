@@ -44,17 +44,54 @@ void fail(const char* msg)
 
 // Small-signal response of the 1/k(s) shelf, recovered by dividing out gm. At this amplitude the
 // shaper's quadratic term is ~1e-7 relative, so this measures the linear prefilter alone.
-std::complex<double> shelfResponseAt(pedal::dsp::JfetStage& stage, double freq)
+std::complex<double> shelfResponseAt(pedal::dsp::JfetStage& stage, double freq, double fs = kFs)
 {
     constexpr double kProbe = 1.0e-6;
     stage.reset();
     // = -gm * (1/k(f)). The stage inverts, so the measured response carries a 180 degree offset that
     // is removed here -- the inversion is asserted separately by the DC-step test, and folding it
     // into the shelf comparison would only hide it.
-    return -pedal::test::measureResponse([&stage](double x) { return stage.processSample(x); }, freq, kFs, kProbe);
+    return -pedal::test::measureResponse([&stage](double x) { return stage.processSample(x); }, freq, fs, kProbe);
 }
 
 double shelfGainAt(pedal::dsp::JfetStage& stage, double freq) { return std::abs(shelfResponseAt(stage, freq)); }
+
+// How far the shelf may sit from the ANALOG 1/k(s) at the 4x rate section 1 spot-checks. Section 1c
+// carries the per-rate budgets; this one only has to cover 192 kHz, where the worst measured error
+// is 0.053 dB.
+constexpr double kShelfMagTolDb = 0.08;
+
+// What a PLAIN BILINEAR discretisation of 1/k(s) would produce -- the structure this stage shipped
+// with, kept as the reference every accuracy number here is quoted against. Written out rather than
+// measured because it is the thing being compared TO: an independently-coded closed form cannot
+// inherit a bug from the implementation under test.
+std::complex<double> bilinearShelf(double freq, double tau, double k0, double fs)
+{
+    const double twoTauFs = 2.0 * tau * fs;
+    const double norm = 1.0 / (k0 + twoTauFs);
+    const double b0 = (1.0 + twoTauFs) * norm, b1 = (1.0 - twoTauFs) * norm, a1 = (k0 - twoTauFs) * norm;
+    const std::complex<double> z = std::exp(std::complex<double> { 0.0, -2.0 * M_PI * freq / fs });
+    return (b0 + b1 * z) / (1.0 + a1 * z);
+}
+
+// Worst phase error left AFTER removing the best-fit pure delay. A pure delay is phase = -d*f with
+// no intercept, and both designs are exact at DC, so the fit is deliberately constrained through the
+// origin -- an unconstrained line would absorb genuine low-frequency error into its intercept and
+// flatter whichever design is worse there.
+double maxPhaseErrorAfterDelayFit(const double* freqs, const double* phaseDeg, int n)
+{
+    double num = 0.0, den = 0.0;
+    for (int i = 0; i < n; ++i)
+    {
+        num += freqs[i] * phaseDeg[i];
+        den += freqs[i] * freqs[i];
+    }
+    const double slope = num / den;
+    double worst = 0.0;
+    for (int i = 0; i < n; ++i)
+        worst = std::max(worst, std::abs(phaseDeg[i] - slope * freqs[i]));
+    return worst;
+}
 
 double db(double x) { return 20.0 * std::log10(x); }
 
@@ -109,29 +146,34 @@ int main()
 
         if (c.tau > 0.0)
         {
-            // Against the analytic shelf, evaluated at the BILINEAR-WARPED frequency. That is the
-            // exact discrete-time correspondence, so agreement here isolates "are the coefficients
-            // right" from "does bilinear warp exist" -- the latter is reported separately below.
-            // Comparing to the unwarped analytic value instead would flag the warp as a coefficient
-            // bug, which is what an earlier version of this test wrongly did at 40 kHz.
+            // ⚠ Against the analytic shelf at the REAL frequency -- NOT, as this test used to do,
+            // at the bilinear-warped frequency. That older form asked "are these the right bilinear
+            // coefficients", which is a tautology once bilinear is what the stage computes: it
+            // passed at 0.0000 dB while the shipped filter was up to 3.5 dB from the analog shelf at
+            // the base rate. Comparing against the circuit's own transfer function is the only
+            // version of this check that can fail for the reason that matters.
             //
             // PHASE MATTERS HERE MORE THAN ANYWHERE. 1/k(s) is a shelf whose zero sits below its
             // pole, so it contributes real phase LEAD through the transition. That lead is the
             // audible signature of the MODE switch as much as the magnitude lift is, and it is the
             // part a "just apply an HF shelf" shortcut gets wrong while still matching magnitude.
+            // The tolerance is on phase error with the best-fit PURE DELAY removed (section 1c):
+            // the three-point design buys its magnitude accuracy with a near-constant fractional
+            // sample of delay, which a sub-sample null aligns out and a raw phase check would
+            // wrongly flag.
             for (const double f : { 500.0, 2000.0, 8000.0, 20000.0 })
             {
-                const double fEff = pedal::test::warpedFrequency(f, kFs);
                 const auto got = shelfResponseAt(stage, f) / params.gm;
-                const auto want = analyticShelf(fEff, c.tau, k0);
+                const auto want = analyticShelf(f, c.tau, k0);
                 const double errDb = std::abs(db(std::abs(got) / std::abs(want)));
-                const double phErrDeg = pedal::test::phaseErrorDeg(std::arg(got), std::arg(want));
-                const bool bad = errDb > 0.02 || std::abs(phErrDeg) > 0.5;
-                std::printf("          %5.0f Hz: %.5f (want %.5f, %.4f dB)  phase %+7.3f (want %+7.3f)%s\n",
-                            f, std::abs(got), std::abs(want), errDb, pedal::test::degrees(std::arg(got)),
-                            pedal::test::degrees(std::arg(want)), bad ? "   <-- FAIL" : "");
+                const double bilinearErrDb =
+                    std::abs(db(std::abs(bilinearShelf(f, c.tau, k0, kFs)) / std::abs(want)));
+                const bool bad = errDb > kShelfMagTolDb;
+                std::printf("          %5.0f Hz: %.5f (want %.5f, %.4f dB; bilinear would be %.4f)%s\n",
+                            f, std::abs(got), std::abs(want), errDb, bilinearErrDb,
+                            bad ? "   <-- FAIL" : "");
                 if (bad)
-                    fail("shelf does not match the analytic 1/k(s) in magnitude and phase");
+                    fail("shelf does not match the analytic 1/k(s) in magnitude");
             }
 
             // The shelf's zero must sit at the MEASURED bypass corner 1/(2*pi*tau).
@@ -168,6 +210,106 @@ int main()
                               / std::abs(analyticShelf(1.0e6, params.tauMid, k0));
     if (std::abs(db(plateauRatio)) > 0.01)
         fail("Bright and Mid do not share a plateau");
+
+    // 1c. ⭐ THE DISCRETISATION ITSELF, ACROSS EVERY RATE THE STAGE ACTUALLY RUNS AT.
+    //     Section 1 spot-checks four frequencies at the 4x default. That is where the shelf is
+    //     easy: the errors this section exists to catch are ~6x larger at the base rate, and the
+    //     base rate is the one setting a CPU-bound session ends up on. Sweeping the rate is what
+    //     turned "the shelf is exact" into a number that depends on which rate you ask at.
+    //
+    //     ⚠ WHY THE BILINEAR COLUMN STAYS IN THE OUTPUT. Plain bilinear is not a strawman here --
+    //     it is what this stage shipped with, and the test that was supposed to guard the shelf
+    //     compared it against the analytic prototype AT THE WARPED FREQUENCY, so it reported
+    //     0.0000 dB while the filter sat 3.5 dB from the analog shelf at 48 kHz. Printing what
+    //     bilinear WOULD do, next to what this design does, keeps the comparison a measurement
+    //     rather than a claim, and makes a silent revert visible in the log.
+    //
+    //     Phase is scored with the best-fit PURE DELAY removed. That is not leniency: the design
+    //     buys its magnitude accuracy with a near-constant fractional sample of extra delay, a
+    //     sub-sample null aligns exactly that out, and a raw phase number would therefore report a
+    //     trade-off that does not exist. Both axes still have to beat bilinear outright.
+    {
+        std::printf("\n1c. Shelf vs the ANALOG 1/k(s), 20 Hz - 20 kHz, per rate:\n");
+        std::printf("    %-10s %-7s %9s %9s %10s %10s\n", "rate", "mode", "mag dB", "(bilin)",
+                    "phase deg", "(bilin)");
+
+        struct RateCase { double fs; double magBudgetDb; double phaseBudgetDeg; const char* label; };
+        const RateCase rates[] = { {  48000.0, 0.60, 6.0, "48k (1x)" },
+                                   {  96000.0, 0.25, 1.5, "96k (2x)" },
+                                   { 192000.0, 0.08, 0.4, "192k (4x)" },
+                                   { 384000.0, 0.03, 0.1, "384k (8x)" } };
+
+        // Log-spaced probes over the audible band. The delay fit below is constrained through the
+        // origin because a pure delay has zero phase at DC and BOTH designs are exact at DC, so the
+        // intercept is not a free parameter -- letting it float would absorb real error.
+        constexpr int kNumProbe = 24;
+        double probeHz[kNumProbe];
+        for (int i = 0; i < kNumProbe; ++i)
+            probeHz[i] = 20.0 * std::pow(1000.0, (double) i / (double) (kNumProbe - 1));
+
+        for (const auto& r : rates)
+        {
+            // ⚠ The instrument's OWN floor, measured rather than assumed, because by 8x the errors
+            //    under test are smaller than it. DARK is a pure constant gain with exactly zero
+            //    phase, so whatever phase this reports is the correlation instrument's leakage at
+            //    this rate -- a known-answer probe that costs one extra measurement. It matters
+            //    because the bilinear column is computed in CLOSED FORM while this design's column
+            //    is MEASURED: only one of the two carries that noise, so comparing them below the
+            //    floor would systematically favour the closed form and fail a correct filter.
+            double phaseFloorDeg = 0.0;
+            {
+                dsp::JfetStage d;
+                d.setParams(params);
+                d.prepare(r.fs);
+                d.setMode(dsp::Mode::Dark);
+                for (int i = 0; i < kNumProbe; ++i)
+                    phaseFloorDeg = std::max(
+                        phaseFloorDeg,
+                        std::abs(pedal::test::degrees(std::arg(shelfResponseAt(d, probeHz[i], r.fs)))));
+            }
+
+            for (const auto& c : cases)
+            {
+                if (c.tau <= 0.0)
+                    continue; // DARK is a constant gain -- exact at every rate, nothing to discretise
+
+                dsp::JfetStage s;
+                s.setParams(params);
+                s.prepare(r.fs);
+                s.setMode(c.mode);
+
+                double magErr = 0.0, bilMagErr = 0.0;
+                double phGot[kNumProbe], phBil[kNumProbe];
+                for (int i = 0; i < kNumProbe; ++i)
+                {
+                    const auto want = analyticShelf(probeHz[i], c.tau, k0);
+                    const auto got = shelfResponseAt(s, probeHz[i], r.fs) / params.gm;
+                    const auto bil = bilinearShelf(probeHz[i], c.tau, k0, r.fs);
+
+                    magErr = std::max(magErr, std::abs(db(std::abs(got) / std::abs(want))));
+                    bilMagErr = std::max(bilMagErr, std::abs(db(std::abs(bil) / std::abs(want))));
+                    phGot[i] = pedal::test::phaseErrorDeg(std::arg(got), std::arg(want));
+                    phBil[i] = pedal::test::phaseErrorDeg(std::arg(bil), std::arg(want));
+                }
+
+                const double phErr = maxPhaseErrorAfterDelayFit(probeHz, phGot, kNumProbe);
+                const double bilPhErr = maxPhaseErrorAfterDelayFit(probeHz, phBil, kNumProbe);
+
+                // The improvement is only asserted where bilinear's own error clears the floor by a
+                // comfortable margin. Above 4x it does not, and there is nothing left to beat.
+                const bool phaseIsResolvable = bilPhErr > 4.0 * phaseFloorDeg;
+                const bool noBetter = magErr >= bilMagErr || (phaseIsResolvable && phErr >= bilPhErr);
+                const bool bad = magErr > r.magBudgetDb || phErr > r.phaseBudgetDeg || noBetter;
+                std::printf("    %-10s %-7s %9.3f %9.3f %10.2f %10.2f   (floor %.2f)%s\n", r.label,
+                            c.name, magErr, bilMagErr, phErr, bilPhErr, phaseFloorDeg,
+                            bad ? "   <-- FAIL" : "");
+                if (magErr > r.magBudgetDb || phErr > r.phaseBudgetDeg)
+                    fail("shelf discretisation is outside its budget at this rate");
+                if (noBetter)
+                    fail("shelf discretisation is no better than plain bilinear -- has it reverted?");
+            }
+        }
+    }
 
     // 2. Polarity. A rising gate pulls more drain current and drags the drain DOWN, so the injected
     //    Norton current must be NEGATIVE for a positive gate step. The pedal genuinely inverts.

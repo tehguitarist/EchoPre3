@@ -608,3 +608,105 @@ hears is waiting on it.
    nothing else. Fitting it to a floor would be worse than leaving it out.
 4. **`kInputRef` and `kOutputMakeup` are untouched.** Nothing here anchors them, and §10.1's bound
    constrains the *reference's* drive, not the plugin's.
+
+---
+
+## 11. The mode shelf's discretisation (2026-09-08). §9.3's per-mode restore dissolves.
+
+§9.3 and §10.4 both concluded that the low-OS top-octave restore must be **per-mode**, because the
+1× droop spread 3.09 dB across MODE and `dsp.md`'s prescription assumes it is pot-independent. That
+conclusion was correct about the measurement and wrong about the cause. **The entire mode-dependent
+part of the droop was the mode shelf's own bilinear discretisation, not physics**, and fixing the
+discretisation removes it.
+
+### 11.1 What the spread actually was
+
+`1/k(s) = (1 + s·τ)/(K0 + s·τ)` was discretised by a plain bilinear transform. Bilinear warps every
+corner down by `tan(θ/2)/(θ/2)`, and this shelf is unusually exposed to that because its pole sits
+`K0` = 6.6× above its zero: 12.3 kHz in Bright and **27.4 kHz in Mid, above Nyquist at 48 kHz**.
+Warping a pole that is already past Nyquist back down into the band makes the shelf reach its plateau
+early, which reads as a top-octave **lift**.
+
+Computed from the coefficients alone, that error at 48 kHz is +1.17 dB (Bright) and +3.53 dB (Mid)
+re 1 kHz. `OSFidelity`'s measured Bright-minus-Dark and Mid-minus-Dark rows were +1.14 and +3.08.
+**The two agree to 0.05 dB across every frequency in the table** — so the mode spread was, to within
+the measurement, exactly this one line of code.
+
+| | 8 kHz | 12 kHz | 16 kHz | 18 kHz | worst spread |
+|---|---|---|---|---|---|
+| 1× droop spread, before | 0.60 | 1.49 | 2.58 | 3.08 | **3.09 dB** |
+| 1× droop spread, after | 0.31 | 0.27 | 0.44 | 0.50 | **0.50 dB** |
+
+0.50 dB sits inside this project's own tolerance band (M6: 0.33 dB RMS / 0.8 dB peak on the mode
+differential). ➡ **A single fixed-shape restore is admissible again; `dsp.md`'s premise holds after
+all, and the per-mode structure §9.3/§10.4 called for is not needed.**
+
+### 11.2 What replaced it, and the two candidates that lost
+
+The shelf is now matched to the analog magnitude at **three frequencies: DC, Nyquist, and the shelf's
+own log-midpoint `fz·√K0`**. A first-order section has exactly three degrees of freedom, so three
+constraints determine it with nothing left to fit — and all three frequencies come from the circuit.
+Closed form, no iteration, so it stays a `prepare()`-time cost. The algebra is in `JfetStage.h`.
+
+⛔ **Prewarping both corners was tried first and is WORSE than plain bilinear** — 3.06 dB at 18 kHz
+against 1.17. A first-order section has room for a separate prewarp constant in numerator and
+denominator, so pinning both the zero and the pole is possible; it just pins the two ends of a
+transition and lets the curve between them bow out. Measured before it was believed.
+
+⛔ **Matching the exact complex response at the log-midpoint** (DC gain plus one full complex
+constraint) also loses, at 3.19 dB for Mid at 48 kHz. Magnitude matching at three points beats phase
+matching at one.
+
+Worst |error| against the analog shelf over 20 Hz – 20 kHz:
+
+| | 48 kHz (1×) | 96 kHz (2×) | 192 kHz (4×) | 384 kHz (8×) |
+|---|---|---|---|---|
+| bilinear (Mid) | 3.529 dB | 0.801 dB | 0.192 dB | 0.048 dB |
+| three-point (Mid) | 0.459 dB | 0.203 dB | 0.053 dB | 0.013 dB |
+
+Note it improves the **4× default and 8× too**, not only the low factors.
+
+### 11.3 ⚠ The phase check that looked like a trade-off and was not
+
+A magnitude-only design is exactly where phase gets quietly traded away, and this project has been
+bitten by a phase bug that magnitude testing could not see. Checked, and the raw numbers *do* look
+like a trade: Mid at 18 kHz reads −22.7° against bilinear's −13.5°.
+
+**It is a near-constant fractional sample of extra delay, and it disappears once that delay is
+removed** — which is what a sub-sample null does anyway. Scored with the best-fit pure delay taken
+out (constrained through the origin, since a pure delay has zero phase at DC and both designs are
+exact at DC), the new design is also **roughly twice as accurate in phase at every rate**: 3.95°
+against 9.59° for Mid at 48 kHz. Better on both axes, not a trade. Had the raw number been taken at
+face value the change would have been rejected.
+
+### 11.4 ⚠⚠ Two tests were passing for the wrong reason, and a correct model failed them
+
+Both had to be fixed before the improvement could land, and both are the same failure: **a test
+written so that it can only confirm what the implementation already does.**
+
+1. **`JfetStageTest` compared the shelf against the analytic prototype AT THE BILINEAR-WARPED
+   FREQUENCY.** That is a defensible isolation — it asks "are these the right bilinear coefficients"
+   — but once bilinear is what the stage computes, it is a tautology. It reported **0.0000 dB while
+   the shipped filter sat 3.5 dB from the analog shelf at the base rate.** It now compares against
+   the circuit's own transfer function at the real frequency, and prints what bilinear *would* have
+   given alongside, so a silent revert shows up in the log.
+2. **`ChainTest` asserted the mode plateau lands within 0.15 dB of `K0`** at an 80 kHz probe. `K0` is
+   the shelf's **asymptote**; the analog shelf is still 0.10 dB (Bright) and 0.47 dB (Mid) short of it
+   at 80 kHz, because `1/k(s)` approaches unity only as 1/f. So the assertion demanded an error — and
+   the old bilinear discretisation supplied one of almost exactly the right size, cancelling to
+   0.06 dB. **Fixing the discretisation broke it: the correct model failed a test the warped one
+   passed.** It now compares against the analytic shelf at 80 kHz and prints the `K0` asymptote
+   beside it. The failure mode it exists for is untouched — double-counting the drain lift lands the
+   ratio near `K0²`, about 33 dB.
+
+📌 `JfetStageTest` section 1c is new and is the coverage that was missing: the shelf was only ever
+validated at 192 kHz (the 4× default), where the error it now catches is 6× smaller. **Sweep the
+rate whenever a stage's accuracy could depend on it** — "the shelf is exact" turned out to be a
+number that depends on which rate you ask at.
+
+⚠ Section 1c also needed the **instrument's own floor measured rather than assumed**. By 8× the
+errors under test are below the correlation instrument's leakage, and the comparison is asymmetric —
+the bilinear column is computed in closed form while the shipped column is measured, so only one
+carries that noise. DARK is a pure constant gain with exactly zero phase, so probing it gives the
+floor (0.06°) for free, and the "must beat bilinear" assertion is only applied where bilinear's own
+error clears it by 4×. Without that, a correct filter failed at 384 kHz.

@@ -27,6 +27,19 @@ namespace
 {
 constexpr double kFs = 192000.0;
 
+// Where the mode lift is read as a "plateau". High enough that both branches are well past their
+// zeros, low enough to stay clear of Nyquist at kFs.
+constexpr double kPlateauHz = 80000.0;
+
+// The analytic source-degeneration shelf 1/k(s) = (1 + s*tau)/(K0 + s*tau) -- the same closed form
+// JfetStageTest validates the stage against, repeated here so the chain's mode differential is
+// checked against the circuit rather than against the stage's own output.
+std::complex<double> analyticShelf(double freq, double tau, double k0)
+{
+    const std::complex<double> sTau { 0.0, 2.0 * M_PI * freq * tau };
+    return (1.0 + sTau) / (k0 + sTau);
+}
+
 bool ok = true;
 
 void fail(const char* msg)
@@ -80,13 +93,15 @@ int main()
     //    differential is not evidence that the nonlinear path is right.
     const double k0 = 1.0 + params.gm * circuit::kR5;
     std::printf("\nMode differential re DARK (this is build-plan.md M1/M2):\n");
-    std::printf("  K0 = 1 + gm*R5 = %.4f (%.2f dB) -- the plateau both ratios must reach\n", k0, db(k0));
+    std::printf("  K0 = 1 + gm*R5 = %.4f (%.2f dB) -- the ASYMPTOTE both ratios climb toward\n", k0, db(k0));
 
-    struct Case { const char* name; dsp::Mode mode; double cornerHz; };
+    struct Case { const char* name; dsp::Mode mode; double tau; double cornerHz; };
     // Corners from the MEASURED time constants (M1), not from R5*C: the fitted zeros sit ~7% below
     // the drawn ones in both units and both branches. See JfetParams.
-    const Case cases[] = { { "Bright", dsp::Mode::Bright, 1.0 / (2.0 * M_PI * params.tauBright) },
-                           { "Mid",    dsp::Mode::Mid,    1.0 / (2.0 * M_PI * params.tauMid) } };
+    const Case cases[] = {
+        { "Bright", dsp::Mode::Bright, params.tauBright, 1.0 / (2.0 * M_PI * params.tauBright) },
+        { "Mid",    dsp::Mode::Mid,    params.tauMid,    1.0 / (2.0 * M_PI * params.tauMid) }
+    };
 
     for (const auto& c : cases)
     {
@@ -102,16 +117,29 @@ int main()
                         pedal::test::degrees(std::arg(ratio)));
         }
 
-        // Well above the corner the branch fully bypasses R5 and the ratio must land on K0.
+        // Well above the corner the branch bypasses R5 and the ratio climbs toward K0.
+        //
+        // ⚠ IT DOES NOT REACH K0 AT 80 kHz, AND THIS CHECK USED TO PRETEND IT DID. K0 is the shelf's
+        // ASYMPTOTE; the analog shelf is still 0.10 dB (Bright) and 0.47 dB (Mid) short of it at
+        // 80 kHz, because 1/k(s) approaches unity only as 1/f. Asserting "within 0.15 dB of K0"
+        // therefore demanded an error, and it was satisfied by one: the shelf's old plain-bilinear
+        // discretisation over-produced the top octave by almost exactly the amount the analog shelf
+        // was short, so the two cancelled at 80 kHz to 0.06 dB. Fixing the discretisation broke this
+        // assertion -- a correct model failing a test that a warped one passed.
+        //
+        // So compare against the analytic shelf AT 80 kHz, and keep printing the K0 asymptote
+        // alongside. The failure mode this check exists for is unharmed: double-counting the drain
+        // lift lands the ratio near K0^2, about 33 dB, which no tolerance here could absorb.
         chain.setMode(dsp::Mode::Dark);
-        const double darkHf = std::abs(chainResponse(chain, 80000.0, kProbe));
+        const double darkHf = std::abs(chainResponse(chain, kPlateauHz, kProbe));
         chain.setMode(c.mode);
-        const double liftedHf = std::abs(chainResponse(chain, 80000.0, kProbe));
-        const double plateauErrDb = std::abs(db(liftedHf / darkHf) - db(k0));
-        std::printf("    plateau at 80 kHz: %+.3f dB vs K0 %+.3f dB (err %.3f dB)\n",
-                    db(liftedHf / darkHf), db(k0), plateauErrDb);
-        if (plateauErrDb > 0.15)
-            fail("mode plateau does not equal K0 -- the drain lift is being double-counted or lost");
+        const double liftedHf = std::abs(chainResponse(chain, kPlateauHz, kProbe));
+        const double wantDb = db(std::abs(analyticShelf(kPlateauHz, c.tau, k0)) * k0);
+        const double plateauErrDb = std::abs(db(liftedHf / darkHf) - wantDb);
+        std::printf("    at %.0f kHz: %+.3f dB vs analytic %+.3f dB (err %.3f dB; K0 asymptote %+.3f dB)\n",
+                    kPlateauHz / 1000.0, db(liftedHf / darkHf), wantDb, plateauErrDb, db(k0));
+        if (plateauErrDb > 0.10)
+            fail("mode lift does not match the analytic 1/k(s) -- it is being double-counted or lost");
     }
 
     // 3. Full control sweep: every mode x the whole volume range, at a hot level, must stay finite.

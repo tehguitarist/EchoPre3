@@ -424,13 +424,52 @@ high, execute routine work cheap) is what should persist.
 > `tanh²` versus the true parabola (4.5 %, 0.4 dB of H2 at 0 dBFS); `beta` = 0 (M5 fixes only its
 > sign). The shaper's curvature remains degenerate 1:1 with the trainers' unknown reamp level.
 >
+> ### THE MODE SHELF'S DISCRETISATION IS FIXED (2026-09-08), and §9.3's per-mode restore DISSOLVES.
+>
+> Write-up `docs/build-plan.md` §11, algebra and measurements in `src/dsp/JfetStage.h`. Ten tests pass.
+>
+> ⭐⭐ **The 3.09 dB mode-to-mode spread in the 1× droop was not physics — it was the shelf's own
+> plain-bilinear discretisation.** `1/k(s)`'s pole sits K0 = 6.6× above its zero, at 12.3 kHz (Bright)
+> and **27.4 kHz (Mid, above Nyquist at 48 kHz)**; bilinear warps a past-Nyquist pole back down into
+> the band, so the shelf plateaus early and the top octave reads as LIFTED. Computed from the
+> coefficients alone that error is +1.17 dB (Bright) / +3.53 dB (Mid) at 48 kHz, against `OSFidelity`'s
+> measured +1.14 / +3.08 — **agreement to 0.05 dB at every frequency**, so the spread was one line of
+> code. The shelf is now matched to the analog magnitude at three frequencies (DC, Nyquist, and its
+> own log-midpoint `fz·√K0`); a first-order section has exactly three degrees of freedom, so nothing is
+> fitted. Measured spread **3.09 → 0.50 dB**, inside M6's own tolerance band, and the worst error
+> against the analog shelf improves at EVERY factor (Mid: 3.529 → 0.459 dB at 1×, 0.048 → 0.013 at 8×).
+> ➡ **`dsp.md`'s "one fixed shelf" premise holds after all; do NOT build the per-mode restore.**
+>
+> - ⛔ **Prewarping BOTH corners is WORSE than plain bilinear** (3.06 dB vs 1.17 at 18 kHz). Pinning
+>   the two ends of a transition lets the curve between them bow out. Measured before it was believed.
+> - ⚠ **The phase check looked like a trade-off and was not.** Raw phase error gets worse (−22.7° vs
+>   −13.5° for Mid at 18 kHz), but it is a near-constant fractional sample of DELAY. Remove the
+>   best-fit pure delay — which a sub-sample null aligns out anyway — and the new design is ~2× better
+>   in phase too, at every rate. Taking the raw number at face value would have rejected the change.
+> - ⚠⚠ **TWO TESTS WERE PASSING FOR THE WRONG REASON, and the correct model FAILED them.**
+>   (a) `JfetStageTest` compared the shelf to the analytic prototype **at the bilinear-warped
+>   frequency** — a tautology once bilinear is what the stage computes. It read 0.0000 dB while the
+>   filter sat 3.5 dB off at base rate. (b) `ChainTest` asserted the plateau lands within 0.15 dB of
+>   **K0, which is an ASYMPTOTE** the analog shelf is still 0.47 dB short of at the 80 kHz probe — so
+>   it demanded an error, and the warp happened to supply one of the right size, cancelling to
+>   0.06 dB. Both now compare against the circuit's own transfer function at the real frequency.
+> - 📌 **The shelf had only ever been validated at 192 kHz (the 4× default), where the error is 6×
+>   smaller.** New `JfetStageTest` section 1c sweeps the rate. ⚠ It also has to MEASURE the
+>   instrument's own floor (DARK is a known-zero-phase probe, floor 0.06°), because past 4× the errors
+>   under test are below it and the comparison is asymmetric — the bilinear column is closed-form, the
+>   shipped column is measured.
+>
 > ### NEXT
-> Fit build-plan §9.3's **per-mode** low-OS shelf restore. It is now fully unblocked — `OSFidelity`
-> was re-run after the refit, and the 1× droop's mode-to-mode spread has WIDENED to **3.09 dB** (Mid
-> is *brighter* than 8× out to 14 kHz), with the JFET's 1/k(s) pole now at a measured 12.3 kHz
-> (Bright) / 27.4 kHz (Mid, above Nyquist at 48 kHz). A single fixed shelf is ruled out by a wider
-> margin than before. At the 4× default the droop is ≤ 0.14 dB, so nothing a normal session hears is
-> waiting on this.
+> The remaining 1× droop is now mode-independent AND analytically exact: it is entirely the input
+> network's own bilinear discretisation, predicted to **0.01 dB** at every factor and frequency by
+> the network's closed-form transfer function. So a restore can be DERIVED rather than fitted.
+> ⚠ But a restore that chases the top octave has to invert a near-Nyquist zero, which needs
+> **+29 to +37 dB of boost right where 1× puts its alias products** — measured, and the reason a
+> naive "match the target near Nyquist" design must be rejected. A boost-BOUNDED design (unity DC,
+> plateau capped at the droop's value at 0.40·fs, exact match at 0.25·fs) holds the peak boost to
+> ≤ 7.5 dB and lands 1× within 0.33 dB to 12 kHz, 0.80 dB to 16 kHz, and 2× within 0.30 dB
+> everywhere. **Not yet implemented** — it needs the alias floor at 1× measured with it in, since
+> that is the one thing that could make it a net loss.
 
 ## Project-specific carry-forwards
 
