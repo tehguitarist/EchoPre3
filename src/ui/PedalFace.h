@@ -42,14 +42,15 @@ private:
     juce::AudioProcessorValueTreeState& state;
     float scale { 1.0f };
 
-    juce::Slider volumeKnob;
-    juce::Label  volumeLabel;
+    juce::Slider volumeKnob;  // no on-screen text label -- the pedal art carries the VOLUME lettering
 
     ThreePositionSwitch modeSwitch;
+    juce::Label         modeLabelBright, modeLabelDark, modeLabelMid;  // custom placement -- see resized()
     LEDIndicator        led;
     juce::TextButton    bypassSwitch;
     juce::Label         bypassLabel;
-    juce::Label         logoLabel;
+
+    void updateModeLabelHighlight(int position);
 
     std::vector<std::unique_ptr<juce::SliderParameterAttachment>> sliderAttachments;
     std::unique_ptr<juce::ParameterAttachment>      modeAttachment;   // param -> switch position

@@ -28,9 +28,29 @@ public:
 
     int getPosition() const { return position; }
 
+    // Compact mode: draw only the switch art/body, filling the component's own bounds (no
+    // reserved label column, labels not drawn). Use when the owner places its own labels
+    // separately (see PedalFace, which surrounds the switch with BRIGHT/DARK/MID labels styled
+    // to match this pedal's art rather than the generic side-column layout below).
+    void setShowInlineLabels(bool show) { showInlineLabels = show; repaint(); }
+
     void paint(juce::Graphics& g) override
     {
         const auto b = getLocalBounds().toFloat();
+
+        if (! showInlineLabels)
+        {
+            const float d = juce::jmin(b.getWidth(), b.getHeight());
+            const juce::Rectangle<float> imgBounds(b.getCentreX() - d * 0.5f, b.getCentreY() - d * 0.5f, d, d);
+            const juce::Image img = position == 0 ? PedalAssets::switchUp()
+                                  : position == 1 ? PedalAssets::switchMid()
+                                                  : PedalAssets::switchDown();
+            if (img.isValid())
+                g.drawImage(img, imgBounds, juce::RectanglePlacement::centred, false);
+            else
+                drawVectorBody(g, imgBounds.getX(), imgBounds.getY(), d, d);
+            return;
+        }
 
         // All dimensions proportional to component height (base = 65px at 1x scale)
         const float sc     = b.getHeight() / 65.0f;
@@ -60,35 +80,7 @@ public:
         }
         else
         {
-            // Switch body
-            g.setColour(juce::Colour(0xFF0A1422u));
-            g.fillRoundedRectangle(bodyX, bodyY, kBodyW, bodyH, 4.0f * sc);
-            g.setColour(juce::Colour(0xFF1C3050u));
-            g.drawRoundedRectangle(bodyX + 0.5f, bodyY + 0.5f, kBodyW - 1.0f, bodyH - 1.0f, 4.0f * sc, 1.0f);
-
-            // Centre groove
-            const float grooveX = bodyX + kBodyW * 0.5f;
-            g.setColour(juce::Colour(0xFF060F1Au));
-            g.fillRect(grooveX - 1.5f * sc, bodyY + 5.0f * sc, 3.0f * sc, bodyH - 10.0f * sc);
-            g.setColour(juce::Colour(0xFF243550u));
-            g.drawLine(grooveX - 0.5f, bodyY + 5.0f * sc, grooveX - 0.5f, bodyY + bodyH - 5.0f * sc, 1.0f);
-
-            // Lever
-            const float leverH  = 14.0f * sc;
-            const float leverW  = kBodyW - 4.0f * sc;
-            const float leverX  = bodyX + 2.0f * sc;
-            const float leverY  = bodyY + (float)position * section + (section - leverH) * 0.5f;
-
-            g.setColour(juce::Colours::black.withAlpha(0.35f));
-            g.fillRoundedRectangle(leverX + sc, leverY + 2.0f * sc, leverW, leverH, 3.0f * sc);
-
-            juce::ColourGradient leverGrad(juce::Colour(0xFFB8C4D0u), leverX, leverY,
-                                            juce::Colour(0xFF6E7C8Au), leverX, leverY + leverH, false);
-            leverGrad.addColour(0.45, juce::Colour(0xFF9AAAB8u));
-            g.setGradientFill(leverGrad);
-            g.fillRoundedRectangle(leverX, leverY, leverW, leverH, 3.0f * sc);
-            g.setColour(juce::Colour(0xFF4A5A70u));
-            g.drawRoundedRectangle(leverX + 0.5f, leverY + 0.5f, leverW - 1.0f, leverH - 1.0f, 3.0f * sc, 1.0f);
+            drawVectorBody(g, bodyX, bodyY, kBodyW, bodyH);
         }
 
         // Labels to the right of the body (configurable via setLabels)
@@ -112,18 +104,56 @@ public:
 private:
     int position { 0 };
     juce::String labelText[3] { "Top", "Mid", "Bot" };
+    bool showInlineLabels { true };
+
+    // Procedural switch body + lever fallback, filling the given rect (used both by the labelled
+    // layout's fixed-width body column and by compact mode's full-bounds square).
+    void drawVectorBody(juce::Graphics& g, float bodyX, float bodyY, float bodyW, float bodyH)
+    {
+        const float sc = bodyH / 60.0f;
+        const float section = bodyH / 3.0f;
+
+        g.setColour(juce::Colour(0xFF0A1422u));
+        g.fillRoundedRectangle(bodyX, bodyY, bodyW, bodyH, 4.0f * sc);
+        g.setColour(juce::Colour(0xFF1C3050u));
+        g.drawRoundedRectangle(bodyX + 0.5f, bodyY + 0.5f, bodyW - 1.0f, bodyH - 1.0f, 4.0f * sc, 1.0f);
+
+        // Centre groove
+        const float grooveX = bodyX + bodyW * 0.5f;
+        g.setColour(juce::Colour(0xFF060F1Au));
+        g.fillRect(grooveX - 1.5f * sc, bodyY + 5.0f * sc, 3.0f * sc, bodyH - 10.0f * sc);
+        g.setColour(juce::Colour(0xFF243550u));
+        g.drawLine(grooveX - 0.5f, bodyY + 5.0f * sc, grooveX - 0.5f, bodyY + bodyH - 5.0f * sc, 1.0f);
+
+        // Lever
+        const float leverH  = 14.0f * sc;
+        const float leverW  = bodyW - 4.0f * sc;
+        const float leverX  = bodyX + 2.0f * sc;
+        const float leverY  = bodyY + (float) position * section + (section - leverH) * 0.5f;
+
+        g.setColour(juce::Colours::black.withAlpha(0.35f));
+        g.fillRoundedRectangle(leverX + sc, leverY + 2.0f * sc, leverW, leverH, 3.0f * sc);
+
+        juce::ColourGradient leverGrad(juce::Colour(0xFFB8C4D0u), leverX, leverY,
+                                        juce::Colour(0xFF6E7C8Au), leverX, leverY + leverH, false);
+        leverGrad.addColour(0.45, juce::Colour(0xFF9AAAB8u));
+        g.setGradientFill(leverGrad);
+        g.fillRoundedRectangle(leverX, leverY, leverW, leverH, 3.0f * sc);
+        g.setColour(juce::Colour(0xFF4A5A70u));
+        g.drawRoundedRectangle(leverX + 0.5f, leverY + 0.5f, leverW - 1.0f, leverH - 1.0f, 3.0f * sc, 1.0f);
+    }
 
     void updateFromMouse(float mouseY)
     {
-        const auto b  = getLocalBounds().toFloat();
-        const float sc    = b.getHeight() / 65.0f;
-        const float bodyH = 60.0f * sc;
+        const auto b = getLocalBounds().toFloat();
+        // Compact mode has no fixed 60px-at-1x body -- the whole component height is the travel.
+        const float bodyH = showInlineLabels ? (b.getHeight() / 65.0f) * 60.0f : b.getHeight();
         const float bodyY = (b.getHeight() - bodyH) * 0.5f;
         const float relY  = mouseY - bodyY;
 
         if (relY >= 0.0f && relY < bodyH)
         {
-            const int newPos = juce::jlimit(0, 2, (int)(relY / (bodyH / 3.0f)));
+            const int newPos = juce::jlimit(0, 2, (int) (relY / (bodyH / 3.0f)));
             if (newPos != position)
             {
                 position = newPos;

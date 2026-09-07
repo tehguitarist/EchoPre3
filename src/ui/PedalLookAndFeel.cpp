@@ -56,38 +56,76 @@ PedalLookAndFeel::PedalLookAndFeel()
 
 // ── Pedal background ──────────────────────────────────────────────────────────
 
+juce::Rectangle<float> PedalLookAndFeel::fitDesignCanvas(juce::Rectangle<int> bounds)
+{
+    const auto fb = bounds.toFloat();
+    const float s = juce::jmin(fb.getWidth() / kDesignW, fb.getHeight() / kDesignH);
+    const float dw = kDesignW * s, dh = kDesignH * s;
+    return { fb.getCentreX() - dw * 0.5f, fb.getCentreY() - dh * 0.5f, dw, dh };
+}
+
 void PedalLookAndFeel::paintPedalBackground(juce::Graphics& g, juce::Rectangle<int> bounds)
 {
-    auto fb = bounds.toFloat();
+    // Letterbox/pillarbox bars (when the host window's aspect doesn't match the pedal art's own
+    // 875:1500) blend into the plugin's own background rather than showing the face colour.
+    g.setColour(juce::Colour(cBackground));
+    g.fillRect(bounds);
+
+    auto fb = fitDesignCanvas(bounds);
     const float W = fb.getWidth(), H = fb.getHeight();
+    const float corner = 0.028f * W; // ~24px at the 875-wide design canvas -- rounded like a real enclosure
 
     // Rounded base fill
     g.setColour(juce::Colour(cPedalFace));
-    g.fillRoundedRectangle(fb, 16.0f);
+    g.fillRoundedRectangle(fb, corner);
 
-    // Image path: cover/crop-fill the pedal-face texture, clipped to the rounded body. Falls
-    // through to the procedural mottled background below when no texture is embedded.
+    // Image path: fit the pedal-face texture exactly (it was authored at this canvas's own
+    // aspect ratio, so no cropping is needed), clipped to the rounded body, then bevel the edges
+    // to read as a real pedal's curved-over enclosure. Falls through to the procedural mottled
+    // background below when no texture is embedded.
     const juce::Image& tex = PedalAssets::textureGraded();
     if (tex.isValid())
     {
         juce::Path body;
-        body.addRoundedRectangle(fb.reduced(2.0f), 14.0f);
+        body.addRoundedRectangle(fb.reduced(2.0f), corner - 2.0f);
         g.saveState();
         g.reduceClipRegion(body);
-        const float s = juce::jmax(W / (float) tex.getWidth(), H / (float) tex.getHeight());
-        const float dw = (float) tex.getWidth() * s, dh = (float) tex.getHeight() * s;
-        g.drawImage(tex, juce::Rectangle<float>(fb.getCentreX() - dw * 0.5f, fb.getCentreY() - dh * 0.5f, dw, dh),
-                    juce::RectanglePlacement::centred, false);
+        g.drawImage(tex, fb, juce::RectanglePlacement::stretchToFit, false);
+
+        // Bezel: a soft inward shading band along every edge, brightest along the top/left
+        // (where light would catch a curved-over lip) and darkest along the bottom/right, so the
+        // flat texture reads as if its edges roll down into the enclosure body.
+        const float bezel = juce::jmin(W, H) * 0.05f;
+        juce::ColourGradient top(juce::Colours::white.withAlpha(0.22f), fb.getX(), fb.getY(),
+                                  juce::Colours::transparentWhite, fb.getX(), fb.getY() + bezel, false);
+        g.setGradientFill(top);
+        g.fillRect(fb.getX(), fb.getY(), W, bezel);
+
+        juce::ColourGradient left(juce::Colours::white.withAlpha(0.14f), fb.getX(), fb.getY(),
+                                   juce::Colours::transparentWhite, fb.getX() + bezel, fb.getY(), false);
+        g.setGradientFill(left);
+        g.fillRect(fb.getX(), fb.getY(), bezel, H);
+
+        juce::ColourGradient bottom(juce::Colours::black.withAlpha(0.30f), fb.getX(), fb.getBottom(),
+                                     juce::Colours::transparentBlack, fb.getX(), fb.getBottom() - bezel, false);
+        g.setGradientFill(bottom);
+        g.fillRect(fb.getX(), fb.getBottom() - bezel, W, bezel);
+
+        juce::ColourGradient right(juce::Colours::black.withAlpha(0.24f), fb.getRight(), fb.getY(),
+                                    juce::Colours::transparentBlack, fb.getRight() - bezel, fb.getY(), false);
+        g.setGradientFill(right);
+        g.fillRect(fb.getRight() - bezel, fb.getY(), bezel, H);
+
         g.restoreState();
         g.setColour(juce::Colour(cPedalBorder));
-        g.drawRoundedRectangle(fb.reduced(1.0f), 16.0f, 2.0f);
+        g.drawRoundedRectangle(fb.reduced(1.0f), corner, 2.0f);
         return;
     }
 
     // Clip subsequent drawing to inside the rounded rect
     g.saveState();
     juce::Path clip;
-    clip.addRoundedRectangle(fb.reduced(2.0f), 14.0f);
+    clip.addRoundedRectangle(fb.reduced(2.0f), corner - 2.0f);
     g.reduceClipRegion(clip);
 
     // Mottled overlay: five soft radial blobs for depth variation
@@ -108,7 +146,7 @@ void PedalLookAndFeel::paintPedalBackground(juce::Graphics& g, juce::Rectangle<i
         cg.addColour(0.0, juce::Colour(b.col).withAlpha(b.a));
         cg.addColour(1.0, juce::Colour(b.col).withAlpha(0.0f));
         g.setGradientFill(cg);
-        g.fillRoundedRectangle(fb, 14.0f);
+        g.fillRoundedRectangle(fb, corner - 2.0f);
     }
 
     // Sparkle dots — deterministic RNG for consistent pattern across repaints
@@ -142,7 +180,7 @@ void PedalLookAndFeel::paintPedalBackground(juce::Graphics& g, juce::Rectangle<i
 
     // Border (drawn over clip)
     g.setColour(juce::Colour(cPedalBorder));
-    g.drawRoundedRectangle(fb.reduced(1.0f), 16.0f, 2.0f);
+    g.drawRoundedRectangle(fb.reduced(1.0f), corner, 2.0f);
 }
 
 // ── Rotary slider ─────────────────────────────────────────────────────────────

@@ -1,7 +1,6 @@
 #include "PedalFace.h"
 
 #include <cmath>
-#include <functional>
 
 using namespace juce;
 
@@ -16,36 +15,54 @@ String fmtDial(double v01) { return String(v01 * 10.0, 2); }  // "0.00" .. "10.0
 PedalFace::PedalFace(AudioProcessorValueTreeState& apvts) : state(apvts)
 {
     // ---- VOLUME knob -----------------------------------------------------------------------------
-    auto setupKnob = [this](Slider& s, Label& lab, const String& text, const char* paramId,
-                            std::function<String(double)> fmt) {
-        s.setSliderStyle(Slider::RotaryHorizontalVerticalDrag);
-        s.setRotaryParameters(MathConstants<float>::pi * 1.25f, MathConstants<float>::pi * 2.75f, true); // 270°, gap at bottom
-        s.setTextBoxStyle(Slider::NoTextBox, false, 0, 0);  // value shown as a tooltip, not JUCE's text box
-        addAndMakeVisible(s);
-        sliderAttachments.push_back(std::make_unique<SliderParameterAttachment>(*state.getParameter(paramId), s));
-        // Update the drag tooltip to the real-world value (2 dp). Needs a TooltipWindow somewhere
-        // in the hierarchy — the editor owns one. (Alternatively use s.setPopupDisplayEnabled(...).)
-        s.onValueChange = [&s, fmt] { s.setTooltip(fmt(s.getValue())); };
-        s.setTooltip(fmt(s.getValue()));
-
-        lab.setText(text, dontSendNotification);
-        lab.setJustificationType(Justification::centred);
-        lab.setColour(Label::textColourId, Colour(PedalLookAndFeel::cLabelText));
-        addAndMakeVisible(lab);
-    };
-    setupKnob(volumeKnob, volumeLabel, "VOLUME", "volume", fmtDial);
+    // No on-screen text label -- the pedal art itself carries the VOLUME lettering.
+    volumeKnob.setSliderStyle(Slider::RotaryHorizontalVerticalDrag);
+    volumeKnob.setRotaryParameters(MathConstants<float>::pi * 1.25f, MathConstants<float>::pi * 2.75f, true); // 270°, gap at bottom
+    volumeKnob.setTextBoxStyle(Slider::NoTextBox, false, 0, 0);  // value shown as a tooltip, not JUCE's text box
+    addAndMakeVisible(volumeKnob);
+    sliderAttachments.push_back(std::make_unique<SliderParameterAttachment>(*state.getParameter("volume"), volumeKnob));
+    // Update the drag tooltip to the real-world value (2 dp). Needs a TooltipWindow somewhere
+    // in the hierarchy — the editor owns one. (Alternatively use s.setPopupDisplayEnabled(...).)
+    volumeKnob.onValueChange = [this] { volumeKnob.setTooltip(fmtDial(volumeKnob.getValue())); };
+    volumeKnob.setTooltip(fmtDial(volumeKnob.getValue()));
 
     // ---- 3-position MODE switch, bound to the "mode" AudioParameterChoice -------------------------
     // Two-way binding: the ParameterAttachment drives the switch when the host/automation changes
     // the param; the switch's onChange writes back as a complete gesture. Labelled top-to-bottom by
     // physical lever position (circuit.md: up=Bright, middle=Dark/centre-off, down=Mid), matching
     // the AudioParameterChoice order in PluginProcessor.
-    modeSwitch.setLabels("BRIGHT", "DARK", "MID");
+    // Labels are placed by hand around the switch art (see resized()) rather than in
+    // ThreePositionSwitch's generic side-column, so the switch itself draws image-only.
+    modeSwitch.setShowInlineLabels(false);
     addAndMakeVisible(modeSwitch);
+
+    auto setupModeLabel = [this](Label& l, const String& text) {
+        l.setText(text, dontSendNotification);
+        l.setJustificationType(Justification::centred);
+        l.setInterceptsMouseClicks(false, false);  // clicks/drags pass through to the switch beneath
+        addAndMakeVisible(l);
+    };
+    setupModeLabel(modeLabelBright, "BRIGHT");
+    setupModeLabel(modeLabelDark, "DARK");
+    setupModeLabel(modeLabelMid, "MID");
+    // Labels were added after the switch, which would normally paint them ON TOP of it; the DARK
+    // label is meant to tuck partly under the switch body, so bring the switch back to front.
+    modeSwitch.toFront(false);
+
     modeAttachment = std::make_unique<ParameterAttachment>(
         *state.getParameter("mode"),
-        [this](float v) { modeSwitch.setPosition((int) std::lround(v)); });
-    modeSwitch.onChange = [this](int pos) { modeAttachment->setValueAsCompleteGesture((float) pos); };
+        [this](float v) {
+            const int pos = (int) std::lround(v);
+            modeSwitch.setPosition(pos);
+            updateModeLabelHighlight(pos);
+        });
+    modeSwitch.onChange = [this](int pos) {
+        // ParameterAttachment suppresses its own callback for a change it originated, so update
+        // the label highlight here too -- host/automation-driven changes go through the callback
+        // passed to the ParameterAttachment above instead.
+        updateModeLabelHighlight(pos);
+        modeAttachment->setValueAsCompleteGesture((float) pos);
+    };
     modeAttachment->sendInitialUpdate();
 
     // ---- Status LED + bypass footswitch --------------------------------------------------------
@@ -61,12 +78,6 @@ PedalFace::PedalFace(AudioProcessorValueTreeState& apvts) : state(apvts)
     bypassLabel.setColour(Label::textColourId, Colour(PedalLookAndFeel::cBypassLabel));
     addAndMakeVisible(bypassLabel);
 
-    // ---- Logo ----------------------------------------------------------------------------------
-    logoLabel.setText("ECHO PRE 3", dontSendNotification);
-    logoLabel.setJustificationType(Justification::centred);
-    logoLabel.setColour(Label::textColourId, Colour(PedalLookAndFeel::cLabelText).withAlpha(0.85f));
-    addAndMakeVisible(logoLabel);
-
     updateLED();
 }
 
@@ -80,53 +91,87 @@ void PedalFace::paint(Graphics& g)
         g.fillAll(Colour(PedalLookAndFeel::cPedalFace));
 }
 
+namespace
+{
+// The pedal art (echopre_texture.jpg + this layout) was drawn on a fixed 875x1500 design canvas
+// at 250% export scale -- all figures below are AS GIVEN in that canvas (250%); since every
+// figure is divided by the same canvas width/height to get a fraction, the 250% cancels out and
+// only the ratios matter. (x, y) is each image's CENTRE, per the art brief.
+struct ArtSpec { float w, h, cx, cy; };
+constexpr ArtSpec kKnobArt       { 328.0f, 328.0f, 215.0f,   260.0f };
+constexpr ArtSpec kSwitchArt     { 240.0f, 240.0f, 723.0f,   260.0f };
+constexpr ArtSpec kLedArt        { 137.0f, 137.0f, 437.5f,   867.0f };
+constexpr ArtSpec kFootswitchArt { 248.0f, 248.0f, 437.0f,  1240.0f };
+
+// Mode labels ring the switch art: BRIGHT above (up position), DARK to the left at the switch's
+// vertical centre (mid position -- no room above/below since BRIGHT/MID claim those), MID below
+// (down position). Each overlaps into the switch image on its near edge (drawn behind the switch
+// art -- see modeSwitch.toFront() in the constructor -- so the overlap is invisible either way).
+constexpr float kLabelOverlapTopBot = 15.0f;  // BRIGHT / MID
+constexpr float kLabelOverlapSide   = 20.0f;  // DARK -- tucked 5px further under the switch than BRIGHT/MID
+constexpr float kLabelH       = 56.0f;   // fits the label font with ascender/descender room
+constexpr float kLabelWTop    = 260.0f;  // BRIGHT / MID (centred on the switch's own x)
+constexpr float kLabelWSide   = 200.0f;  // DARK (butts against the switch's left edge)
+constexpr float kLabelFontPx  = 45.0f;   // 40px art-brief size + 5
+} // namespace
+
 void PedalFace::resized()
 {
-    const float W = (float) getWidth(), H = (float) getHeight();
-    const float knobD = jmin(W * 0.20f, H * 0.28f);
-    const float labH  = jmax(10.0f, H * 0.06f);
+    const auto art = PedalLookAndFeel::fitDesignCanvas(getLocalBounds());
+    // Design canvas is fit (not stretched) into the component, so x and y share one scale factor.
+    const float s = art.getWidth() / PedalLookAndFeel::kDesignW;
+    const float ox = art.getX(), oy = art.getY();
 
     auto place = [](Component& c, float cx, float cy, float w, float h) {
         c.setBounds(roundToInt(cx - w * 0.5f), roundToInt(cy - h * 0.5f), roundToInt(w), roundToInt(h));
     };
-    auto placeLabelUnder = [&](Label& l, float cx, float cyKnob, float knob) {
-        place(l, cx, cyKnob + knob * 0.72f, knob * 1.8f, labH);
+    auto placeArt = [&](Component& c, const ArtSpec& a) {
+        place(c, ox + a.cx * s, oy + a.cy * s, a.w * s, a.h * s);
     };
 
-    // Logo across the top.
-    place(logoLabel, W * 0.5f, H * 0.12f, W * 0.9f, jmax(14.0f, H * 0.12f));
+    placeArt(volumeKnob, kKnobArt);
+    placeArt(modeSwitch, kSwitchArt);
+    placeArt(led, kLedArt);
+    placeArt(bypassSwitch, kFootswitchArt);
 
-    // Knob row: VOLUME is the only pot on this pedal, so it sits centred.
-    const float knobY = H * 0.42f;
-    const float vx = W * 0.5f;
-    place(volumeKnob, vx, knobY, knobD, knobD);
-    placeLabelUnder(volumeLabel, vx, knobY, knobD);
+    // Mode labels, positioned relative to the switch art's own edges (computed above).
+    const float swLeft = kSwitchArt.cx - kSwitchArt.w * 0.5f;
+    const float swTop = kSwitchArt.cy - kSwitchArt.h * 0.5f;
+    const float swBottom = kSwitchArt.cy + kSwitchArt.h * 0.5f;
+    place(modeLabelBright, ox + kSwitchArt.cx * s, oy + (swTop + kLabelOverlapTopBot - kLabelH * 0.5f) * s,
+          kLabelWTop * s, kLabelH * s);
+    place(modeLabelDark, ox + (swLeft + kLabelOverlapSide - kLabelWSide * 0.5f) * s, oy + kSwitchArt.cy * s,
+          kLabelWSide * s, kLabelH * s);
+    place(modeLabelMid, ox + kSwitchArt.cx * s, oy + (swBottom - kLabelOverlapTopBot + kLabelH * 0.5f) * s,
+          kLabelWTop * s, kLabelH * s);
 
-    // Bottom row: mode switch (left), LED (centre), footswitch (right).
-    // ThreePositionSwitch lays its body + label column out to roughly 1.35x its own height (see
-    // its internal `sc` scaling) -- with the real BRIGHT/DARK/MID labels (vs. the template's I/II/
-    // III placeholders) a width driven off W alone clips the text, so derive width from height.
-    const float bottomY = H * 0.76f;
-    const float modeH = H * 0.30f;
-    const float modeW = 1.4f * modeH;
-    place(modeSwitch, W * 0.20f, bottomY, modeW, modeH);
+    const auto arial = [&](float px) { return Font(FontOptions("Arial", jmax(6.0f, px * s), Font::bold)); };
+    modeLabelBright.setFont(arial(kLabelFontPx));
+    modeLabelDark.setFont(arial(kLabelFontPx));
+    modeLabelMid.setFont(arial(kLabelFontPx));
 
-    const float ledD = jmin(W, H) * 0.07f;
-    place(led, W * 0.5f, bottomY - ledD * 0.4f, ledD, ledD);
-
-    const float fsD = jmin(W * 0.20f, H * 0.32f);
-    const float fsX = W * 0.78f, fsY = bottomY;
-    place(bypassSwitch, fsX, fsY, fsD, fsD);
-    place(bypassLabel,  fsX, fsY + fsD * 0.62f, fsD * 1.7f, labH);
+    // BYPASS label isn't part of the art brief -- fit it into the remaining canvas space below
+    // the footswitch.
+    const float labH = jmax(10.0f, 40.0f * s);
+    place(bypassLabel, ox + kFootswitchArt.cx * s, oy + (kFootswitchArt.cy + kFootswitchArt.h * 0.5f + 30.0f) * s,
+          kFootswitchArt.w * 1.6f * s, labH);
+    bypassLabel.setFont(Font(FontOptions(jmax(8.0f, 16.0f * s), Font::bold)).withExtraKerningFactor(0.20f));
 }
 
 void PedalFace::refresh(float sc)
 {
     scale = sc;
-    auto bold = [](float sz) { return Font(FontOptions(jmax(8.0f, sz), Font::bold)); };
-    volumeLabel.setFont(bold(11.0f * sc).withExtraKerningFactor(0.10f));
-    bypassLabel.setFont(bold(8.0f * sc).withExtraKerningFactor(0.20f));
-    logoLabel.setFont(bold(18.0f * sc).withExtraKerningFactor(0.15f));
+}
+
+void PedalFace::updateModeLabelHighlight(int position)
+{
+    const auto colourFor = [](bool active) {
+        return active ? Colours::white : Colours::white.withAlpha(0.30f);
+    };
+    // AudioParameterChoice order is Bright(0)/Dark(1)/Mid(2) -- circuit.md note #2 / PluginProcessor.
+    modeLabelBright.setColour(Label::textColourId, colourFor(position == 0));
+    modeLabelDark.setColour(Label::textColourId, colourFor(position == 1));
+    modeLabelMid.setColour(Label::textColourId, colourFor(position == 2));
 }
 
 void PedalFace::updateLED()

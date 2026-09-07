@@ -40,7 +40,19 @@ public:
 
     PedalLookAndFeel();
 
-    // Called by PluginEditor::paint() to draw the mottled pedal face background.
+    // The pedal-face art (echopre_texture.jpg + the knob/switch/LED/footswitch placements) was
+    // laid out on a fixed 875x1500 design canvas (at 250% export scale — the ratio is what
+    // matters, not the absolute numbers). PedalFace positions every control as a fraction of this
+    // canvas so it stays pixel-aligned with the texture at any window size; both PedalFace and
+    // paintPedalBackground must fit the SAME rectangle or the art and the controls drift apart.
+    static constexpr float kDesignW = 875.0f;
+    static constexpr float kDesignH = 1500.0f;
+
+    // Largest 875:1500-ratio rectangle centred in `bounds` (letterboxed/pillarboxed as needed).
+    static juce::Rectangle<float> fitDesignCanvas(juce::Rectangle<int> bounds);
+
+    // Called by PluginEditor::paint() to draw the mottled pedal face background. `bounds` is the
+    // full face component area; the body itself is drawn inside fitDesignCanvas(bounds).
     void paintPedalBackground(juce::Graphics& g, juce::Rectangle<int> bounds);
 
     // ── LookAndFeel overrides ─────────────────────────────────────────────────

@@ -25,24 +25,27 @@ resize_png() {
 }
 
 # --- Knobs (square, alpha, drawn at "noon" — rotated in code by the LookAndFeel) ---------------
-resize_png "bakelite_knob.png" knob.png       256   # <PEDAL> main pot knob (Gain / Tone / Volume)
-resize_png "vol_trim.png"      trim_knob.png   256   # Input/Output peripheral halo trim cap
+resize_png "black_silver_knob.png" knob.png       512   # main VOLUME pot knob
+resize_png "vol_trim.png"          trim_knob.png  256   # Input/Output peripheral halo trim cap
 
 # --- Status LED (glow baked into the art) ------------------------------------------------------
-resize_png "red_led_on.png"    led_on.png      128   # active (not bypassed)
-resize_png "red_led_off.png"   led_off.png     128   # bypassed
+resize_png "red_led_on.png"    led_on.png      220   # active (not bypassed)
+resize_png "red_led_off.png"   led_off.png     220   # bypassed
 
 # --- Bypass footswitch (up = released, down = momentary press animation) ------------------------
-resize_png "Footswitch_up.png"   footswitch_up.png    200
-resize_png "footswitch_down.png" footswitch_down.png  200
+resize_png "Footswitch_up.png"   footswitch_up.png    480
+resize_png "footswitch_down.png" footswitch_down.png  480
 
 # --- 3-position mode switch (one image per discrete position) ----------------------------------
-resize_png "switch_up.png"   switch_up.png    128
-resize_png "switch_Mid.png"  switch_mid.png   128
-resize_png "switch_down.png" switch_down.png  128
+resize_png "switch_up.png"   switch_up.png    480
+resize_png "switch_Mid.png"  switch_mid.png   480
+resize_png "switch_down.png" switch_down.png  480
 
 # --- Background texture — no alpha; JPEG (smooth gradient compresses very well lossily) ---------
-magick "$SRC/lr_v2_texture.png" -resize 1536x -strip -quality 88 "$DST/texture.jpg"
+# Source is 875x1500 (the pedal-face design canvas, drawn at 250%) — resize down to a comfortable
+# embed size rather than re-cropping; PedalFace/PedalLookAndFeel fit this exact 875:1500 aspect
+# into whatever face area the host window gives, so the source's own proportions must be preserved.
+magick "$SRC/echopre_texture.jpg" -resize 875x1500 -strip -quality 90 "$DST/texture.jpg"
 
 echo "--- processed sizes ---"
 ls -la "$DST"

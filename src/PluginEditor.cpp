@@ -215,7 +215,7 @@ void PedalAudioProcessorEditor::resized()
 
     const int W = getWidth(), H = getHeight();
     const int margin = i(10);
-    const int panelW = i(74);
+    const int panelW = i(120);  // wide enough that panelW*2+colGap*2+pedalW+margin*2 clears the OS strip's own fixed-content minimum, with slack for 0.5x's font-floor squeeze -- see kBaseW comment
     const int osH    = i(24);
     const int faceGap = i(10);
     const int colGap  = i(8);
@@ -225,10 +225,14 @@ void PedalAudioProcessorEditor::resized()
 
     osStripArea = Rectangle<int>(margin, H - margin - osH, W - 2 * margin, osH);
 
+    // The pedal art is a fixed 875:1500 rectangle -- size the centre column to exactly that
+    // aspect against topH (kBaseW is tuned so this leaves ~zero slack at sc=1) and butt the
+    // output panel directly against it, so any rounding slack lands as extra margin at the
+    // window's right edge rather than as a gutter between the face and either side panel.
+    const int pedalW = roundToInt((float) topH * (PedalLookAndFeel::kDesignW / PedalLookAndFeel::kDesignH));
     const Rectangle<int> inPanel(margin, topY, panelW, topH);
-    const Rectangle<int> outPanel(W - margin - panelW, topY, panelW, topH);
-    pedalFaceArea = Rectangle<int>(margin + panelW + colGap, topY,
-                                   W - 2 * (margin + panelW + colGap), topH);
+    pedalFaceArea = Rectangle<int>(margin + panelW + colGap, topY, pedalW, topH);
+    const Rectangle<int> outPanel(pedalFaceArea.getRight() + colGap, topY, panelW, topH);
     if (pedalFace != nullptr)
     {
         pedalFace->setBounds(pedalFaceArea);
