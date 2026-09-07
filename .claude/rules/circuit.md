@@ -134,12 +134,16 @@ clean preamp; the JFET's square-law curvature, not a clipper, is the entire nonl
   There are **no clipping diodes, no op-amps, and no CMOS** in the audio chain.
 - ⚠ **Not WDF-native.** `chowdsp_wdf` has no JFET element — see the triage table below and
   `docs/nonlinear-component-modeling.md` §2.
-- ⚠ **Datasheet spread is huge:** 2N5457 is specified IDSS 1.0–5.0 mA and Vgs(off) −0.5 to −6.0 V.
-  Every amplitude parameter (gm, bias point, shaper curvature) **must be fitted to a capture** of
-  the actual unit; only the R/C corners and the polarity are trustworthy in advance.
-- 📌 **TODO: `docs/refs/` has a J201 datasheet but no 2N5457 one.** Fetch the onsemi/Fairchild
-  2N5457 datasheet into `docs/refs/` *before* starting the DSP stage, per the template's rule to
-  gather non-WDF-native data up front rather than mid-build.
+- ⚠ **Datasheet spread is huge — confirmed from `docs/refs/onsemi_2N5457-2N5458_datasheet.pdf`:**
+  IDSS 1.0–5.0 mA (min/max), Vgs(off) −0.5 to −6.0 V, Yfs (≈ gm at Vgs=0) 1000–5000 µmhos — a 5×
+  spread on every amplitude parameter. The datasheet's own Typical Characteristics graphs show
+  three sample units at Vgs(off) ≈ −1.2 / −3.5 / −5.8 V, i.e. spanning nearly the whole rated range
+  — visual confirmation that "typical" is not a safe default. Every amplitude parameter (gm, bias
+  point, shaper curvature) **must be fitted to a capture** of the actual unit; only the R/C corners
+  and the polarity are trustworthy in advance. This matters more than usual here, since the maker
+  states Q1 is a "cherry picked" vintage part (see "Validation notes" #4), not a random production
+  sample — don't assume it lands near the datasheet's typ column.
+- ✅ Datasheet fetched to `docs/refs/onsemi_2N5457-2N5458_datasheet.pdf` (onsemi, Rev. 6, Feb 2010).
 
 ### Parts triage vs `docs/nonlinear-component-modeling.md` §0
 

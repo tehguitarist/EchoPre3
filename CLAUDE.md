@@ -131,9 +131,10 @@ high, execute routine work cheap) is what should persist.
 > **CURRENT: Step 1 (Schematic analysis) — COMPLETE, no open blockers.
 > `schematics/schematic.png` is traced and `.claude/rules/circuit.md` is fully filled in (values,
 > node graphs, triage, corners, validation targets). Both open questions resolved against the
-> maker's published notes. Project builds; AU installs with the placeholder pass-through DSP.
-> NEXT: fetch a 2N5457 datasheet into `docs/refs/`, then step 2 (CMake scaffold → APVTS params
-> matching the real controls: VOLUME + 3-way EQ).**
+> maker's published notes. 2N5457 datasheet fetched to `docs/refs/`. Project builds; AU installs
+> with the placeholder pass-through DSP.
+> NEXT: step 2 (CMake scaffold → APVTS params matching the real controls: VOLUME + 3-way EQ), then
+> step 3 (chowdsp_wdf smoke test on the linear stages before touching the JFET).**
 
 ## Project-specific carry-forwards
 
@@ -164,5 +165,7 @@ high, execute routine work cheap) is what should persist.
 - 📌 **Level anchor:** those figures imply the JFET stage's own gain is ≈ **+7–8 dB**, about 4 dB
   *below* a nominal-2N5457 estimate. Expect fitted `gm` under nominal — the maker specifies a
   "cherry picked" vintage JFET, so nominal SPICE is even less trustworthy than the usual 5:1 spread.
-- 📌 **TODO before DSP:** fetch a 2N5457 datasheet into `docs/refs/` (the template ships only a
-  J201 one) — as a sanity range, not a source of parameters.
+- ✅ **2N5457 datasheet fetched** (`docs/refs/onsemi_2N5457-2N5458_datasheet.pdf`, onsemi Rev. 6).
+  Confirms IDSS 1–5 mA, Vgs(off) −0.5…−6 V, Yfs 1000–5000 µmhos — a 5× spread on every amplitude
+  param, and the typical-characteristics graphs show sample units spanning nearly that whole range.
+  Sanity range only — the maker's "cherry picked" claim means don't assume this unit is typical.

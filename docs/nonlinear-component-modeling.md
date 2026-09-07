@@ -392,5 +392,11 @@ recovering the missing electrical values indirectly from audio.
 - `DAFx2020_Taming-the-Red-Llama_CD4049-overdrive-model.pdf` — CMOS-inverter overdrive model + params.
 - `TI_CD4049UB_datasheet_SCHS046L.pdf` — VTC envelope (5 V), MOSFET I-V families, rails.
 - `Fairchild_J201_datasheet.pdf` — J201 DC params and the part spread.
+- `onsemi_2N5457-2N5458_datasheet.pdf` — 2N5457/2N5458 DC + dynamic params (Vgs(off), IDSS, Yfs
+  min/typ/max) and the part spread. Q1 on this pedal is a 2N5457 — see `circuit.md`. The Typical
+  Characteristics curves (Figs. 2–7) show three separate sample units at Vgs(off) ≈ −1.2/−3.5/−5.8 V
+  — useful as a visual sanity check for "is my fitted device within the historically observed
+  spread", not as a source of parameters (the pedal maker states Q1 is a hand-selected vintage
+  part, so fit to captures per `dsp.md`, don't calculate from this table).
 - `DAFx2024_MXR-Phase90_JFET-timevarying-resistor-WDF.pdf` — JFET-in-WDF, VCR regime.
 - Bernardini 3-terminal WDF paper — fetch from Springer/ResearchGate if going the full-solve route.
