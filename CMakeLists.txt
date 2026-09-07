@@ -1,0 +1,112 @@
+cmake_minimum_required(VERSION 3.15)
+
+project(EchoPre3 VERSION 0.1.0)   # bump VERSION to force Logic to rescan the AU after changes
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "Minimum macOS deployment version")
+
+enable_testing()
+
+# -Wall/-Wextra are GCC/Clang flags; MSVC's cl.exe misparses "-Wextra" as the /W switch with a
+# non-numeric argument (error D8021) — so a hardcoded "-Wextra" breaks the Windows CI build. Gate it.
+if (MSVC)
+    set(PEDAL_WARNING_FLAGS /W4)
+else()
+    set(PEDAL_WARNING_FLAGS -Wall -Wextra)
+endif()
+
+add_subdirectory(libs/JUCE)
+add_subdirectory(libs/xsimd)          # optional; remove if not used
+add_subdirectory(libs/chowdsp_wdf)
+
+# Embed the UI art (processed from ui/ into assets/ui/ by tools/process_ui_assets.sh). The
+# accessors in src/ui/Assets.h expect exactly these names; keep the two in sync when reskinning.
+juce_add_binary_data(PedalAssets
+    SOURCES
+        assets/ui/knob.png
+        assets/ui/trim_knob.png
+        assets/ui/led_on.png
+        assets/ui/led_off.png
+        assets/ui/footswitch_up.png
+        assets/ui/footswitch_down.png
+        assets/ui/switch_up.png
+        assets/ui/switch_mid.png
+        assets/ui/switch_down.png
+        assets/ui/texture.jpg
+)
+
+juce_add_plugin(EchoPre3
+    COMPANY_NAME "Leigh Pierce"
+    BUNDLE_ID com.leighpierce.echopre3
+    PLUGIN_MANUFACTURER_CODE Lprc   # 4 chars, one uppercase
+    PLUGIN_CODE Ep3p                # 4 chars, one uppercase, unique per plugin
+    FORMATS AU VST3
+    PRODUCT_NAME "Echo Pre 3"
+    COPY_PLUGIN_AFTER_BUILD TRUE      # installs the AU to ~/Library/Audio/Plug-Ins/Components/
+)
+
+target_sources(EchoPre3
+    PRIVATE
+        src/PluginProcessor.cpp
+        src/PluginEditor.cpp
+        src/ui/PedalLookAndFeel.cpp
+        src/ui/PedalFace.cpp
+)
+
+# So `#include "PluginProcessor.h"` / `"ui/PedalFace.h"` resolve without long relative paths.
+target_include_directories(EchoPre3 PRIVATE src)
+
+target_compile_definitions(EchoPre3
+    PUBLIC
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0
+)
+
+target_link_libraries(EchoPre3
+    PRIVATE
+        juce::juce_audio_utils
+        juce::juce_dsp
+        chowdsp::chowdsp_wdf
+        PedalAssets                    # embedded UI art (src/ui/Assets.h)
+        xsimd                          # remove if not used
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_lto_flags
+        juce::juce_recommended_warning_flags
+)
+
+target_compile_options(EchoPre3 PRIVATE ${PEDAL_WARNING_FLAGS})
+
+# --- Tests --------------------------------------------------------------------------------------
+# Register each pass/fail exe with add_test() so CI can run the whole suite via `ctest`.
+# Linear-stage exes that only need chowdsp_wdf (no JUCE):
+#   add_executable(<Name> tests/<Name>.cpp)
+#   target_link_libraries(<Name> PRIVATE chowdsp::chowdsp_wdf)
+#   target_compile_options(<Name> PRIVATE ${PEDAL_WARNING_FLAGS})
+#   add_test(NAME <Name> COMMAND <Name>)
+#
+# Tests needing juce::dsp (Oversampling / FFT) must be JUCE console apps:
+#   juce_add_console_app(<Name> PRODUCT_NAME "<Name>")
+#   target_sources(<Name> PRIVATE tests/<Name>.cpp)
+#   target_compile_definitions(<Name> PRIVATE JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0 JUCE_STANDALONE_APPLICATION=1)
+#   target_link_libraries(<Name> PRIVATE chowdsp::chowdsp_wdf juce::juce_dsp juce::juce_recommended_config_flags)
+#   add_test(NAME <Name> COMMAND <Name>)
+#
+# An OfflineRender console app (mirrors processBlock) powers the analysis/ A/B harness — add it the
+# same way as a JUCE console app, sourced from analysis/offline_render.cpp.
+#
+# UISnapshot — headless editor render to PNG (build.md "UI changes"). Needs juce_gui_extra +
+# PedalAssets and the shared UI/processor sources; it's a smoke test (asserts a non-empty image),
+# so add_test() with no CPU/pixel gate. Uncomment once you have src/PluginProcessor.{h,cpp}:
+#   juce_add_console_app(UISnapshot PRODUCT_NAME "UISnapshot")
+#   target_sources(UISnapshot PRIVATE
+#       tests/UISnapshot.cpp src/PluginProcessor.cpp src/PluginEditor.cpp
+#       src/ui/PedalLookAndFeel.cpp src/ui/PedalFace.cpp)
+#   target_include_directories(UISnapshot PRIVATE src)
+#   target_compile_definitions(UISnapshot PRIVATE
+#       JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0 JUCE_STANDALONE_APPLICATION=1 JucePlugin_VersionString="${PROJECT_VERSION}")
+#   target_link_libraries(UISnapshot PRIVATE juce::juce_gui_extra juce::juce_audio_utils juce::juce_dsp
+#       chowdsp::chowdsp_wdf PedalAssets juce::juce_recommended_config_flags)
+#   add_test(NAME UISnapshot COMMAND UISnapshot)
