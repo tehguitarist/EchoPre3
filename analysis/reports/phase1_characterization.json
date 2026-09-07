@@ -193,6 +193,36 @@
       "mode_used": "mid"
     }
   },
+  "M3b": {
+    "zout_span_ohm": [
+      91778.63245834092,
+      138556.86907531373
+    ],
+    "zout_span_ratio": 1.5096854830366517,
+    "per_capture": {
+      "p1": {
+        "extra_pole_hz": 30188.33929838898,
+        "fit_rms_db": 0.3538332122731135,
+        "mode_used": "dark",
+        "zout_ohm": 101268.11878348431,
+        "implied_cload_f": 5.206047984923712e-11
+      },
+      "p2": {
+        "extra_pole_hz": 3198.1548455746715,
+        "fit_rms_db": 0.046018961780451326,
+        "mode_used": "dark",
+        "zout_ohm": 91778.63245834092,
+        "implied_cload_f": 5.42224406654854e-10
+      },
+      "p3": {
+        "extra_pole_hz": 40232.00558037598,
+        "fit_rms_db": 0.5547554894918512,
+        "mode_used": "mid",
+        "zout_ohm": 101071.47575637467,
+        "implied_cload_f": 3.9139911727772606e-11
+      }
+    }
+  },
   "M4": {
     "p1": {
       "bright": {

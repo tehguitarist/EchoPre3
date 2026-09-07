@@ -159,6 +159,16 @@ So model the volume pot as an **unloaded** divider and move on. Output loading o
 something <50 kΩ, which guitar gear never presents. **Input** load needs calibrating (§1);
 **output** load does not.
 
+⚠ **EXCEPTION, and Echo Pre 3 is one — check the premise before trusting the conclusion.** Every
+bullet above rests on "worst-case pot source impedance ~6 kΩ", which is what a normal pot wired as
+a divider from a low-impedance drive gives. This pedal's output network is not that: the wiper is
+grounded and `R9` (110 kΩ) bridges to the jack, so the source impedance looking back into the
+output is **92–139 kΩ, roughly flat across the whole rotation** (`circuit.md` stage 3). That is 15
+to 23 times the figure this section assumes, which moves the "treble corner ~50 kHz" bullet to
+**~3 kHz with 500 pF of ordinary cable**. It is measured, not hypothetical: `circuit.md` note #7
+shows one reference capture carrying exactly such a pole. **Recompute the source impedance for your
+pedal before applying this section's verdict.**
+
 ---
 
 ## 5. Internal clipping vs output clipping

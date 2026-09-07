@@ -161,7 +161,7 @@ Headlines only here:
 | **M0** | Reinterpreted: no bypass render exists to null against, so it is an alignment/length pass plus a new known-answer LF probe. All seven full length, lag +3..+19 samples. | none |
 | **M1** | ⭐ **Labels swapped.** BRIGHT = C1 22 nF (zero 1.86 kHz), MID = C2 10 nF (zero 4.17 kHz). Both units, shelf fits to ≤0.25 dB. | `JfetStage::bypassCap()` swapped; enum order untouched |
 | **M2** | ⭐ **K0 = 1 + gm·R5 = 6.59**, so gm ≈ 1.5–1.7 mS — about **2× the nominal placeholder**, not below it. | unblocks step 4b and §9.3 |
-| **M3** | Input LP confirmed at 6.7 kHz (P1) and 7.2 kHz (P3) vs 7.3 kHz drawn. **P2 disqualified** for absolute HF. | §4 anchor reversed |
+| **M3** | Input LP confirmed at 6.7 kHz (P1) and 7.2 kHz (P3) vs 7.3 kHz drawn. **P2 carries a 3.2 kHz output-load pole** (542 pF on a 92 kΩ output), so it is disqualified for absolute HF but is still the best differential capture. | §4 anchor reversed; output load is NOT negligible on this pedal |
 | **M4** | C10 corner measures 1.3–2.0× high in all three, but volume is 1:1 confounded with unit and rig. | **do not retune the taper** |
 | **M5** | Even-dominance confirmed (H2 rises 0.75 dB/dB). H3 is under the models' error floor. | cubic sign only weakly settled |
 | **M6** | Tolerance band = **0.33 dB RMS / 0.8 dB peak on the mode differential.** The 13.8 dB absolute figure is rig, not units. | `kHfBudgetDb` stays tight |

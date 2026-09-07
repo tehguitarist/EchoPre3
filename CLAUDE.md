@@ -307,11 +307,28 @@ high, execute routine work cheap) is what should persist.
 > above as the two measurement traps this project has actually been bitten by.
 >
 > ### The other four, and what NOT to act on
-> - ✅ **M3 input LP confirmed at ~7 kHz — by two units, and it disqualified the third.** P1 fits
->   6.7 kHz and P3 7.2 kHz against the drawn 7.3 kHz. **P2 fits 1.4 kHz and rolls off at −8.6 to
->   −10.7 dB/octave, which no single RC can do**, so its top three octaves are its trainer's rig
->   (limit L3), not the pedal. build-plan §4's "anchor absolute response to P2/danielnguyen" is
->   reversed: **anchor to P1, corroborate with P3, use P2 for the differential only.**
+> - ✅ **M3 input LP confirmed at ~7 kHz by two units, and the third turned out to be measuring its
+>   own cable.** P1 fits 6.7 kHz and P3 7.2 kHz against the drawn 7.3 kHz. P2 fits 1.4 kHz. Cascading
+>   the pedal's own 7.3 kHz input pole with ONE free extra pole localises it: P1 and P3 need 30–40 kHz
+>   (39–52 pF, i.e. nothing), P2 needs **3.2 kHz at 0.05 dB residual — 542 pF, an ordinary five-metre
+>   cable.** build-plan §4's "anchor absolute response to P2/danielnguyen" is reversed: **anchor to
+>   P1, corroborate with P3, use P2 for the differential only** (a post-JFET pole cancels in the mode
+>   ratio, so P2 is still the *best* differential capture in the set).
+> - ⭐⭐ **That finding is really about the PEDAL, not about P2: its output impedance is 92–139 kΩ and
+>   barely moves with VOLUME.** The wiper is grounded and R9 (110 kΩ) bridges to the jack, so the pot
+>   cannot pull it down the way a normal divider would. **`docs/calibration-and-gain-staging.md` §4
+>   ("output load: almost never worth modelling") therefore does NOT apply here** — its arithmetic
+>   assumes ~6 kΩ, this is 15–23× that, and its "treble corner ~50 kHz" bullet becomes ~3 kHz with
+>   500 pF. That section now carries an explicit exception. The plugin drives an ideal load, so it
+>   will always be brighter up top than the real pedal into a real cable: the mirror of the
+>   input-side plugin-vs-pedal note in circuit.md stage 1. Decide explicitly whether to model a load
+>   capacitance before step 9.
+> - ⛔ **VOLUME is ruled out as the cause of P2's rolloff, and the check is worth keeping** (P2 is the
+>   only capture at a high volume setting, so it was a fair suspicion). Across all three captured
+>   positions and every drain-drive assumption, the output impedance spans a factor of **1.5**; the
+>   required load capacitance differs by a factor of **10**. Under the physical ~20 kΩ drive the sign
+>   is backwards too — 2:30 has the lowest Zout, so a capacitive load predicts P2 should be the
+>   brightest capture, and it is the darkest.
 > - ⛔ **M4: do NOT retune the VOLUME taper, drive impedance or C10.** The C10 corner fits cleanly
 >   (0.03–0.15 dB residuals, mode-independent within a unit as it must be) but measures 1.3–2.0×
 >   above prediction in all three. Volume is 1:1 confounded with unit AND trainer here, and the

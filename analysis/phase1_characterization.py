@@ -44,6 +44,46 @@ F_INPUT_HP = 1.0 / (2 * np.pi * (1.0e6 + 110.0e3) * 22e-9)  # 6.52 Hz
 # circuit.md stage-3 solve at the power-law taper (p = 2.0), for the three captured knob positions.
 PREDICTED_C10_HZ = {"p1": 24.4, "p2": 13.3, "p3": 28.5}
 
+# Rotation of each captured unit's VOLUME knob, 7 o'clock = 0 to 5 o'clock = 1.
+VOLUME_X = {"p1": 0.35, "p2": 0.75, "p3": 0.30}
+
+# The input network's own low-pass, pinned when localising any EXTRA high-frequency pole a capture
+# carries on top of it (circuit.md stage 1: R3 || R4 into C3).
+F_INPUT_LP = 7300.0
+
+
+def output_impedance(x, r_drain=20.0e3, p=2.0):
+    """Source impedance looking back into the OUT jack at rotation x -- circuit.md stage 3.
+
+    NOT the ~6 kOhm a conventional wiper-to-output divider gives: here the wiper is grounded and R9
+    bridges node E to the jack, so R9 alone floors this near 110 kOhm and the pot barely moves it.
+    That is why calibration-and-gain-staging.md section 4's "output load is negligible" does not
+    apply to this pedal, and why an ordinary cable puts a pole in the audio band.
+    """
+    ra = max(500.0e3 * x ** p, 1.0)          # VOLUME lug 1 -> wiper, shunting node E
+    rb = 500.0e3 - ra                        # wiper -> lug 3, in series with R8 shunting OUT
+    inv_e = 1.0 / 240.0e3 + 1.0 / ra + (1.0 / r_drain if np.isfinite(r_drain) else 0.0)
+    return 1.0 / (1.0 / (110.0e3 + rb) + 1.0 / (110.0e3 + 1.0 / inv_e))
+
+
+def fit_extra_hf_pole(f, mag):
+    """Fit (input pole PINNED at its computed value) x (one free extra pole) over 1-20 kHz.
+
+    A capture that carries nothing but the pedal returns a pole far above the band. A capture whose
+    chain loaded the pedal's ~100 kOhm output returns one inside it, and the capacitance that pole
+    implies is the check on whether that reading is physically ordinary or absurd.
+    """
+    fs, d = grid(f, mag, 1000.0, 20000.0, 200)
+    d = d - float(A.gain_at(f, mag, 1000.0))
+
+    def model(p, v):
+        return (p[1] - 10 * np.log10(1 + (v / F_INPUT_LP) ** 2)
+                     - 10 * np.log10(1 + (v / np.exp(p[0])) ** 2))
+
+    r = least_squares(lambda p: model(p, fs) - d, [np.log(20000.0), 0.0])
+    return {"extra_pole_hz": float(np.exp(r.x[0])),
+            "fit_rms_db": float(np.sqrt(np.mean((model(r.x, fs) - d) ** 2)))}
+
 
 # --- shared loading ------------------------------------------------------------------------------
 def load_all():
@@ -213,7 +253,8 @@ def band_spread(f, a_db, b_db):
 
 def main():
     orig, caps = load_all()
-    report = {"sanity": [], "P0": {}, "M1": {}, "M2": {}, "M3": {}, "M4": {}, "M5": {}, "M6": {}}
+    report = {"sanity": [], "P0": {}, "M1": {}, "M2": {}, "M3": {}, "M3b": {}, "M4": {},
+              "M5": {}, "M6": {}}
 
     print("=== Sanity (M0 substitute: alignment + length, not a null -- see module docstring) ===")
     for path, d in sorted(caps.items()):
@@ -286,6 +327,32 @@ def main():
         print(f"  {unit}/{key[1]:6s}: LP = {h['lp_corner_hz']:6.0f} Hz  RMS={h['fit_rms_db']:.2f} dB  "
               f"slope 6-12k={h['slope_6k_12k_db_per_oct']:+5.1f}  10-19k={h['slope_10k_19k_db_per_oct']:+5.1f} dB/oct "
               f"(first order is -6; schematic predicts ~7300 Hz)")
+
+    print("\n=== M3b: is the extra HF rolloff the VOLUME knob, or the load on a ~100 k output? ===")
+    print("    circuit.md stage 3: the OUT source impedance barely moves with VOLUME, because R9")
+    print("    (110 k) bridges to the jack and floors it. Tabulated across every drain-drive")
+    print("    assumption, so the conclusion does not rest on which one is right:")
+    for x_label, x in (("10:00", 0.30), ("10:30", 0.35), ("2:30", 0.75)):
+        zs = [output_impedance(x, r) for r in (20.0e3, 100.0e3, float("inf"))]
+        print(f"      VOL {x_label}: Zout = " + " / ".join(f"{z/1e3:5.0f}k" for z in zs)
+              + "  (drain drive 20k / 100k / ideal)")
+    allz = [output_impedance(x, r) for x in VOLUME_X.values()
+            for r in (20.0e3, 100.0e3, float("inf"))]
+    report["M3b"] = {"zout_span_ohm": [float(min(allz)), float(max(allz))],
+                     "zout_span_ratio": float(max(allz) / min(allz)), "per_capture": {}}
+    print(f"    -> across ALL of them Zout spans {min(allz)/1e3:.0f}k..{max(allz)/1e3:.0f}k, "
+          f"a factor of {max(allz)/min(allz):.2f}. VOLUME cannot move the top octave by more than that.")
+    for unit in ("p1", "p2", "p3"):
+        key = (unit, "dark") if (unit, "dark") in curves else (unit, "mid")
+        ex = fit_extra_hf_pole(*curves[key])
+        z = output_impedance(VOLUME_X[unit])
+        cload = 1.0 / (2 * np.pi * z * ex["extra_pole_hz"])
+        report["M3b"]["per_capture"][unit] = dict(ex, mode_used=key[1], zout_ohm=z,
+                                                  implied_cload_f=float(cload))
+        print(f"    {unit}/{key[1]:6s} (VOL x={VOLUME_X[unit]:.2f}): extra pole "
+              f"{ex['extra_pole_hz']:8.0f} Hz  RMS={ex['fit_rms_db']:.2f} dB  "
+              f"-> implies {cload*1e12:5.0f} pF at Zout {z/1e3:.0f}k")
+    print("    (a few tens of pF is 'no load'; a few hundred is an ordinary cable run)")
 
     print("\n=== M4: C10 high-pass corner, input pole pinned at %.2f Hz ===" % F_INPUT_HP)
     for (unit, mode) in sorted(curves):

@@ -331,6 +331,22 @@ divider. The pot splits into two shunt arms that move in **opposite** directions
 - `Rb` = wiper → lug 3: in series with R8, shunts **OUT** to ground
 - `Ra + Rb = 500 kΩ` always; `R9` bridges E → OUT as the series arm
 
+⚠ **The output source impedance is ~92–139 kΩ, and it barely moves with VOLUME.** Looking back into
+the jack you see `(R8 + Rb)` in parallel with `(R9 + Z_E)`, and `R9` alone is 110 kΩ, so the pot
+cannot bring it down the way a conventional wiper-to-output divider would. Computed at the three
+captured knob positions, across drain drive impedances from the physical ~20 kΩ to an ideal current
+source, the whole range is 92–139 kΩ — a spread of 1.5× against a rotation that changes `Ra` by
+6×. Two consequences:
+
+- ⚠ **`docs/calibration-and-gain-staging.md` §4 ("output load: almost never worth modelling") does
+  NOT apply to this pedal.** Its arithmetic assumes a ~6 kΩ source impedance; this is 15–23× that,
+  which drags its "treble corner ~50 kHz" bullet down to **~3 kHz with 500 pF of ordinary cable**.
+  That section now carries an explicit exception pointing here.
+- ⚠ **Mirror of the input-side plugin-vs-pedal note in stage 1.** The plugin drives an ideal load,
+  so it will always be brighter in the top octave than the real pedal into a real cable. Note #7
+  measures one reference capture that carries a 3.2 kHz output-load pole. Decide explicitly whether
+  to model a load capacitance, and **A/B only against captures made through a known output chain**.
+
 ⭐ **This network is deliberately NON-MONOTONIC, and that is CORRECT — it reproduces the original
 EP-3's volume wiring.** Output rises from silence to a peak around 1–2 o'clock, then *falls back*
 a dB or two by full rotation. Confirmed against the pedal maker's own published description — see
@@ -624,13 +640,41 @@ the α = 0 reading of **1553 µS is a lower bound**; at `ro` = 200 kΩ–1 MΩ i
 Two branches whose poles sit an octave apart agree on K0 to 0.37 dB, which is a genuine
 cross-check rather than the same number read twice.
 
-**⚠ P2's capture cannot be used for absolute frequency response, and this is not a close call.**
-Its HF rolls off at −8.6 to −10.7 dB/octave through the top two octaves, reaching −24.6 dB at
-19.6 kHz. **No single RC can exceed −6 dB/octave**, and the pedal has exactly one audio-band HF pole
-(R3/C3), so this cannot be the circuit — it is that trainer's rig, which is what `build-plan.md` L3
-warns about. P1 and P3 — a different unit *and* a different trainer each — independently fit
-first-order low-passes at 6.7 kHz and 7.2 kHz against the drawn 7.3 kHz. **Two units confirm the
-input network; the third measures its own converter.** Use P1 or P3 for anything above ~2 kHz.
+**⚠ P2's capture cannot be used for absolute frequency response, and the mechanism is now
+identified: an output-load pole, NOT the VOLUME knob and NOT a converter.** Its HF rolls off at
+−8.6 to −10.7 dB/octave through the top two octaves. P1 and P3 — a different unit *and* a different
+trainer each — independently fit first-order low-passes at 6.7 kHz and 7.2 kHz against the drawn
+7.3 kHz, so two units confirm the input network and the third does not.
+
+Fitting each capture as the pedal's own 7.3 kHz input pole cascaded with **one** free extra pole
+localises it:
+
+| Capture | VOLUME | Extra pole | Fit residual | Load capacitance it implies |
+|---|---|---|---|---|
+| P1 dark | 10:30 | 30.2 kHz | 0.35 dB | 52 pF |
+| P3 mid | 10:00 | 40.2 kHz | 0.55 dB | 39 pF |
+| **P2 dark** | **2:30** | **3.2 kHz** | **0.05 dB** | **542 pF** |
+
+P2's is the *best* fit in the set, and 542 pF at ~92 kΩ is an entirely ordinary cable run — roughly
+five metres, or a couple of patch cables plus a reamp box. P1 and P3 need essentially nothing. Two
+cascaded first-order poles also explain the −8.6 to −10.7 dB/octave slope without invoking any
+higher-order converter filter, which is simpler and better supported than the "trainer's converter"
+reading this note first carried.
+
+⛔ **The VOLUME knob is ruled out as the cause, and it is worth recording why, because P2 is the
+only capture at a high volume setting so the question is a fair one.** The pedal's output impedance
+is nearly volume-independent (see stage 3): across the three captured positions AND every drain
+drive assumption from ~20 kΩ to an ideal current source, it spans 92–139 kΩ, a factor of **1.5**.
+The required load capacitance differs by a factor of **10**. Volume can therefore account for at
+most 1.5 of a 10× discrepancy. Worse for the hypothesis, under the physical ~20 kΩ drive the sign is
+backwards: 2:30 has the *lowest* output impedance of the three, so a capacitive load predicts P2
+should be the **brightest** capture, and it is by far the darkest. The input side cannot do it
+either — moving the input pole from 7.3 kHz to 3.2 kHz needs about 150 kΩ of extra source
+impedance, and reamp boxes drive well under 1 kΩ.
+
+➡ Use P1 or P3 for anything above ~2 kHz. **P2 remains the best capture in the set for the mode
+differential** (0.03–0.08 dB shelf residuals), because a post-JFET pole multiplies all three modes
+equally and cancels in the ratio.
 
 **⚠ The C10 / VOLUME corner is a real measurement of something, but it cannot arbitrate the taper.**
 Fitting it with the input network's own 6.5 Hz pole pinned (fitting two free poles is
