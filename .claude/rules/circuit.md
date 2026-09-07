@@ -255,8 +255,10 @@ Effective source impedance per position, `Zs = R5 ∥ (Rsw + 1/jωC)`, corner wh
 | **MIDDLE** | **DARK** | none (centre-off) | — | no bypass: R5 fully degenerating → lowest gain, flat |
 | **DOWN** | **MID** | C1 = 22 nF (lug 3) | 1/(2π·3.6 k·22 n) ≈ **2.01 kHz** | lift reaches down into the upper mids → fullest |
 
-**Confirmed 3-position ON-OFF-ON** (owner-supplied labelling: bright / dark / mid, "corresponding
-with the amount of treble in each position"). The centre "DARK" position is decisive evidence:
+**Confirmed 3-position ON-OFF-ON.** The maker calls it the "Exclusive 3-Way EQ 1970s Era EP3
+Mini-Toggle", naming the positions by era: **Early 1970s = BRIGHT · Late 1970s = DARK · Hybrid
+Early & Late = MID** — matching the owner's up/middle/down labelling by treble content. The centre
+"DARK" position is decisive evidence for the centre-off:
 *no-bypass is the only state this circuit can produce that has less treble than both cap positions*,
 and it only exists on a switch with a genuine centre-off. R1/R2 are therefore doing real work —
 holding both cap bottom nodes at ground so the centre position neither floats nor pops.
@@ -285,7 +287,11 @@ divider. The pot splits into two shunt arms that move in **opposite** directions
 - `Rb` = wiper → lug 3: in series with R8, shunts **OUT** to ground
 - `Ra + Rb = 500 kΩ` always; `R9` bridges E → OUT as the series arm
 
-⛔ **This network as drawn is NON-MONOTONIC — see "Validation notes" #1 before modelling it.**
+⭐ **This network is deliberately NON-MONOTONIC, and that is CORRECT — it reproduces the original
+EP-3's volume wiring.** Output rises from silence to a peak around 1–2 o'clock, then *falls back*
+a dB or two by full rotation. Confirmed against the pedal maker's own published description — see
+"Validation notes" #1, which also gives four calibration points for the taper fit. Do not
+"fix" it into a conventional divider.
 
 `C10` HP corner: into R10 ∥ (the volume network's input resistance), so it **moves with the volume
 setting** — roughly 1/(2π·75 k·100 n) ≈ **21 Hz** near the top of the range. It is not a fixed
@@ -316,6 +322,13 @@ It is a hard clamp, not a soft one: the multiplier's unloaded output comfortably
 the audio stage draws well under a mA, so the rail sits at the zener voltage. Model VA as a
 constant. **Do not model D1–D6, C5–C9 or IC1 as audio components.**
 
+✅ **Independently confirmed by the pedal maker**, who describes the supply as ramping 9 VDC to
+**26 VDC** and then regulating/filtering to **22 VDC** ("Vintage EP3 Power"). That matches the
+computed unloaded ladder output (`3 × 9 V − 4·Vf_Schottky ≈ 25–26 V`) and the D6 zener rating
+exactly, so both the multiplication factor and the rail are settled. The maker also specifies a
+**150–200 mA @ 9 V** supply requirement and warns never to feed it more than 9 V — irrelevant to
+the model, but it confirms the charge pump is the current-hungry part, not the audio stage.
+
 ⚠ The LT1054 pin-function mapping above is an *inference* from the drawn connections (the pin
 numbers and wires are read directly from the schematic and are reliable; the interpretation of what
 each pin does is not independently verified against a datasheet). It does not matter for the audio
@@ -341,33 +354,53 @@ Don't spend time refining it unless the supply itself is ever in question.
 
 ## Validation notes
 
-### 1. ⛔ OPEN — the VOLUME network as drawn is non-monotonic (needs arbitration before DSP)
+### 1. ✅ RESOLVED — the VOLUME network IS non-monotonic, and that is correct (do not "fix" it)
 
 Modelling the network exactly as drawn (wiper to ground, ends to node E and R8), driving node E
-from a ≈20 kΩ drain impedance, gives this control law:
+from a ≈20 kΩ drain impedance, gives this control law for the **network alone**:
 
 | Ra (lug 1 → wiper) | 0 | 10 k | 25 k | 50 k | 100 k | 150 k | **200 k** | 300 k | 400 k | 500 k |
 |---|---|---|---|---|---|---|---|---|---|---|
-| Output | −87 dB | −11.3 | −7.1 | −5.2 | −4.1 | −3.8 | **−3.8 (peak)** | −4.2 | −5.2 | −7.7 |
+| Network gain | −87 dB | −11.3 | −7.1 | −5.2 | −4.1 | −3.8 | **−3.8 (peak)** | −4.2 | −5.2 | −7.7 |
 
-The control **peaks near the middle of its travel and is ~4 dB quieter at full rotation** than at
-noon, with all the real attenuation crammed into the bottom ~10 %. That is not a shippable volume
-control, and the shape is unchanged if the drain is treated as an ideal current source instead —
-so it is not an artefact of my source-impedance assumption.
+It peaks around 35–40 % of `Ra` and falls back by full rotation, with all the real attenuation in
+the bottom ~10 %. The shape is unchanged if the drain is treated as an ideal current source, so it
+is not an artefact of the source-impedance assumption.
 
-Three possibilities, in my order of likelihood:
-1. **The schematic has a drawing error** — most likely the wiper and one end lug are swapped. The
-   conventional reading (node E → lug 1, **wiper → R9**, lug 3 → GND, R8 as an output shunt) gives
-   a normal monotonic control: 0 → −6 dB at full, −∞ at zero. Every component value stays identical.
-2. The real pedal is wired the conventional way and this trace is simply inaccurate.
-3. It is genuinely as drawn (unlikely — nobody ships a volume knob that gets quieter past noon).
+**This was initially flagged as a probable schematic drawing error. It is not.** The pedal maker's
+published description of the control matches the computed curve point-for-point:
 
-**Do not model this until it is resolved.** Resolving it needs one of: a look inside the real
-pedal / the Chase Tone build doc, a second independent trace, or — best — a **capture of the real
-pedal sweeping VOLUME alone** with everything else fixed, which settles it directly and is worth
-doing anyway for the taper fit (`dsp.md`, matched-pair captures). If it turns out to be #1/#2,
-correct the node graph in "Stage 3" above and note the correction here rather than leaving both
-readings in play.
+> FULL COUNTER-CLOCKWISE = NO SIGNAL · 10 to 11 o'clock = UNITY GAIN (depends upon EQ setting) ·
+> 1 to 2 o'clock = 3 dB+ MAXIMUM OUTPUT BOOST · 3 to 5 o'clock = 1 or 2 dB with FLAT EQ
+> — "*Wired just like an original EP3*"
+
+Silence at full CCW, a peak short of full rotation, and a deliberate fall-back past it are all
+reproduced by the as-drawn topology and by nothing else. **Model it exactly as drawn.** A
+conventional wiper-to-output divider would be monotonic and therefore wrong.
+
+⭐ **This gives four free calibration points for the taper fit — use them.** `dsp.md` asks for at
+least two knob positions to constrain a taper's shape; the maker's notes supply four across the
+full range, before any capture is made:
+
+| Knob position | Rotation (7→5 o'clock sweep) | Target output |
+|---|---|---|
+| Full CCW | 0 % | −∞ (no signal) |
+| 10–11 o'clock | ≈ 25–33 % | 0 dB (unity) |
+| 1–2 o'clock | ≈ 58–67 % | **+3 dB (maximum)** |
+| 3–5 o'clock | ≈ 75–100 % | +1 to +2 dB |
+
+The peak of the *network* sits at `Ra` ≈ 35–40 % of 500 k; for that to land at 1–2 o'clock
+(≈60–65 % rotation) the 500 kA audio taper must rise slowly early — consistent with a standard
+audio law. **Fit the taper so the peak lands at 1–2 o'clock**, then check the other three points.
+Treat these as a sanity oracle, not gospel: they are marketing copy, rounded, and explicitly
+qualified with "depends upon EQ setting". A real VOLUME sweep capture still supersedes them.
+
+📌 **A level anchor falls out of this, and it disagrees with nominal-SPICE by several dB.** If the
+whole pedal is +3 dB at the volume peak while the network there is −3.8 dB and the input network
+−0.9 dB, the JFET stage's own voltage gain must be ≈ **+7 to +8 dB** (≈2.4–2.5×). A naive
+nominal-2N5457 estimate gives ~+12 dB unbypassed, i.e. **~4 dB hotter than the real pedal**.
+Expect the fitted `gm` to come out well below nominal — unsurprising given the maker specifies a
+"cherry picked" vintage device (see #4). Use this as a coarse cross-check on the fit, not a target.
 
 ### 2. ✅ RESOLVED — MODE is a 3-position ON-OFF-ON: BRIGHT / DARK / MID
 
@@ -393,12 +426,22 @@ hardware. Note that this is deliberately *not* ordered by brightness; it is orde
 Confirm which physical rotation direction moves the wiper toward lug 3 (i.e. that CW = louder).
 This is a wiring/`taper` detail that a capture sweeping VOLUME will settle at the same time as #1.
 
-### 4. Values resolved by judgement
+### 4. Values resolved by judgement, and the parts the maker specifies
 
-None — every R and C value on this board is legible directly from `schematic.png` and has been
-transcribed above as drawn. The only *inferences* recorded anywhere in this file are the LT1054
-pin-function mapping (immaterial — see "Power supply") and the DC bias estimate in stage 2
-(explicitly flagged as fit-to-capture, not to be trusted as a number).
+Every R and C value on this board is legible directly from `schematic.png` and has been transcribed
+above as drawn — none needed judgement. The only *inferences* recorded anywhere in this file are the
+LT1054 pin-function mapping (immaterial — see "Power supply") and the DC bias estimate in stage 2
+(explicitly flagged as fit-to-capture).
+
+Two build details the maker states that affect how much the nominal part numbers are worth:
+- **"Vintage 1970s JFET cherry picked to cream-of-the-crop specs."** Q1 is a hand-selected vintage
+  device, not a nominal 2N5457. This *strengthens* the §2 warning: nominal SPICE was already
+  untrustworthy across a 5:1 production spread, and deliberate selection moves the part somewhere
+  specific within (or beyond) it. **Fit every amplitude parameter to captures; treat the datasheet
+  as a sanity range only.** The ~4 dB gain discrepancy noted in #1 is consistent with this.
+- **"Accurate Vintage Spec, Aged Carbon Film Resistors."** Not modellable and not worth modelling —
+  a resistor's value is its value. Noted only so a later session doesn't mistake the marketing for
+  a circuit difference.
 
 ### 5. Things to measure on the real pedal, in priority order
 

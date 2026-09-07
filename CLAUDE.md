@@ -128,11 +128,12 @@ high, execute routine work cheap) is what should persist.
 ## Current step
 
 > Update this at the start/end of each session so progress doesn't rely on conversation history.
-> **CURRENT: Step 1 (Schematic analysis) — DONE except one blocker. `schematics/schematic.png` is
-> traced and `.claude/rules/circuit.md` is fully filled in (values, node graphs, triage, corners).
-> Project builds; AU installs with the placeholder pass-through DSP.
-> BLOCKED on circuit.md "Validation notes" #1 before DSP: the VOLUME network is non-monotonic as
-> drawn. Next: resolve that, fetch a 2N5457 datasheet into `docs/refs/`, then step 2.**
+> **CURRENT: Step 1 (Schematic analysis) — COMPLETE, no open blockers.
+> `schematics/schematic.png` is traced and `.claude/rules/circuit.md` is fully filled in (values,
+> node graphs, triage, corners, validation targets). Both open questions resolved against the
+> maker's published notes. Project builds; AU installs with the placeholder pass-through DSP.
+> NEXT: fetch a 2N5457 datasheet into `docs/refs/`, then step 2 (CMake scaffold → APVTS params
+> matching the real controls: VOLUME + 3-way EQ).**
 
 ## Project-specific carry-forwards
 
@@ -152,10 +153,16 @@ high, execute routine work cheap) is what should persist.
 - **MODE = 3-position ON-OFF-ON**, labelled by treble content: **up BRIGHT** (C2 10 nF, corner
   ≈4.4 kHz) / **middle DARK** (no bypass — flat, lowest gain) / **down MID** (C1 22 nF, corner
   ≈2.0 kHz). Both cap positions reach the same HF plateau; they differ in *where the lift starts*.
-- ⛔ **OPEN BLOCKER — the VOLUME network is non-monotonic as drawn** (peaks ≈ −3.8 dB at noon,
-  −7.7 dB fully up, all real attenuation in the bottom ~10%). Almost certainly a schematic drawing
-  error — most likely the wiper and an end lug swapped. See circuit.md "Validation notes" #1; do
-  not model it until arbitrated.
+- ⭐ **The VOLUME control is deliberately NON-MONOTONIC — this is correct, do not "fix" it.** The
+  wiper grounds and both end lugs feed signal nodes, reproducing the original EP-3 wiring: silence
+  full CCW, **peak boost at 1–2 o'clock**, then falling back 1–2 dB by full rotation. I initially
+  flagged this as a probable schematic error; the maker's published control description matches the
+  computed curve point-for-point and refutes that. See circuit.md "Validation notes" #1.
+- **Free taper-calibration targets (from the maker's notes):** full CCW = no signal · 10–11 o'clock
+  = unity · 1–2 o'clock = +3 dB max · 3–5 o'clock = +1–2 dB. Fit the 500 kA taper so the network's
+  peak lands at 1–2 o'clock. Marketing copy — a real VOLUME sweep capture supersedes it.
+- 📌 **Level anchor:** those figures imply the JFET stage's own gain is ≈ **+7–8 dB**, about 4 dB
+  *below* a nominal-2N5457 estimate. Expect fitted `gm` under nominal — the maker specifies a
+  "cherry picked" vintage JFET, so nominal SPICE is even less trustworthy than the usual 5:1 spread.
 - 📌 **TODO before DSP:** fetch a 2N5457 datasheet into `docs/refs/` (the template ships only a
-  J201 one). Device spread is IDSS 1–5 mA / Vgs(off) −0.5…−6 V, so every amplitude parameter must
-  be fitted to captures, never calculated from nominals.
+  J201 one) — as a sanity range, not a source of parameters.
