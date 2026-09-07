@@ -143,6 +143,10 @@ clean preamp; the JFET's square-law curvature, not a clipper, is the entire nonl
   and the polarity are trustworthy in advance. This matters more than usual here, since the maker
   states Q1 is a "cherry picked" vintage part (see "Validation notes" #4), not a random production
   sample — don't assume it lands near the datasheet's typ column.
+- ✅ **`gm` is now MEASURED (note #7): 1.5–1.7 mS, i.e. gm·R5 ≈ 5.6–6.2 and K0 = 1 + gm·R5 ≈ 6.6–7.2.**
+  Two units agree to 0.34 dB. That sits comfortably inside the datasheet's 1000–5000 µS band, near
+  its low end but **above** the typical self-bias solve's 813 µS — so "cherry picked" did not mean
+  "unusually weak". Only `gm` is pinned; the bias point and the shaper's curvature are still open.
 - ✅ Datasheet fetched to `docs/refs/onsemi_2N5457-2N5458_datasheet.pdf` (onsemi, Rev. 6, Feb 2010).
 
 ### Parts triage vs `docs/nonlinear-component-modeling.md` §0
@@ -279,11 +283,15 @@ want the sub-Hz behaviour exactly right).
 
 Effective source impedance per position, `Zs = R5 ∥ (Rsw + 1/jωC)`, corner where `|Zc| = R5`:
 
-| Lever | Label | Branch grounded | Bypass corner | Character |
-|---|---|---|---|---|
-| **UP** | **BRIGHT** | C2 = 10 nF (lug 1) | 1/(2π·3.6 k·10 n) ≈ **4.42 kHz** | lift confined to the top octaves → brightest balance |
-| **MIDDLE** | **DARK** | none (centre-off) | — | no bypass: R5 fully degenerating → lowest gain, flat |
-| **DOWN** | **MID** | C1 = 22 nF (lug 3) | 1/(2π·3.6 k·22 n) ≈ **2.01 kHz** | lift reaches down into the upper mids → fullest |
+| Lever | Label | Branch grounded | Bypass corner (drawn) | Bypass corner (MEASURED) | Character |
+|---|---|---|---|---|---|
+| **UP** | **BRIGHT** | **C1 = 22 nF (lug 3)** | 1/(2π·3.6 k·22 n) ≈ 2.01 kHz | **1.86 kHz** | lift reaches down into the upper mids → louder and brighter at every frequency |
+| **MIDDLE** | **DARK** | none (centre-off) | — | — | no bypass: R5 fully degenerating → lowest gain, flat |
+| **DOWN** | **MID** | **C2 = 10 nF (lug 1)** | 1/(2π·3.6 k·10 n) ≈ 4.42 kHz | **4.17 kHz** | lift confined to the top octaves |
+
+⚠ **The lever↔cap mapping in this table is the REVERSE of what this file assumed until 2026-09-07.**
+It is now measured, not inferred — see note #2. Do not "correct" it back on the reasoning that a
+22 nF cap ought to be the one called "mid".
 
 **Confirmed 3-position ON-OFF-ON.** The maker calls it the "Exclusive 3-Way EQ 1970s Era EP3
 Mini-Toggle", naming the positions by era: **Early 1970s = BRIGHT · Late 1970s = DARK · Hybrid
@@ -293,11 +301,17 @@ Early & Late = MID** — matching the owner's up/middle/down labelling by treble
 and it only exists on a switch with a genuine centre-off. R1/R2 are therefore doing real work —
 holding both cap bottom nodes at ground so the centre position neither floats nor pops.
 
-⚠ **Note both cap positions reach the SAME HF plateau gain** (fully bypassed above their corners).
-BRIGHT vs MID is not "more treble vs less treble" at the top — it is *where the lift starts*: the
-22 nF lifts the 2–4.4 kHz upper-mid band as well, which reads as "mid"; the 10 nF leaves that band
-alone, so the same top-end lift reads as "bright". Don't model BRIGHT as a higher-gain version of
-MID — that's a different (and wrong) shape. See "Validation notes" #2 for the one residual unknown.
+✅ **Both cap positions reach the SAME HF plateau — now MEASURED, not assumed.** Fitting each
+mode-versus-DARK differential as a first-order shelf gives a plateau of 16.39 / 16.02 dB (P1) and
+16.75 / 16.35 dB (P2) for the 22 nF / 10 nF branches — the two branches agree to 0.37 dB despite
+their poles sitting an octave apart (12.6 kHz vs 26.8 kHz). BRIGHT vs MID is *where the lift starts*,
+not how far it goes. Don't model one as a higher-gain version of the other — that's a different (and
+wrong) shape.
+
+⚠ **Neither shelf has settled anywhere inside the audio band.** The pole sits at K0 × the zero, and
+K0 ≈ 6.6, so the plateau is reached at ~12.6 kHz (BRIGHT) and ~26.8 kHz (MID — above Nyquist at
+48 kHz). Any measurement that reads a "plateau" from an 8–10 kHz band average is reading a point on
+the transition, and will report both corners in the wrong place. Fit the shelf; don't threshold it.
 
 ### Stage 3 — Output / VOLUME network (**Linear**, but a genuine bridged network — NOT a divider)
 
@@ -471,12 +485,28 @@ only p ≈ 1.4, so the two questions are coupled and must be fitted together.
 Treat these as a sanity oracle, not gospel: they are marketing copy, rounded, and explicitly
 qualified with "depends upon EQ setting". A real VOLUME sweep capture still supersedes them.
 
-📌 **A level anchor falls out of this, and it disagrees with nominal-SPICE by several dB.** If the
-whole pedal is +3 dB at the volume peak while the network there is −3.8 dB and the input network
-−0.9 dB, the JFET stage's own voltage gain must be ≈ **+7 to +8 dB** (≈2.4–2.5×). A naive
-nominal-2N5457 estimate gives ~+12 dB unbypassed, i.e. **~4 dB hotter than the real pedal**.
-Expect the fitted `gm` to come out well below nominal — unsurprising given the maker specifies a
-"cherry picked" vintage device (see #4). Use this as a coarse cross-check on the fit, not a target.
+📌 ⛔ **This paragraph used to derive a level anchor from the maker's copy. MEASUREMENT HAS NOW
+REFUTED IT — the whole inference is struck out, and the reasoning is kept only so it is not
+re-derived.** The argument was: if the pedal is +3 dB at the volume peak while the network is
+−3.8 dB and the input network −0.9 dB, the JFET stage must be ≈ +7 to +8 dB, which is ~4 dB *below*
+a nominal-2N5457 estimate — so expect the fitted `gm` well **below** nominal.
+
+Note #7 measures the degeneration factor directly, and it comes out **K0 ≈ 6.6**, i.e. gm ≈ 1.5–1.7 mS
+— roughly **twice** the nominal-typical 813 µS, and about **nine times** the ~180 µS this marketing
+inference implied. The DARK stage gain that K0 implies is **+10.9 dB at VOLUME 10:30 and +12.5 dB at
+2:30** (it moves because the load `ZL = R6 ∥ Z_E` moves with the pot), which brackets the "naive
+nominal-2N5457 estimate" this paragraph dismissed. Note that gain is *derived*, not measured — L2
+still applies, there is no absolute anchor — but it is derived from a measured ratio via
+`Av_dark = ZL·(K0−1)/(R5·K0)`, which is independent of `ro`. **Expect fitted `gm` ABOVE nominal
+typical, not below.**
+
+That makes this the *second* independent axis on which the maker's published control points fail
+(the first is the 3.9 dB versus 1–2 dB fall-back in the ⚠ block above). **Demote them from
+"free calibration targets" to rough shape hints.** The one claim of theirs still in load-bearing use
+is the *position* of the volume peak at 1–2 o'clock, which is what fixes `p ≈ 2.0`; that is a
+position claim, structurally independent of the level claims that just failed, so it stands for now
+— but it is now the last unverified thing holding up the taper, and the VOLUME sweep capture
+(§5 measurement #1) is the only thing that can confirm it.
 
 ### 2. ✅ RESOLVED — MODE is a 3-position ON-OFF-ON: BRIGHT / DARK / MID
 
@@ -485,13 +515,47 @@ the owner's labelling: **up = BRIGHT, middle = DARK, down = MID**, ordered by tr
 centre "DARK" label settles it — an unbypassed R5 is the only state with less treble than either
 cap position, and it requires a genuine centre-off. Modelled as three topologies (see stage 2b).
 
-**Residual unknown (minor, mechanical):** which lug the lever's UP position actually closes. A
-standard toggle connects the common to the lug *opposite* the lever throw, and the lug-to-PCB
-mapping depends on how the switch is mounted — so "up = 10 nF (lug 1)" is inferred from the
-electrical meaning of the labels, not traced. It does not affect the DSP (three topologies either
-way), only which APVTS choice index maps to which cap. Confirm by ear or from one capture per
-position before shipping the parameter, since `architecture.md` warns that reordering an
-`AudioParameterChoice` after release breaks saved sessions silently.
+### ✅ RESOLVED 2026-09-07 by measurement — and the lever↔cap mapping is the OPPOSITE of the guess
+
+The residual unknown recorded here used to read: *"up = 10 nF (lug 1)" is inferred from the
+electrical meaning of the labels, not traced.* Build-plan M1 has now measured it, and the inference
+was wrong.
+
+Method: within one unit the three MODE captures differ in exactly one thing, so the mode-minus-DARK
+magnitude ratio cancels rig gain, converter response and unit variance. Theory says that ratio is
+exactly a first-order shelf, `(1 + s·R5·C) / (1 + s·R5·C/K0)`, with its zero at the drawn bypass
+corner. Fitting that two-parameter shelf over 150 Hz–20 kHz:
+
+| Capture | Fitted zero | Fitted pole | Plateau | Fit residual |
+|---|---|---|---|---|
+| P1 "bright" | 1876 Hz | 12381 Hz | 16.39 dB | 0.25 dB RMS |
+| P1 "mid" | 4326 Hz | 27350 Hz | 16.02 dB | 0.24 dB RMS |
+| P2 "bright" | 1853 Hz | 12739 Hz | 16.75 dB | 0.08 dB RMS |
+| P2 "mid" | 4005 Hz | 26302 Hz | 16.35 dB | 0.03 dB RMS |
+
+**The BRIGHT position carries the ~1.86 kHz zero, so BRIGHT engages C1 = 22 nF; MID carries the
+~4.17 kHz zero, so MID engages C2 = 10 nF.** Both units agree, from two different trainers, with
+sub-0.3 dB fit residuals. `JfetStage::bypassCap()` was swapped to match; the `Mode` enum ORDER was
+deliberately left alone, because it is the APVTS choice index and `architecture.md` forbids
+reordering that.
+
+⭐ **The label reasoning that produced the wrong guess is worth remembering.** This file argued the
+22 nF "lifts the 2–4.4 kHz upper-mid band as well, which reads as *mid*". That is a real perceptual
+description of the band it adds — but the 22 nF branch sits **above** the 10 nF branch at *every*
+frequency until the two converge, so it is also unambiguously the brighter and louder of the two
+positions. An aesthetic argument about which band a filter emphasises lost to a two-parameter fit.
+The stored NAM loudness metadata pointed the same way all along (Bright > Mid > Dark in both units),
+which `docs/build-plan.md` flagged as a hypothesis worth ten minutes; it was right.
+
+⚠ **A separate, smaller discrepancy fell out of the same fit: the measured zeros are ~7% BELOW the
+drawn ones**, consistently — 1864 Hz mean vs 2010 Hz drawn, 4166 Hz mean vs 4421 Hz drawn. The zero
+depends only on the product R5·C, and the two branches imply the same R5 to within 1.6%, so this is
+one common offset rather than two independent cap tolerances. Either R5 measures ≈ 3.85 kΩ, or both
+caps run ≈ 7% high (one parts bin across a maker's build run would do it). **`schematic.png` was
+re-read at high zoom: R5 is unambiguously "3k6", so this is not a transcription error.** The
+measured cap RATIO is 2.24 against 2.20 drawn, i.e. C1/C2 is confirmed. Model the shelf from the
+measured (τ, K0) pair rather than arguing which component carries the 7% — the DSP consumes only
+those two numbers per mode, and this dataset cannot separate R5 from C.
 
 **For the UI/APVTS:** order the choice list to match the physical lever top-to-bottom —
 `["Bright", "Dark", "Mid"]` — so the on-screen `ThreePositionSwitch` reads the same way as the
@@ -529,6 +593,107 @@ Two build details the maker states that affect how much the nominal part numbers
 3. **Harmonic spectrum at 2–3 input levels** (low-frequency tone) — fits the JFET shaper: confirms
    the expected even-dominant square-law signature and the sign of the cubic (§2 findings a/b).
 4. **Bypass/unity anchor capture** — needed for `kInputRef` and output-makeup calibration.
+
+### 7. ✅ Phase-1 characterisation against the NAM captures (2026-09-07) — what measurement settled
+
+Run by `analysis/phase1_characterization.py`; raw numbers in `analysis/reports/phase1_characterization.json`.
+Seven NAM renders, three physical units, three trainers. Read `docs/build-plan.md` §1 limits L1–L3
+first — several results below are limited by the *dataset*, not by the pedal.
+
+**The single most important method finding.** The first pass read every corner as a naive "−3 dB
+below the plateau" threshold and produced four plausible-looking scalars, **every one of them wrong,
+including one that inverted the MODE verdict.** The cause is structural, not sloppiness: on this
+pedal nothing reaches a plateau inside the audio band (the mode shelf's pole is at K0 × its zero,
+so 12.6–26.8 kHz), so an 8–10 kHz "plateau" window normalises each branch to a different point on
+its own transition. **Fit a model to the continuous curve and report the residual.** A fit that is
+wrong shows a bad residual; a threshold that is wrong just returns a number.
+
+| Measurement | Predicted here | Measured | Verdict |
+|---|---|---|---|
+| MODE shelf zeros | 2010 / 4421 Hz | 1864 / 4166 Hz | ✅ topology right, labels swapped, R5·C 7% high (note #2) |
+| `K0 = 1 + gm·R5` | 3.93 at nominal gm | **6.59** (P1 6.46, P2 6.72) | ⭐ gm ≈ 1.5–1.7 mS, ~2× nominal |
+| Input LP corner | ~7.3 kHz | 6.7 kHz (P1), 7.2 kHz (P3) | ✅ confirmed twice; **P2 unusable, see below** |
+| C10 HP corner | 24.4 / 13.3 / 28.5 Hz | 43.8 / 26.2 / 37.9 Hz | ⚠ 1.3–2.0× high, confounded — do NOT act on it |
+| Harmonics | even-dominant, square law | H2 −47 dBc rising 0.75 dB/dB | ✅ confirmed; H3 unmeasurable |
+
+**⭐ `gm` came out of a ratio, exactly as planned, and it is the session's real deliverable.** The
+mode-versus-DARK shelf's plateau is `K0 = 1 + gm·R5` for an ideal Norton drain, and `R5` is known,
+so `gm` needs no level calibration and dodges limits L1 and L2 entirely. Measured K0 = 6.59 ± 0.13
+across two units. With a finite `ro` the true `gm·R5 = (K0−1)(1 + ZL/ro)` is slightly *larger*, so
+the α = 0 reading of **1553 µS is a lower bound**; at `ro` = 200 kΩ–1 MΩ it lands at 1.58–1.71 mS.
+Two branches whose poles sit an octave apart agree on K0 to 0.37 dB, which is a genuine
+cross-check rather than the same number read twice.
+
+**⚠ P2's capture cannot be used for absolute frequency response, and this is not a close call.**
+Its HF rolls off at −8.6 to −10.7 dB/octave through the top two octaves, reaching −24.6 dB at
+19.6 kHz. **No single RC can exceed −6 dB/octave**, and the pedal has exactly one audio-band HF pole
+(R3/C3), so this cannot be the circuit — it is that trainer's rig, which is what `build-plan.md` L3
+warns about. P1 and P3 — a different unit *and* a different trainer each — independently fit
+first-order low-passes at 6.7 kHz and 7.2 kHz against the drawn 7.3 kHz. **Two units confirm the
+input network; the third measures its own converter.** Use P1 or P3 for anything above ~2 kHz.
+
+**⚠ The C10 / VOLUME corner is a real measurement of something, but it cannot arbitrate the taper.**
+Fitting it with the input network's own 6.5 Hz pole pinned (fitting two free poles is
+ill-conditioned) is clean — 0.03–0.15 dB residuals, and within a unit the three MODE captures agree
+to 7%, which they must, since MODE does not touch C10. Yet every unit reads high: ×1.75–1.88 (P1),
+×1.95–2.00 (P2), ×1.33 (P3). Before revising anything, note what the confound is:
+
+- **Volume is 1:1 confounded with unit AND trainer.** Every volume position in this dataset is a
+  different pedal recorded through a different rig, and unlike the MODE differential there is no
+  ratio that cancels the rig. Every rig has its own LF response, and it can only push a corner *up*
+  — which is the direction all three err.
+- **The confound is demonstrably the same size as the signal.** P1 (10:30) and P3 (10:00) sit at
+  nearly the same predicted corner, 24.4 vs 28.5 Hz — a 17% circuit difference. They measure 43.8
+  vs 37.9 Hz: 16% apart **in the opposite order**. Two rigs at one knob position disagree by as much
+  as the knob itself moves across that range.
+- **It is not a taper error.** Back-solving `Ra` from each measured corner and fitting `Ra = 500k·xᵖ`
+  needs p = 3.2, 7.8 and 2.5 for the three points. A wrong exponent would give one consistent p; a
+  rig-dominated residual gives three that disagree, which is what we have.
+- **It is not the NAM models failing at LF.** The known-answer probe below bounds their LF error at
+  0.6 dB, and a 24 Hz-versus-44 Hz corner is a 4.5 dB difference at 20 Hz.
+
+➡ **Keep `p ≈ 2.0`. Do not retune the taper, the drive impedance, or C10 from this.** Record the
+measured corners as observed and settle it with the two-way pedal's VOLUME sweep (`build-plan.md` §7),
+which is a *within-rig* sweep and therefore the only measurement that can separate these.
+
+⭐ **A known-answer probe for the NAM models themselves, which cost nothing and should be reused.**
+Below its shelf zero, every MODE position has `Zs = R5` (the unselected branch's 1 MΩ shifts it by
+under 0.5%), so **every mode differential must read exactly 0.00 dB below ~200 Hz.** Whatever it
+reads instead is that model's own error, measured with no reference capture and no assumptions.
+P2 comes back at ≤ 0.20 dB; P1 at ≤ 0.60 dB. That is the LF noise floor of this dataset, and it is
+what rules out the "NAM cannot do low frequencies" explanation above. Build one of these wherever
+the circuit forces an answer you already know.
+
+**M5 — even-dominance confirmed, but the cubic is NOT settled, and a floor audit is why.** In every
+capture, at every probe frequency, **H4 comes back above H3.** That is impossible for a mild
+polynomial nonlinearity, so everything above H2 is the NAM model's error floor (≈ −57 dBc for P1,
+≈ −77 dBc for P2) and no cubic can be read off it. What survives: on P2, H2 rises **0.75 dB per dB**
+of input across the top four level cells and reaches −47.6 dBc — a square law gives 1.0 dB/dB, so
+this is the real quadratic. On P1, H2 does not move with level at all, so P1's harmonic data is
+floor throughout and must not be fitted. Compression is under 0.01 dB until the very top cell, then
+−0.09 dB (Dark) and −0.18 to −0.35 dB (Bright); **more compression in Bright at the same input is
+the right sign**, since bypassing the source lets the full input swing appear across the gate-source
+junction. So: the cubic reads **compressive**, on the fundamental's own gain only, and its magnitude
+cannot be fitted here. ⛔ `nonlinear-component-modeling.md` §2 finding (b) — check the sign of the
+cubic before choosing a limiter — is **only weakly answered**; treat it as provisional.
+⚠ Do not fit the shaper to a straight line through the whole compression ladder: the curve is flat
+and then bends in the last cell, so a linear fit dilutes a real 0.1–0.35 dB knee into ≈ 0.001 dB/dB
+and reads as noise. The first pass did exactly that.
+
+**M6 — the pass/fail band must come from the differential, not the absolute response.** P1 versus P2
+in DARK, level-normalised, spans **13.8 dB** at 18 kHz. That is almost entirely the P2 rig problem
+above, not two pedals disagreeing. On the rig-cancelling mode differential the same two units agree
+to **0.28 dB mean, 0.33 dB RMS, 0.67 dB worst** across 20 Hz–20 kHz. ➡ **Set the project tolerance
+from ~0.3 dB RMS / ~0.8 dB peak on the mode differential.** There is no measurement of absolute
+unit-to-unit spread in this dataset and there cannot be one — three units means three rigs.
+📌 This also answers `build-plan.md` §9.2's open question: `FeatureProfile`'s `kHfBudgetDb` should
+**not** be widened. The 13.8 dB top-octave figure is rig, and real units agree to ~0.5 dB at 10 kHz.
+
+**One bookkeeping correction.** `docs/build-plan.md` §1's table had the two units swapped. The
+folders and the `.nam` metadata agree: **P1 = thelamehorse, VOLUME 10:30** and **P2 = danielnguyen,
+VOLUME 2:30**. The capture filenames on disk were right; the table was not. §4's instruction to
+"anchor absolute response to P1" was written meaning danielnguyen's unit — which is the one whose
+rig response just disqualified it for exactly that job. See `build-plan.md` §4.
 
 ### 6. ✅ Topology re-verification pass (2026-09-07) — what was checked and what changed
 

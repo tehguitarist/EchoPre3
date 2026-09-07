@@ -81,9 +81,9 @@ int main()
     //    lift starts -- modelling Bright as a louder Mid is a different and wrong shape.
     std::printf("\n1/k(s) shelf per MODE (normalised by gm):\n");
     struct ModeCase { const char* name; pedal::dsp::Mode mode; double cap; };
-    const ModeCase cases[] = { { "Bright", dsp::Mode::Bright, circuit::kC2 },
+    const ModeCase cases[] = { { "Bright", dsp::Mode::Bright, circuit::kC1 },
                                { "Dark",   dsp::Mode::Dark,   0.0 },
-                               { "Mid",    dsp::Mode::Mid,    circuit::kC1 } };
+                               { "Mid",    dsp::Mode::Mid,    circuit::kC2 } };
 
     for (const auto& c : cases)
     {
@@ -145,13 +145,13 @@ int main()
     //     degeneration is gone either way. BRIGHT vs MID is only about WHERE the lift starts, so
     //     modelling Bright as a higher-gain Mid would be a different and wrong shape. Checked
     //     analytically, because the plateau is approached asymptotically and 40 kHz is not there yet
-    //     (Bright is legitimately still at 0.92 of it).
+    //     (MID, the 10 nF branch, has the higher zero and so is the one still short of it there).
     std::printf("\nBoth cap positions converge on one plateau (BRIGHT is not a louder MID):\n");
     for (const double f : { 40.0e3, 200.0e3, 1.0e6 })
         std::printf("  %7.0f kHz: Bright %.5f, Mid %.5f\n", f / 1000.0,
-                    std::abs(analyticShelf(f, circuit::kC2, k0)), std::abs(analyticShelf(f, circuit::kC1, k0)));
-    const double plateauRatio = std::abs(analyticShelf(1.0e6, circuit::kC2, k0))
-                              / std::abs(analyticShelf(1.0e6, circuit::kC1, k0));
+                    std::abs(analyticShelf(f, circuit::kC1, k0)), std::abs(analyticShelf(f, circuit::kC2, k0)));
+    const double plateauRatio = std::abs(analyticShelf(1.0e6, circuit::kC1, k0))
+                              / std::abs(analyticShelf(1.0e6, circuit::kC2, k0));
     if (std::abs(db(plateauRatio)) > 0.01)
         fail("Bright and Mid do not share a plateau");
 

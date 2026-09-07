@@ -15,9 +15,14 @@ same `HHMM` convention `analysis/analyze.py:parse_filename` already parses.
 
 | Unit | Trainer | VOLUME | Modes present | Stored loudness (LUFS) |
 |---|---|---|---|---|
-| **P1** | `danielnguyen` | 2:30 | Bright, Mid, Dark | −18.50 / −19.83 / −20.27 |
-| **P2** | `thelamehorse` | 10:30 | Bright, Mid, Dark | −21.63 / −24.40 / −26.04 |
+| **P1** | `thelamehorse` | 10:30 | Bright, Mid, Dark | −21.63 / −24.40 / −26.04 |
+| **P2** | `danielnguyen` | 2:30 | Bright, Mid, Dark | −18.50 / −19.83 / −20.27 |
 | **P3** | (unnamed) | 10:00 | Mid only | −15.94 |
+
+⚠ **Corrected 2026-09-07: this table originally had P1 and P2 swapped.** The folders
+(`~/Downloads/Pedal 1 - 1030`, `Pedal 2 - 1430`), the `.nam` `modeled_by` metadata and the capture
+filenames in `analysis/captures/` all agree with the table as it now stands — only the table was
+wrong. Anywhere below that says "P1" was written meaning danielnguyen's unit; §4 is corrected.
 
 All seven share one architecture: TONE3000 `SlimmableContainer` wrapping two WaveNet submodels
 (`max_value` 0.5 and 1.0), 48 kHz, receptive field **6347 samples = 132 ms**.
@@ -145,6 +150,54 @@ chasing 0.5 dB against either one is measuring noise.
 
 ---
 
+### 3b. Phase 1 — RESULTS (2026-09-07). M1–M6 are complete; two of the six changed the plan.
+
+Full write-up in `.claude/rules/circuit.md` note #7; raw numbers in
+`analysis/reports/phase1_characterization.json`; the script is `analysis/phase1_characterization.py`.
+Headlines only here:
+
+| | Result | Consequence |
+|---|---|---|
+| **M0** | Reinterpreted: no bypass render exists to null against, so it is an alignment/length pass plus a new known-answer LF probe. All seven full length, lag +3..+19 samples. | none |
+| **M1** | ⭐ **Labels swapped.** BRIGHT = C1 22 nF (zero 1.86 kHz), MID = C2 10 nF (zero 4.17 kHz). Both units, shelf fits to ≤0.25 dB. | `JfetStage::bypassCap()` swapped; enum order untouched |
+| **M2** | ⭐ **K0 = 1 + gm·R5 = 6.59**, so gm ≈ 1.5–1.7 mS — about **2× the nominal placeholder**, not below it. | unblocks step 4b and §9.3 |
+| **M3** | Input LP confirmed at 6.7 kHz (P1) and 7.2 kHz (P3) vs 7.3 kHz drawn. **P2 disqualified** for absolute HF. | §4 anchor reversed |
+| **M4** | C10 corner measures 1.3–2.0× high in all three, but volume is 1:1 confounded with unit and rig. | **do not retune the taper** |
+| **M5** | Even-dominance confirmed (H2 rises 0.75 dB/dB). H3 is under the models' error floor. | cubic sign only weakly settled |
+| **M6** | Tolerance band = **0.33 dB RMS / 0.8 dB peak on the mode differential.** The 13.8 dB absolute figure is rig, not units. | `kHfBudgetDb` stays tight |
+
+**The method lesson, which is the durable part.** The first pass extracted every corner as a naive
+"−3 dB below the plateau" threshold and returned four plausible scalars, all wrong, one of them
+inverting M1. Nothing on this pedal reaches a plateau inside the audio band — the mode shelf's pole
+sits at K0 × its zero, i.e. 12.6–26.8 kHz — so an 8–10 kHz "plateau" window normalises each branch
+to a different point on its own transition. **Fit a model and report its residual.** A wrong fit is
+visible as a bad residual; a wrong threshold just returns a number.
+
+**What phase 1 could NOT deliver, and why it is the dataset rather than the analysis.** Anything
+requiring an absolute or cross-unit level: L1 and L2 stand untouched. Beyond those, M4 found a third
+confound the plan did not anticipate — **the LF corner is rig-sensitive, so it is not the
+level-independent volume probe §3 assumed.** Two rigs at nearly the same knob position (P1 at 10:30,
+P3 at 10:00) disagree by 16% in the opposite direction to the 17% the circuit predicts between them.
+The mode differential escapes every one of these because it is a within-unit ratio; nothing else in
+this dataset does. That makes the two-way pedal's VOLUME sweep (§7) load-bearing rather than
+optional — it is now the only route to the taper.
+
+### 3c. What phase 2 (the JFET fit) can and cannot take from this
+
+- ✅ **Take `K0 ≈ 6.6` and the two measured shelf time constants** (τ = 85.4 µs and 38.2 µs, i.e. the
+  zeros at 1864 and 4166 Hz). Those three numbers fully specify the mode shelf and are all measured.
+- ✅ **Take the H2-versus-level slope from P2 only** for the shaper's quadratic term. It is a shape,
+  so it survives having no level anchor.
+- ⛔ **Do not fit the cubic to H3** — it is below both models' error floors. The only cubic evidence
+  is 0.09–0.35 dB of top-cell compression, which fixes the sign (compressive) and not much else.
+- ⛔ **Do not fit anything to P1's harmonics.** Its H2 does not move with level, so it is floor.
+- ⛔ **Do not touch `kVolumeTaperP`, `kInputRef` or `kOutputMakeup`.** Nothing here anchors them.
+- 📌 **§9.3's per-mode low-OS shelf restore is now unblocked.** It was waiting on M2 because the
+  droop's target depends on where the JFET's 1/k(s) pole sits, and that pole is at K0 × the bypass
+  corner. K0 is measured, so the pole is now known: **12.6 kHz in Bright and 26.8 kHz in Mid.** Note
+  Mid's sits *above* Nyquist at 48 kHz, so the base-rate warp there is worse than §9.3 assumed at the
+  old placeholder K0 of 3.93. Re-run `OSFidelity` after the stage is refitted, before fitting a shelf.
+
 ## 4. Which unit are we modelling?
 
 Ship one pedal, not an average of three.
@@ -152,10 +205,18 @@ Ship one pedal, not an average of three.
 - **Mode differentials (M1, M2): fit to P1 and P2 together.** These measure R5, C1, C2 and the
   degeneration ratio — shared circuit physics, so two units is genuinely two samples of the same
   quantity.
-- **Absolute response and level: anchor to P1.** It has all three modes, is the most recent, and
-  its trainer described it honestly as a clean boost.
-- **Hold P2 back as validation.** Fit nothing to it. If P1-fitted and P2-measured disagree by more
-  than a couple of dB, surface that as unit variance rather than splitting the difference quietly.
+- **Absolute response: anchor to P1 (`thelamehorse`, 10:30) — REVERSED 2026-09-07, and this matters.**
+  This section originally said to anchor to danielnguyen's unit as the most recent, with its trainer
+  describing it honestly as a clean boost. Phase-1 M3 disqualifies it for that job: its capture rolls
+  off at −8.6 to −10.7 dB/octave above 6 kHz, which no single RC can do, so its top three octaves are
+  its rig, not the pedal (`circuit.md` note #7). P1 and P3 independently fit first-order low-passes
+  at 6.7 kHz and 7.2 kHz against the drawn 7.3 kHz, so **P1 is the unit whose absolute response is
+  usable**, with P3 corroborating it.
+- **Hold P2 (`danielnguyen`, 2:30) back as validation, and cross-check it on the MODE DIFFERENTIAL
+  only.** Its differential is the cleanest in the set (0.03–0.08 dB shelf-fit residuals, versus
+  0.24–0.25 dB for P1) because the ratio cancels the rig that ruins its absolute response. Do not
+  read an absolute-FR disagreement with P2 above ~2 kHz as unit variance — it is known rig response,
+  and M6 measures the real unit variance at 0.33 dB RMS on the differential.
 - **P3 is a level sanity check only.** One mode, unknown rig, demonstrably offset gain.
 
 ---

@@ -274,10 +274,83 @@ high, execute routine work cheap) is what should persist.
 >   resumed state a perfect phase match and made resume look free. `BypassClickTest` sweeps the hold
 >   length as well as the toggle instants. Watch for this in any future toggle-timing measurement.
 >
-> NEXT once renders land: phase 1 characterisation (M0–M6 in build-plan.md), starting with M0 (null
-> check) and M1/M2 (mode-differential ratio → resolves the Bright/Dark label mapping and hands us
-> `gm`). `tests/ChainTest.cpp` already measures the M1/M2 differential on the model, so M1/M2 becomes
-> a direct comparison rather than new analysis.
+> ### PHASE 1 CHARACTERISATION IS COMPLETE (2026-09-07). The seven renders landed; M0–M6 are done.
+>
+> Script `analysis/phase1_characterization.py`, raw numbers `analysis/reports/phase1_characterization.json`,
+> full write-up `.claude/rules/circuit.md` note #7, plan consequences `docs/build-plan.md` §3b/§3c.
+> Ten tests still pass via `ctest`.
+>
+> ⭐⭐ **`gm` is measured, and it is roughly TWICE the placeholder, not a fifth of it.** The
+> mode-versus-DARK differential's plateau is `K0 = 1 + gm·R5`, so it comes out of a ratio with no
+> level calibration — the whole point of the NAM dataset. **K0 = 6.59** (P1 6.46, P2 6.72; two
+> branches whose poles sit an octave apart agree to 0.37 dB), giving **gm ≈ 1.5–1.7 mS** against the
+> 813 µS placeholder. The DARK stage gain this implies is **+10.9 dB at 10:30 and +12.5 dB at 2:30**
+> (the load moves with VOLUME), not the +7–8 dB the maker's copy implied — derived via
+> `Av_dark = ZL·(K0−1)/(R5·K0)`, which is independent of `ro`, though still derived rather than
+> measured since L2 leaves no absolute anchor. `JfetStage.h`'s "KNOWN TENSION" note (gm ~180 µS) is
+> refuted by ~9×.
+>
+> ⭐⭐ **The MODE labels were BACKWARDS and are now swapped in the code.** BRIGHT engages C1 = 22 nF
+> (measured shelf zero 1.86 kHz), MID engages C2 = 10 nF (4.17 kHz) — both units, shelf fits to
+> ≤ 0.25 dB RMS. `JfetStage::bypassCap()` and two tests updated; the `Mode` enum ORDER was left alone
+> because it is the APVTS choice index. circuit.md's aesthetic argument ("22 nF lifts the upper mids,
+> so it reads as *mid*") lost to a two-parameter fit — the 22 nF branch is above the 10 nF branch at
+> *every* frequency, so it is simply the brighter position.
+>
+> ⚠⚠ **The method finding matters more than any single number.** The first pass read every corner as
+> "−3 dB below the plateau" and produced four plausible scalars, **all wrong, one of them inverting
+> the MODE verdict.** Nothing on this pedal reaches a plateau inside the audio band: the shelf pole
+> sits at K0 × its zero, i.e. 12.6 kHz (Bright) and 26.8 kHz (Mid, above Nyquist at 48 kHz). An
+> 8–10 kHz "plateau" window therefore normalises each branch to a different point on its own
+> transition. **Fit a model to the curve and report the residual** — a wrong fit is visible as a bad
+> residual; a wrong threshold just returns a number. This sits alongside the phase-testing finding
+> above as the two measurement traps this project has actually been bitten by.
+>
+> ### The other four, and what NOT to act on
+> - ✅ **M3 input LP confirmed at ~7 kHz — by two units, and it disqualified the third.** P1 fits
+>   6.7 kHz and P3 7.2 kHz against the drawn 7.3 kHz. **P2 fits 1.4 kHz and rolls off at −8.6 to
+>   −10.7 dB/octave, which no single RC can do**, so its top three octaves are its trainer's rig
+>   (limit L3), not the pedal. build-plan §4's "anchor absolute response to P2/danielnguyen" is
+>   reversed: **anchor to P1, corroborate with P3, use P2 for the differential only.**
+> - ⛔ **M4: do NOT retune the VOLUME taper, drive impedance or C10.** The C10 corner fits cleanly
+>   (0.03–0.15 dB residuals, mode-independent within a unit as it must be) but measures 1.3–2.0×
+>   above prediction in all three. Volume is 1:1 confounded with unit AND trainer here, and the
+>   confound is provably the same size as the signal: P1 (10:30) and P3 (10:00) sit 17% apart by
+>   circuit but measure 16% apart *the other way*. Back-solved taper exponents are 2.5 / 3.2 / 7.8 —
+>   three disagreeing values is what a rig-dominated residual looks like, not a wrong exponent.
+>   Keep `p ≈ 2.0`. **The two-way pedal's VOLUME sweep (build-plan §7) is now load-bearing, not a
+>   contingency — it is the only within-rig sweep that can settle this.**
+> - ⚠ **M5: even-dominance confirmed, cubic only weakly settled.** In every capture at every probe
+>   frequency **H4 comes back above H3**, which is impossible for a mild polynomial — so everything
+>   above H2 is the models' error floor (−57 dBc P1, −77 dBc P2). What survives: on P2, H2 rises
+>   0.75 dB/dB across the top four cells (a square law gives 1.0) and reaches −47.6 dBc. **P1's H2
+>   does not move with level at all, so P1's harmonic data is floor throughout — do not fit it.**
+>   Compression is <0.01 dB until the top cell, then −0.09 dB Dark / −0.18..−0.35 dB Bright; more
+>   compression in Bright is the right sign. Fit the shaper's quadratic to P2's H2-vs-level slope;
+>   the cubic's magnitude is not available from this dataset.
+> - ⭐ **M6: the tolerance band is 0.33 dB RMS / 0.8 dB peak, measured on the MODE DIFFERENTIAL.**
+>   The absolute P1-vs-P2 comparison spans 13.8 dB at 18 kHz, but that is the P2 rig, not two pedals.
+>   Three units means three rigs, so **this dataset contains no measurement of absolute unit spread
+>   and cannot be made to contain one.** `FeatureProfile`'s `kHfBudgetDb` should therefore **stay
+>   tight** — build-plan §9.2's question resolves against widening it.
+> - ⭐ **A free known-answer probe worth reusing.** Below the shelf zero every MODE has `Zs = R5`, so
+>   every mode differential must read exactly 0.00 dB under ~200 Hz. It reads ≤0.20 dB (P2) and
+>   ≤0.60 dB (P1) — the LF noise floor of the dataset, obtained with no reference capture. It is what
+>   ruled out "NAM just can't do low frequencies" as the M4 explanation.
+> - 📌 **Bookkeeping: build-plan §1's unit table had P1 and P2 swapped** (folders and `.nam` metadata
+>   agree with the filenames on disk). Corrected. **P1 = thelamehorse @ 10:30, P2 = danielnguyen @ 2:30.**
+> - ⚠ **The measured shelf zeros are ~7% below the drawn ones, consistently.** The zero depends only
+>   on R5·C, and both branches imply the same R5 to 1.6%, so it is one common offset: either R5 ≈
+>   3.85 kΩ or both caps run ~7% high. **`schematic.png` was re-read at high zoom — R5 is
+>   unambiguously "3k6", so this is not a transcription error.** The cap ratio is confirmed (2.24
+>   measured vs 2.20 drawn). Model the shelf from the measured (τ, K0) pair; this dataset cannot
+>   separate R5 from C.
+>
+> ### NEXT
+> Step 4b, refitting the JFET stage to K0 = 6.59 and the two measured time constants, then M5's H2
+> slope for the shaper. After the stage is refitted, re-run `OSFidelity` and only THEN fit build-plan
+> §9.3's per-mode low-OS shelf restore — it was blocked on M2, and the pole it targets has moved from
+> the placeholder's ~18 kHz to a measured 12.6 kHz (Bright) / 26.8 kHz (Mid, past Nyquist at 48 kHz).
 
 ## Project-specific carry-forwards
 

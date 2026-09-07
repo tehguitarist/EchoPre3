@@ -105,13 +105,16 @@ struct JfetParams
 
 /** MODE positions, ordered by physical lever position top-to-bottom to match the APVTS choice list
  *  and the hardware toggle (circuit.md note #2). Deliberately NOT ordered by brightness.
- *  !! Which lug the lever's UP position closes is still inferred, not traced -- build-plan.md M1
- *  resolves it from the mode-differential corner frequencies, and may swap Bright with Mid. */
+ *  RESOLVED 2026-09-07 by build-plan.md M1, and it DID swap Bright with Mid: the mode-differential
+ *  shelf zero measures 1.86 kHz on the BRIGHT captures and 4.17 kHz on the MID captures, in both
+ *  units, so BRIGHT engages C1 (22 nF) and MID engages C2 (10 nF) -- the opposite of what
+ *  circuit.md inferred from the labels' plain meaning. The enum ORDER is untouched (it is the APVTS
+ *  choice index; architecture.md forbids reordering it); only capForMode() below changed. */
 enum class Mode
 {
-    Bright = 0, // C2 10 nF engaged -> bypass corner ~4.42 kHz
+    Bright = 0, // C1 22 nF engaged -> bypass corner ~2.01 kHz (measured 1.86 kHz)
     Dark,       // neither engaged  -> R5 fully degenerating, lowest gain, flat
-    Mid         // C1 22 nF engaged -> bypass corner ~2.01 kHz
+    Mid         // C2 10 nF engaged -> bypass corner ~4.42 kHz (measured 4.17 kHz)
 };
 
 class JfetStage
@@ -141,7 +144,7 @@ public:
     bool adaaIsEnabled() const noexcept { return adaaEnabled; }
 
     /** Call at the rate this stage actually runs at -- the OVERSAMPLED rate. The shelf's pole sits at
-     *  K0 x the bypass corner (~18 kHz in Bright at nominal gm), close enough to Nyquist at 48 kHz
+     *  K0 x the bypass corner (measured 12.6 kHz in Bright, 26.8 kHz in Mid), at or past Nyquist at 48 kHz
      *  for the bilinear warp to badly misplace it, so this stage belongs inside the oversampled
      *  region and its caps must NOT also be prewarped (dsp.md). */
     void prepare(double sampleRate)
@@ -260,8 +263,8 @@ private:
     {
         switch (mode)
         {
-            case Mode::Bright: return circuit::kC2;
-            case Mode::Mid:    return circuit::kC1;
+            case Mode::Bright: return circuit::kC1;   // 22 nF -- measured, not inferred (M1)
+            case Mode::Mid:    return circuit::kC2;   // 10 nF
             case Mode::Dark:   break;
         }
         return 0.0;

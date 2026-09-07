@@ -79,8 +79,8 @@ int main()
     std::printf("  K0 = 1 + gm*R5 = %.4f (%.2f dB) -- the plateau both ratios must reach\n", k0, db(k0));
 
     struct Case { const char* name; dsp::Mode mode; double cornerHz; };
-    const Case cases[] = { { "Bright", dsp::Mode::Bright, 1.0 / (2.0 * M_PI * circuit::kR5 * circuit::kC2) },
-                           { "Mid",    dsp::Mode::Mid,    1.0 / (2.0 * M_PI * circuit::kR5 * circuit::kC1) } };
+    const Case cases[] = { { "Bright", dsp::Mode::Bright, 1.0 / (2.0 * M_PI * circuit::kR5 * circuit::kC1) },
+                           { "Mid",    dsp::Mode::Mid,    1.0 / (2.0 * M_PI * circuit::kR5 * circuit::kC2) } };
 
     for (const auto& c : cases)
     {
