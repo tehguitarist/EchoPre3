@@ -133,11 +133,92 @@ high, execute routine work cheap) is what should persist.
 > node graphs, triage, corners, validation targets). Both open questions resolved against the
 > maker's published notes. 2N5457 datasheet fetched to `docs/refs/`. Project builds; AU installs
 > with the placeholder pass-through DSP.
-> NEXT: **`docs/build-plan.md` (written 2026-09-07) is the working plan from here on** — it adapts
-> this build sequence to the reference data we actually have (seven NAM models, no raw captures, no
-> bypass anchor). Immediate work is its phase 0: redesign `analysis/gen_test_signal.py` for this
-> pedal, write `analysis/captures.py`, and get the eight renders made. Steps 2 and 3 (CMake scaffold
-> → APVTS for VOLUME + 3-way EQ, then the chowdsp_wdf smoke test) run in parallel with that.**
+> `docs/build-plan.md` (written 2026-09-07) is the working plan from here on. Phase 0a (test signal)
+> was already done; phase 0b (`analysis/captures.py`, parsing `<unit>_V<HHMM>_<mode>.wav` and
+> emitting `--volume`/`--mode` OfflineRender args) is now done too. **Steps 2 and 3, which the plan
+> said could run in parallel with the capture work, are COMPLETE as of 2026-09-07:** the APVTS now
+> declares the real control set (`volume` float + `mode` choice `Bright/Dark/Mid`, trims, OS, hq,
+> bypass — the placeholder `gain`/`tone` knobs are gone), `PedalFace` shows the real one-knob-plus-
+> switch panel (verified via `UISnapshot` at 0.5x/2.5x — this also caught and fixed a label-clipping
+> bug: `ThreePositionSwitch` needs ~1.4x its height in width to fit "BRIGHT"/"DARK"/"MID", not the
+> placeholder "I"/"II"/"III"), and `tests/WdfSmokeTest.cpp` (RC lowpass, chowdsp_wdf compile-time
+> API) confirms the WDF toolchain wiring: measured −3 dB point 998.6 Hz vs. 1000 Hz target (0.14%
+> error). Both are registered in CMakeLists.txt and pass via `ctest`.
+> BLOCKED on phase 0c (the eight NAM renders) — that's on the user, in progress as of 2026-09-07.
+>
+> **STEPS 4a, 4b, 5 and 7 ARE NOW STRUCTURALLY COMPLETE (2026-09-07), placeholders and all.** The
+> whole chain is wired and the plugin processes audio: `src/dsp/{CircuitValues,InputNetwork,
+> JfetStage,OutputNetwork,EchoPreDsp}.h`, with the pass-through processor retired. Six tests pass via
+> `ctest`. What is validated vs. what is still a placeholder:
+>
+> - ✅ **Input network** matches its analytic transfer function to 0.00 dB / 0.5° through the band.
+> - ✅ **Output/VOLUME network** reproduces circuit.md's control-law table to 0.04 dB, peaks at
+>   Ra = 176 k (35.3%), falls back 3.92 dB, and is −103.7 dB at full CCW. Phase exact to 0.02°.
+> - ✅ **JFET stage** shelf matches analytic 1/k(s) to 0.0000 dB and 0.001°; even-dominant (H2 30–75 dB
+>   above H3); monotone; g'(0) = 1 exactly.
+> - ✅ **Chain**: inverts (−178.4°), and the mode plateau lands on K0 = 1+gm·R5 to 0.02 dB.
+> - ⚠ **Every JFET amplitude parameter is a placeholder** from a datasheet-typical self-bias solve
+>   (gm = 813 µS, Vov = 1.22 V). M2 replaces gm; M5 replaces the shaper. `kInputRef` stays a declared
+>   assumption and `kOutputMakeup` is exactly 1.0 (uncalibrated) until the renders land.
+>
+> **Three findings worth carrying forward:**
+> 1. ⭐ **Step 5 needs no scattering matrices.** Under Path B the source network folds analytically
+>    into k(s), so MODE never touches a WDF topology — it is three shelf coefficient sets. The
+>    build-plan's "precomputed scattering matrices" step is simply not needed.
+> 2. ⭐ **The output network is a TREE, not an R-type network.** circuit.md's "bridging resistor"
+>    warning is about the CONTROL LAW, not the graph: from node E there are exactly three paths to
+>    ground. No R-type adaptor, no matrix. (The pot coupling is a *parameter* coupling — and
+>    `ScopedDeferImpedancePropagation` is a HARD barrier whose destructor recalculates only what it
+>    was given, in the order given, so listing the whole chain silently leaves stale impedances.
+>    One barrier at the lowest common ancestor plus one manual propagation is the correct idiom.)
+> 3. ⚠⚠ **PHASE TESTING CAUGHT A REAL BUG THAT MAGNITUDE TESTING CANNOT SEE.** The input network
+>    shipped a 180° inversion (from the chowdsp voltage-source `makeInverter` idiom, which a passive
+>    RC ladder must not have). Magnitude was perfect at every frequency. It would have cancelled the
+>    JFET's own physical inversion, leaving the plugin the wrong way round — surfacing only as a
+>    failed null at step 9. **Every stage test now checks magnitude AND phase**, plus an excess-delay
+>    guard for dsp.md's source-port read trap. `analysis/analyze.py` gained `transfer_complex`,
+>    `phase_deg`, `group_delay_ms` and `polarity`, all with known-answer self-tests — including one
+>    that proves the magnitude instrument is *blind* to a flip. **Run `polarity()` before reading
+>    anything into a poor null: an inverted render nulls at about +6 dB and looks like a
+>    catastrophic modelling error rather than a one-character sign bug.**
+>
+> **Host-verified: `auval -v aufx Ep3p Lprc` PASSES** (render tests 11 kHz–192 kHz, mono + stereo,
+> ramped parameter scheduling), so this is a real host load with the DSP running, not just a build.
+> VERSION bumped to 0.2.0 so Logic rescans rather than serving the cached pass-through build.
+>
+> **Decisions made while closing out, each with a reason that should survive:**
+> - **Oversampling uses the linear-phase FIR, not the polyphase IIR.** The IIR is non-linear-phase,
+>   and step 9's validation is a sub-sample null — resampler-smeared phase is indistinguishable from
+>   phase the circuit model got wrong. Revisit only if `PerfBenchmark` shows the FIR is a real cost.
+> - **The `hq` parameter is REMOVED.** It gated the template's diode omega solve; this pedal has no
+>   diodes and no omega solver, so it gated nothing. Removing it was free now and would break saved
+>   sessions after release. The editor's toggle is param-guarded so it simply never appears — the
+>   infrastructure is kept, dormant, because ADAA (step 6) is the one plausible lever this pedal may
+>   actually acquire, and `dsp.md` says to let `FeatureProfile` decide rather than adding it blind.
+> - **`trim_link` is now implemented** as the listener pair with a re-entrancy guard, tracking the
+>   last value even while disengaged so engaging it mid-session measures from where the knob is.
+>
+> ### Residuals — known, deliberate, and NOT bugs to rediscover
+> 1. **Every JFET amplitude parameter is a placeholder** (gm = 813 µS et al. from a datasheet-typical
+>    self-bias solve). M2/M5 replace them. `kInputRef` = 0.87 is a declared ASSUMPTION (no bypass
+>    anchor can exist), `kOutputMakeup` = 1.0 UNCALIBRATED.
+> 2. **Base-rate (1× OS) top octave droops** −2.1 dB @ 12 kHz, −3.6 dB @ 16 kHz. Prewarp pins the
+>    corner but cannot invert the bilinear zero at Nyquist; that is why the input network was moved
+>    inside the oversampled region. `dsp.md`'s low-OS shelf restore is the remedy, at step 6.
+> 3. **VOLUME updates per block, not per sample** (it re-solves WDF impedances). Fast automation may
+>    zipper. Normal WDF practice; revisit only if it is audible.
+> 4. **The ~2 dB VOLUME fall-back discrepancy is still open** (as-drawn 3.9 dB vs the maker's 1–2 dB).
+>    `OutputNetworkTest` prints the maker's four points every run so it stays visible. Do NOT tune
+>    other constants to close it — it needs a real VOLUME sweep capture.
+> 5. **Not started:** step 6 (ADAA — the shaper's closed-form antiderivatives are noted in
+>    JfetStage.h for exactly this), the `OfflineRender` console exe the A/B harness needs, the
+>    `PerfBenchmark`/`FeatureProfile`/`OSFidelity` probes, and all calibration.
+> 6. Pre-existing unrelated warning: `src/ui/PedalLookAndFeel.cpp:251` unused parameter.
+>
+> NEXT once renders land: phase 1 characterisation (M0–M6 in build-plan.md), starting with M0 (null
+> check) and M1/M2 (mode-differential ratio → resolves the Bright/Dark label mapping and hands us
+> `gm`). `tests/ChainTest.cpp` already measures the M1/M2 differential on the model, so M1/M2 becomes
+> a direct comparison rather than new analysis.
 
 ## Project-specific carry-forwards
 

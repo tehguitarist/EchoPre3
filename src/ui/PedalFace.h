@@ -14,11 +14,11 @@
  * (side-panel trims + VU, oversampling strip) is the reusable peripheral kit laid out by
  * PluginEditor; the face just fills the middle column.
  *
- * This is a GENERIC single-channel placeholder: three pot knobs (GAIN / TONE / VOLUME), one
- * 3-position mode switch, a status LED and a bypass footswitch, plus a <PEDAL NAME> logo. Rename
- * the labels, swap the param IDs, and re-arrange resized() to match your pedal. For a dual-channel
- * / dual-footswitch pedal, instantiate this class (or a copy) once per stage — see
- * architecture.md "Multiple full gain stages in series".
+ * Echo Pre 3's actual front panel (circuit.md): one pot knob (VOLUME), one 3-position ON-OFF-ON
+ * MODE switch (source-bypass network), a status LED and a bypass footswitch, plus the logo. There
+ * is no GAIN or TONE knob on this pedal -- the JFET gain stage isn't user-controllable, and MODE is
+ * the only EQ-shaping control. For a dual-channel / dual-footswitch pedal, instantiate this class
+ * (or a copy) once per stage — see architecture.md "Multiple full gain stages in series".
  *
  * Demonstrates the patterns the template's ui.md asks for:
  *  - knobs set to RotaryHorizontalVerticalDrag with NoTextBox, drawn by PedalLookAndFeel,
@@ -26,7 +26,7 @@
  *  - a 3-position switch bound to an AudioParameterChoice (param <-> switch, with gestures),
  *  - a bypass footswitch whose art is momentary (the LED, not the switch, shows bypass state).
  *
- * Binds to the canonical APVTS IDs from architecture.md: "gain", "tone", "volume", "mode", "bypass".
+ * Binds to the canonical APVTS IDs: "volume", "mode", "bypass".
  */
 class PedalFace : public juce::Component
 {
@@ -42,8 +42,8 @@ private:
     juce::AudioProcessorValueTreeState& state;
     float scale { 1.0f };
 
-    juce::Slider gainKnob, toneKnob, volumeKnob;
-    juce::Label  gainLabel, toneLabel, volumeLabel;
+    juce::Slider volumeKnob;
+    juce::Label  volumeLabel;
 
     ThreePositionSwitch modeSwitch;
     LEDIndicator        led;

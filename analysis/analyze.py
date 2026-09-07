@@ -69,11 +69,53 @@ def rms_db(x):
     return 20 * np.log10(np.sqrt(np.mean(x ** 2)) + 1e-12)
 
 
-def transfer(out, inp):
+def transfer_complex(out, inp):
+    """Complex transfer function H(f) = Pxy/Pxx. Keeps the PHASE, which the magnitude-only wrapper
+    below throws away. Phase is not a nicety here: a stage wired 180 degrees out has a bit-identical
+    magnitude response, so no amount of FR checking can see it -- it surfaces only as a mysteriously
+    bad null, or not until someone sums the plugin with a dry path. (A real inversion bug in the
+    input WDF network was caught exactly this way; see tests/InputNetworkTest.cpp.)
+
+    Note that only phase RELATIVE to a sub-sample-aligned reference is meaningful: bulk latency is a
+    linear-phase term that align()/subsample_align() removes by design. A polarity flip is
+    frequency-independent, so alignment cannot absorb it and `polarity()` below stays valid."""
     f, Pxy = sps.csd(inp, out, FS, nperseg=8192)
     f, Pxx = sps.welch(inp, FS, nperseg=8192)
-    H = np.abs(Pxy) / (Pxx + 1e-20)
-    return f, 20 * np.log10(H + 1e-12)
+    return f, Pxy / (Pxx + 1e-20)
+
+
+def transfer(out, inp):
+    f, H = transfer_complex(out, inp)
+    return f, 20 * np.log10(np.abs(H) + 1e-12)
+
+
+def phase_deg(out, inp, unwrap=True):
+    """Phase response in degrees. Unwrapped by default so group delay is readable."""
+    f, H = transfer_complex(out, inp)
+    ph = np.angle(H)
+    return f, np.degrees(np.unwrap(ph) if unwrap else ph)
+
+
+def group_delay_ms(out, inp, f_lo=100.0, f_hi=8000.0):
+    """Mean group delay over a band, in ms, from the slope of the unwrapped phase. A non-zero value
+    after alignment means residual time offset; a large FREQUENCY-DEPENDENT swing is dispersion."""
+    f, ph = phase_deg(out, inp)
+    m = (f >= f_lo) & (f <= f_hi)
+    slope = np.polyfit(f[m], np.radians(ph[m]), 1)[0]
+    return -slope / (2 * np.pi) * 1000.0
+
+
+def polarity(out, inp, f_lo=200.0, f_hi=2000.0):
+    """(sign, midband phase in degrees). +1 non-inverting, -1 inverting.
+
+    Uses the magnitude-weighted circular mean of H over a midband window, so it is robust to the
+    circuit's own phase shift (tens of degrees) while still resolving a 180 degree flip. Run this
+    BEFORE reading anything into a poor null -- an inverted render nulls at roughly +6 dB, which
+    looks like a catastrophic modelling error rather than a one-character sign bug."""
+    f, H = transfer_complex(out, inp)
+    m = (f >= f_lo) & (f <= f_hi)
+    ang = float(np.degrees(np.angle(np.sum(H[m]))))
+    return (1 if abs(ang) < 90.0 else -1), ang
 
 
 def gain_at(f, mag, target):
@@ -554,6 +596,32 @@ def _selftest(tol_fr_db=0.25, tol_harm_db=0.15, tol_comp_db=0.02):
     check("FR recovers known filter", float(np.max(err)) < tol_fr_db,
           f"max |err| {np.max(err):.3f} dB @ {centers[int(np.argmax(err))]:.0f} Hz "
           f"(tol {tol_fr_db})")
+
+    # --- PHASE and POLARITY on the same known bandpass -----------------------------------------
+    # An instrument that cannot see a 180 degree flip cannot diagnose a bad null, so both the phase
+    # response and the blunt polarity check get known-answer tests here.
+    fph, meas_ph = phase_deg(ref, src, unwrap=False)
+    wq, hq = sps.freqz(b, a, worN=fph, fs=FS)
+    ideal_ph = np.degrees(np.angle(hq))
+    band = (fph >= 100.0) & (fph <= 5000.0)
+    dph = np.abs(((meas_ph - ideal_ph + 180.0) % 360.0) - 180.0)[band]
+    check("phase recovers known filter", float(np.max(dph)) < 2.0,
+          f"max |err| {np.max(dph):.3f} deg over 100 Hz-5 kHz (tol 2.0)")
+
+    sgn, ang = polarity(ref, src)
+    check("polarity: non-inverted reads +1", sgn == 1, f"sign {sgn:+d}, midband phase {ang:+.2f} deg")
+
+    sgn_inv, ang_inv = polarity(-ref, src)
+    check("polarity: inverted reads -1", sgn_inv == -1,
+          f"sign {sgn_inv:+d}, midband phase {ang_inv:+.2f} deg")
+
+    # A flip must NOT be visible to the magnitude instrument -- that is precisely why phase is
+    # needed. If this ever fails, the FR path has started leaking sign information and the polarity
+    # check above is no longer independent of it.
+    _, mag_norm = transfer(ref, src)
+    _, mag_inv = transfer(-ref, src)
+    check("magnitude is BLIND to a flip", float(np.max(np.abs(mag_norm - mag_inv))) < 1e-9,
+          f"max |diff| {np.max(np.abs(mag_norm - mag_inv)):.2e} dB (must be ~0)")
 
     # Compression of a LINEAR system must be flat at every band, at every level.
     worst, worst_lbl = 0.0, None

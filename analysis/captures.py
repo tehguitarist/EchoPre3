@@ -1,40 +1,66 @@
 #!/usr/bin/env python3
-"""Pedal-specific capture I/O and render argument mapping.
+"""Echo Pre 3 capture I/O and render argument mapping.
 
-Replace this file with your pedal's implementation. The template scripts
-(comprehensive_report.py, farina_validate.py, etc.) import from here.
+The reference data is seven NAM-model renders plus one no-plugin null render (docs/build-plan.md
+phase 0c), not raw pedal captures. Filenames encode the physical unit, the VOLUME clock position,
+and the MODE label, e.g.:
 
-You MUST implement:
-  - find_captures(directory) -> [(path, parsed_dict), ...]
-  - load_capture(path, expect_fs=48000) -> np.float64 mono audio
-  - render_args(parsed, extra_args=None) -> list of CLI flags for OfflineRender
+    p1_V1430_bright.wav    unit P1, VOLUME at 2:30, MODE = Bright
+    p3_V1000_mid.wav       unit P3, VOLUME at 10:00, MODE = Mid
+    null_V0000_mid.wav     the no-plugin loop-check render (M0) -- volume/mode are don't-cares
 
-You MAY override:
-  - RENDER_BIN (str) -- path to your OfflineRender binary
-  - parse_capture(filename) -> dict of settings
+The `V<HHMM>` clock token reuses analyze.py's clock-to-x convention (0700=min .. 1200=noon ..
+1700=max), since the folder-name clock positions in the NAM data are exactly that scale.
 """
 import os
 import glob
+import re
 
 import numpy as np
 from scipy.io import wavfile
 from scipy import signal as sps
 
+import analyze as A
+
 RENDER_BIN = "build/OfflineRender_artefacts/Release/OfflineRender"
 CAPTURE_DIR = "analysis/captures"
 
+# MODE choice order matches the APVTS AudioParameterChoice layout (circuit.md note #2 / PluginProcessor):
+# physical up=Bright, middle=Dark (centre-off), down=Mid -- ordered by lever position, not brightness.
+MODE_LABELS = ("bright", "dark", "mid")
+MODE_INDEX = {label: i for i, label in enumerate(MODE_LABELS)}
+
+_CAPTURE_RE = re.compile(
+    r"^(?P<unit>[a-z0-9]+)_V(?P<clock>\d{3,4})_(?P<mode>bright|dark|mid)$", re.IGNORECASE
+)
+
 
 def parse_capture(filename):
-    """Parse YOUR capture filenames into a dict of settings.
+    """Parse an Echo Pre 3 capture filename into a dict of settings.
 
-    The template provides analyze.parse_filename() for the clock-HHMM
-    and 0-10 scale conventions. Use it or write your own parser here.
-
-    Example return: {"rev": "V1", "drive": 0.5, "tone": 0.7}
+    Returns {"rev": unit, "unit": unit, "volume_clock": int, "volume": 0..1,
+             "mode": label, "mode_index": 0..2, "sw": label}
+    "rev"/"sw" are included for compatibility with the template's generic report scripts, which
+    group/label captures by those keys.
     """
-    raise NotImplementedError(
-        "Implement parse_capture() for your pedal's filename convention"
-    )
+    stem = os.path.splitext(os.path.basename(filename))[0]
+    m = _CAPTURE_RE.match(stem)
+    if not m:
+        raise ValueError(f"Capture filename does not match <unit>_V<HHMM>_<mode>.wav: {filename}")
+
+    unit = m.group("unit").lower()
+    clock = int(m.group("clock"))
+    mode = m.group("mode").lower()
+
+    return {
+        "rev": unit,
+        "unit": unit,
+        "volume_clock": clock,
+        "volume": A.clock_to_x(clock),
+        "mode": mode,
+        "mode_index": MODE_INDEX[mode],
+        "sw": mode,
+    }
 
 
 def find_captures(directory=CAPTURE_DIR):
@@ -50,10 +76,9 @@ def find_captures(directory=CAPTURE_DIR):
 def load_capture(path, expect_fs=48000):
     """Load a capture as float64 mono at ``expect_fs``.
 
-    Some NAM modelers export 44.1 kHz audio inside a 48 kHz-labeled WAV.
-    This function detects the speed error from the cal_1k tone (~1088 Hz
-    on a mislabeled file) and resamples back to ``expect_fs``.
-    A correctly-labeled file passes through untouched.
+    Some NAM modelers export 44.1 kHz audio inside a 48 kHz-labeled WAV. This function detects the
+    speed error from the cal_1k tone (~1088 Hz on a mislabeled file) and resamples back to
+    ``expect_fs``. A correctly-labeled file passes through untouched.
     """
     sr, x = wavfile.read(path)
     if x.dtype.kind in "iu":
@@ -86,15 +111,17 @@ def load_capture(path, expect_fs=48000):
 
 
 def render_args(parsed, extra_args=None):
-    """Parsed settings -> flat list of CLI flags for your OfflineRender.
+    """Parsed settings -> flat list of CLI flags for OfflineRender.
 
-    Example: ["--rev", "V1", "--drive", "0.5000", "--tone", "0.7000"]
-
-    Append extra_args (e.g. calibration overrides such as --sat-*) at the end.
+    Only VOLUME and MODE are pedal controls that vary per capture (there is no drive/blend/tone on
+    this pedal -- see circuit.md). The "null" unit has no corresponding plugin render; callers doing
+    the M0 loop check compare the null capture directly against the source signal instead of calling
+    this.
     """
-    raise NotImplementedError(
-        "Implement render_args() for your pedal's OfflineRender CLI"
-    )
+    args = ["--volume", f"{parsed['volume']:.6f}", "--mode", parsed["mode"]]
+    if extra_args:
+        args += list(extra_args)
+    return args
 
 
 if __name__ == "__main__":

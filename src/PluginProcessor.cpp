@@ -7,19 +7,19 @@ using namespace juce;
 namespace
 {
 const StringArray kOsChoices { "1x", "2x", "4x", "8x" };
+constexpr double kBypassRampSeconds = 0.005;
 } // namespace
 
 AudioProcessorValueTreeState::ParameterLayout PedalAudioProcessor::createParameterLayout()
 {
     AudioProcessorValueTreeState::ParameterLayout layout;
 
-    // Pot controls: 0..1, taper applied in DSP (architecture.md). Rename/add to suit the pedal.
-    layout.add(std::make_unique<AudioParameterFloat>("gain",   "Gain",   NormalisableRange<float>(0.0f, 1.0f), 0.5f));
-    layout.add(std::make_unique<AudioParameterFloat>("tone",   "Tone",   NormalisableRange<float>(0.0f, 1.0f), 0.5f));
+    // The only pot control on this pedal (circuit.md): 500 kA VOLUME, taper applied in DSP.
     layout.add(std::make_unique<AudioParameterFloat>("volume", "Volume", NormalisableRange<float>(0.0f, 1.0f), 0.5f));
 
-    // 3-position mode switch (precomputed topologies in a real build).
-    layout.add(std::make_unique<AudioParameterChoice>("mode", "Mode", StringArray { "I", "II", "III" }, 1));
+    // 3-position ON-OFF-ON MODE switch: source-bypass network (circuit.md stage 2b). Ordered by
+    // physical lever position (up/middle/down), not by brightness -- see circuit.md note #2.
+    layout.add(std::make_unique<AudioParameterChoice>("mode", "Mode", StringArray { "Bright", "Dark", "Mid" }, 1));
 
     // Trims, in dB, distinct from the pedal controls.
     layout.add(std::make_unique<AudioParameterFloat>("input_trim",  "Input Trim",  NormalisableRange<float>(-12.0f, 12.0f), 0.0f));
@@ -30,8 +30,12 @@ AudioProcessorValueTreeState::ParameterLayout PedalAudioProcessor::createParamet
     layout.add(std::make_unique<AudioParameterChoice>("oversampling",        "Oversampling",        kOsChoices, 2)); // 4x
     layout.add(std::make_unique<AudioParameterChoice>("render_oversampling", "Render Oversampling", kOsChoices, 3)); // 8x
 
-    // Optional quality toggle (dsp.md "HQ / Eco mode"). Remove if your pedal has no such lever.
-    layout.add(std::make_unique<AudioParameterBool>("hq", "HQ", true));
+    // NO `hq` PARAMETER, deliberately. The template's HQ toggle gated the diode solve's omega
+    // approximation -- and this pedal has no diodes, no omega solver, and nothing else whose cost
+    // and accuracy trade off against each other today. dsp.md is explicit: don't add an HQ button
+    // reflexively, let FeatureProfile decide. Removing it now is free; after release it would break
+    // saved sessions. The editor's toggle is param-guarded, so it simply never appears.
+    // Revisit at build step 6: ADAA is the one plausible lever this pedal may actually acquire.
 
     layout.add(std::make_unique<AudioParameterBool>("bypass", "Bypass", false));
 
@@ -44,12 +48,118 @@ PedalAudioProcessor::PedalAudioProcessor()
                          .withOutput("Output", AudioChannelSet::stereo(), true)),
       apvts(*this, nullptr, "PARAMS", createParameterLayout())
 {
+    pVolume             = apvts.getRawParameterValue("volume");
+    pMode               = apvts.getRawParameterValue("mode");
+    pInputTrim          = apvts.getRawParameterValue("input_trim");
+    pOutputTrim         = apvts.getRawParameterValue("output_trim");
+    pOversampling       = apvts.getRawParameterValue("oversampling");
+    pRenderOversampling = apvts.getRawParameterValue("render_oversampling");
+    pBypass             = apvts.getRawParameterValue("bypass");
+    pTrimLink           = apvts.getRawParameterValue("trim_link");
+
+    inputTrimParam  = dynamic_cast<AudioParameterFloat*>(apvts.getParameter("input_trim"));
+    outputTrimParam = dynamic_cast<AudioParameterFloat*>(apvts.getParameter("output_trim"));
+    lastInputTrim  = inputTrimParam != nullptr ? inputTrimParam->get() : 0.0f;
+    lastOutputTrim = outputTrimParam != nullptr ? outputTrimParam->get() : 0.0f;
+
+    apvts.addParameterListener("input_trim", this);
+    apvts.addParameterListener("output_trim", this);
 }
 
-void PedalAudioProcessor::prepareToPlay(double, int)
+PedalAudioProcessor::~PedalAudioProcessor()
 {
+    apvts.removeParameterListener("input_trim", this);
+    apvts.removeParameterListener("output_trim", this);
+}
+
+void PedalAudioProcessor::parameterChanged(const String& parameterID, float newValue)
+{
+    const bool isInput = (parameterID == "input_trim");
+    if (! isInput && parameterID != "output_trim")
+        return;
+
+    // The mirrored write re-enters here; let it through only as far as the bookkeeping below.
+    if (isSyncingTrim.load())
+        return;
+
+    // Track the last value even while the link is DISENGAGED, so that engaging it mid-session
+    // measures the next move against where the knob actually is rather than a stale value.
+    float& last = isInput ? lastInputTrim : lastOutputTrim;
+    const float delta = newValue - last;
+    last = newValue;
+
+    if (pTrimLink == nullptr || pTrimLink->load() <= 0.5f)
+        return;
+
+    auto* other = isInput ? outputTrimParam : inputTrimParam;
+    if (other == nullptr)
+        return;
+
+    // Clamping at the compensating side's stop means the two can drift out of exact mirror symmetry
+    // at the extremes. That is expected -- a real compensating pair does the same once one side
+    // bottoms out -- not a bug to chase.
+    const float target = jlimit(-12.0f, 12.0f, other->get() - delta);
+
+    isSyncingTrim = true;
+    other->setValueNotifyingHost(other->convertTo0to1(target));
+    (isInput ? lastOutputTrim : lastInputTrim) = target;
+    isSyncingTrim = false;
+}
+
+void PedalAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
+{
+    baseSampleRate = sampleRate;
+    scratch.setSize(2, samplesPerBlock);
+
+    // One oversampler per factor, all prepared here. juce::dsp::Oversampling fixes its factor at
+    // construction, so switching by rebuilding would allocate on the audio thread.
+    for (size_t i = 0; i < oversamplers.size(); ++i)
+    {
+        // LINEAR-PHASE FIR, deliberately, not the cheaper polyphase IIR. dsp.md treats the IIR as an
+        // optimisation to be justified by a measured cost, and there is a specific reason not to
+        // reach for it here: the IIR is non-linear-phase, and step 9 validates this model with a
+        // SUB-SAMPLE NULL against the reference renders. Phase smeared by the resampler is
+        // indistinguishable from phase the circuit model got wrong, so it would corrupt the very
+        // measurement the whole phase-testing pass exists to protect. Revisit only if PerfBenchmark
+        // shows the FIR is a real cost (build step 6).
+        oversamplers[i] = std::make_unique<dsp::Oversampling<double>>(
+            2, (size_t) i, dsp::Oversampling<double>::filterHalfBandFIREquiripple, true, true);
+        oversamplers[i]->initProcessing((size_t) samplesPerBlock);
+        oversamplers[i]->reset();
+    }
+
+    currentOsIndex = -1;
+    updateOversamplingFactor(pOversampling != nullptr ? (int) pOversampling->load() : 2);
+
+    volumeSmooth.reset(sampleRate, 0.02);
+    volumeSmooth.setCurrentAndTargetValue(pVolume != nullptr ? (double) pVolume->load() : 0.5);
+    bypassMix.reset(sampleRate, kBypassRampSeconds);
+    bypassMix.setCurrentAndTargetValue((pBypass != nullptr && pBypass->load() > 0.5f) ? 1.0 : 0.0);
+
     for (auto& l : inputLevel)  l.store(0.0f);
     for (auto& l : outputLevel) l.store(0.0f);
+}
+
+void PedalAudioProcessor::updateOversamplingFactor(int factorIndex)
+{
+    factorIndex = jlimit(0, (int) oversamplers.size() - 1, factorIndex);
+    if (factorIndex == currentOsIndex)
+        return;
+
+    currentOsIndex = factorIndex;
+    auto& os = *oversamplers[(size_t) factorIndex];
+    os.reset();
+
+    // The stages straddle the oversampling boundary, so only the oversampled half is re-prepared
+    // against the new rate; the output network always runs at base rate.
+    const double osRate = baseSampleRate * (double) (1 << factorIndex);
+    for (auto& d : dsp)
+    {
+        d.prepare(baseSampleRate, osRate);
+        d.reset();
+    }
+
+    setLatencySamples((int) os.getLatencyInSamples());
 }
 
 bool PedalAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -64,36 +174,88 @@ void PedalAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer&)
 {
     ScopedNoDenormals noDenormals;
 
-    const int numCh  = buffer.getNumChannels();
     const int numSmp = buffer.getNumSamples();
+    const int numCh = jmin(buffer.getNumChannels(), 2);
 
     for (int ch = getTotalNumInputChannels(); ch < getTotalNumOutputChannels(); ++ch)
         buffer.clear(ch, 0, numSmp);
 
-    const bool bypassed = apvts.getRawParameterValue("bypass")->load() > 0.5f;
-    const float inTrim  = Decibels::decibelsToGain(apvts.getRawParameterValue("input_trim")->load());
-    const float outTrim = Decibels::decibelsToGain(apvts.getRawParameterValue("output_trim")->load());
+    // Offline bounces get their own (higher) factor automatically -- no extra UI action needed.
+    const int wantOs = isNonRealtime() ? (pRenderOversampling != nullptr ? (int) pRenderOversampling->load() : 3)
+                                       : (pOversampling != nullptr ? (int) pOversampling->load() : 2);
+    updateOversamplingFactor(wantOs);
 
-    for (int ch = 0; ch < jmin(numCh, 2); ++ch)
+    const auto mode = (pedal::dsp::Mode) jlimit(0, 2, (int) pMode->load());
+    volumeSmooth.setTargetValue((double) pVolume->load());
+    const double volume = volumeSmooth.skip(numSmp);
+    for (auto& d : dsp)
     {
-        auto* d = buffer.getWritePointer(ch);
-        float inPeak = 0.0f, outPeak = 0.0f;
+        d.setMode(mode);
+        d.setVolume(volume);
+    }
+
+    const double inTrim = Decibels::decibelsToGain((double) pInputTrim->load());
+    const double outTrim = Decibels::decibelsToGain((double) pOutputTrim->load());
+    bypassMix.setTargetValue(pBypass->load() > 0.5f ? 1.0 : 0.0);
+
+    // Volts back to full scale, plus the (still uncalibrated) makeup. VOLUME is NOT here: it lives
+    // inside the output network's solve, which is what makes its control law non-monotonic.
+    const double outputGain = kOutputMakeup * outTrim / kInputRef;
+
+    scratch.setSize(2, numSmp, false, false, true);
+
+    // Input trim into the DAW-domain wet path, meter it, then scale to real volts for the circuit.
+    // The float buffer is left untouched so it still holds the dry signal for the bypass crossfade.
+    for (int ch = 0; ch < numCh; ++ch)
+    {
+        const auto* src = buffer.getReadPointer(ch);
+        auto* dst = scratch.getWritePointer(ch);
+        float inPeak = 0.0f;
+        for (int n = 0; n < numSmp; ++n)
+        {
+            const double wet = (double) src[n] * inTrim;
+            inPeak = jmax(inPeak, (float) std::abs(wet));
+            dst[n] = wet * kInputRef;
+        }
+        inputLevel[(size_t) ch].store(inPeak);
+    }
+    if (numCh == 1)
+        scratch.clear(1, 0, numSmp);
+
+    dsp::AudioBlock<double> block(scratch.getArrayOfWritePointers(), 2, (size_t) numSmp);
+
+    // Oversampled half: input network -> JFET stage. What comes back down is a drain CURRENT.
+    auto& os = *oversamplers[(size_t) currentOsIndex];
+    auto osBlock = os.processSamplesUp(block);
+    for (int ch = 0; ch < numCh; ++ch)
+    {
+        auto* d = osBlock.getChannelPointer((size_t) ch);
+        const int n = (int) osBlock.getNumSamples();
+        for (int i = 0; i < n; ++i)
+            d[i] = dsp[(size_t) ch].processOversampled(d[i]);
+    }
+    os.processSamplesDown(block);
+
+    // Base-rate half: the output / VOLUME network turns that current into output volts.
+    for (int ch = 0; ch < numCh; ++ch)
+    {
+        auto* wet = scratch.getWritePointer(ch);
+        auto* dry = buffer.getWritePointer(ch);
+        auto mix = bypassMix;
+        float outPeak = 0.0f;
 
         for (int n = 0; n < numSmp; ++n)
         {
-            const float x = d[n] * inTrim;
-            inPeak = jmax(inPeak, std::abs(x));
+            const double volts = dsp[(size_t) ch].processBase(wet[n]);
+            const double m = mix.getNextValue();
+            const double y = (1.0 - m) * (volts * outputGain) + m * (double) dry[n];
 
-            // PLACEHOLDER: pass-through. Replace with the WDF chain (input -> clip -> tone -> ...).
-            const float y = bypassed ? d[n] : x * outTrim;
-
-            d[n] = y;
-            outPeak = jmax(outPeak, std::abs(y));
+            dry[n] = (float) y;
+            outPeak = jmax(outPeak, (float) std::abs(y));
         }
-
-        inputLevel[(size_t) ch].store(inPeak);
         outputLevel[(size_t) ch].store(outPeak);
     }
+    bypassMix.skip(numSmp);
 }
 
 AudioProcessorEditor* PedalAudioProcessor::createEditor()

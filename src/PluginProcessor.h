@@ -2,24 +2,26 @@
 
 #include <array>
 #include <atomic>
+#include <memory>
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_dsp/juce_dsp.h>
+
+#include "dsp/EchoPreDsp.h"
 
 /**
- * PLACEHOLDER processor — just enough to make the UI (PluginEditor / PedalFace) build, load in a
- * DAW, and pass audio through unchanged. It declares the canonical APVTS parameter set the UI binds
- * to and exposes the input/output peak meters the editor reads; it does NO circuit modelling.
+ * Echo Pre 3 -- circuit-modelled Echoplex EP-3 preamp (Chase Tone Secret Preamp topology).
  *
- * Replace the guts during the DSP build sequence (CLAUDE.md): drop in the per-channel WDF chain,
- * oversampling, tapers and calibration. Keep the parameter IDs stable so saved sessions and the UI
- * bindings don't break (architecture.md). The `hq` / `trim_link` params are optional — the editor
- * shows their toggles only when they exist — so remove them here if your pedal doesn't want them.
+ * Signal chain per channel, mirroring circuit.md: input network -> 2N5457 common-source stage
+ * (oversampled) -> output/VOLUME network. VOLUME is NOT a scalar gain here: it is two arms of a real
+ * pot inside the output network's solve, which is what makes the control deliberately non-monotonic.
  */
-class PedalAudioProcessor : public juce::AudioProcessor
+class PedalAudioProcessor : public juce::AudioProcessor,
+                            private juce::AudioProcessorValueTreeState::Listener
 {
 public:
     PedalAudioProcessor();
-    ~PedalAudioProcessor() override = default;
+    ~PedalAudioProcessor() override;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -29,7 +31,7 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return "<Pedal>"; }
+    const juce::String getName() const override { return "Echo Pre 3"; }
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
@@ -52,6 +54,54 @@ public:
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
+    void updateOversamplingFactor(int factorIndex);
+
+    // Trim link (architecture.md): while engaged, nudging one trim by d dB nudges the other by -d,
+    // so pushing the circuit harder doesn't change overall loudness. Implemented as a listener pair
+    // with a re-entrancy guard rather than derived in processBlock, which would fight the host's own
+    // automation and recall of both parameters.
+    void parameterChanged(const juce::String& parameterID, float newValue) override;
+
+    juce::AudioParameterFloat* inputTrimParam = nullptr;
+    juce::AudioParameterFloat* outputTrimParam = nullptr;
+    std::atomic<float>* pTrimLink = nullptr;
+    std::atomic<bool> isSyncingTrim { false };
+    // Plain floats, not a String-keyed map: parameterChanged can be called from the audio thread.
+    float lastInputTrim = 0.0f, lastOutputTrim = 0.0f;
+
+    // ============================ CALIBRATION -- BOTH UNCALIBRATED ============================
+    // kInputRef is an ASSUMPTION, not a measurement. Calibrating it needs a bypass/unity capture,
+    // and the reference data is seven NAM models, which cannot be bypassed -- so no anchor exists
+    // (docs/build-plan.md L2). This is the template's starting value, carried forward deliberately.
+    // Nothing downstream may be written as if this were anchored.
+    static constexpr double kInputRef = 0.87; // volts per full scale -- ASSUMED
+
+    // Output makeup is to be level-matched to unit P1 (build-plan.md §6), which needs the renders.
+    // Until then it is exactly unity so the model's own gain is visible and unmasked. Do NOT pad
+    // this for headroom -- calibration doc §2 is explicit that it is a level match, and the final
+    // value may exceed 1.0.
+    static constexpr double kOutputMakeup = 1.0; // UNCALIBRATED
+
+    std::array<pedal::dsp::EchoPreDsp, 2> dsp;
+    juce::AudioBuffer<double> scratch;
+
+    // One oversampler per factor, all prepared up front: juce::dsp::Oversampling fixes its factor at
+    // construction, so switching by rebuilding one would allocate on the audio thread.
+    std::array<std::unique_ptr<juce::dsp::Oversampling<double>>, 4> oversamplers;
+    int currentOsIndex = -1;
+    double baseSampleRate = 48000.0;
+
+    // Trims are read per block as plain gains; only VOLUME (which re-solves the WDF network) and the
+    // bypass crossfade need smoothing.
+    juce::SmoothedValue<double> volumeSmooth, bypassMix;
+
+    std::atomic<float>* pVolume = nullptr;
+    std::atomic<float>* pMode = nullptr;
+    std::atomic<float>* pInputTrim = nullptr;
+    std::atomic<float>* pOutputTrim = nullptr;
+    std::atomic<float>* pOversampling = nullptr;
+    std::atomic<float>* pRenderOversampling = nullptr;
+    std::atomic<float>* pBypass = nullptr;
 
     std::array<std::atomic<float>, 2> inputLevel { 0.0f, 0.0f };
     std::array<std::atomic<float>, 2> outputLevel { 0.0f, 0.0f };

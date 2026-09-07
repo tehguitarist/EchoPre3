@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(EchoPre3 VERSION 0.1.0)   # bump VERSION to force Logic to rescan the AU after changes
+project(EchoPre3 VERSION 0.2.0)   # bump VERSION to force Logic to rescan the AU after changes
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,6 +19,14 @@ endif()
 add_subdirectory(libs/JUCE)
 add_subdirectory(libs/xsimd)          # optional; remove if not used
 add_subdirectory(libs/chowdsp_wdf)
+
+# Re-declare chowdsp_wdf's includes as SYSTEM so juce_recommended_warning_flags stops firing on its
+# header-only constructors (-Wshadow-field-in-constructor, -Wfloat-equal -- harmless param/field name
+# reuse, not bugs). Silencing those globally would blind us to real shadowing in our own code, which
+# matters: a genuine -Wshadow hit in PluginProcessor.cpp was nearly lost in ~40 lines of library noise.
+# CMake 3.15-compatible form (build.md).
+get_target_property(_chowdsp_inc chowdsp_wdf INTERFACE_INCLUDE_DIRECTORIES)
+set_target_properties(chowdsp_wdf PROPERTIES INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_chowdsp_inc}")
 
 # Embed the UI art (processed from ui/ into assets/ui/ by tools/process_ui_assets.sh). The
 # accessors in src/ui/Assets.h expect exactly these names; keep the two in sync when reskinning.
@@ -86,6 +94,24 @@ target_compile_options(EchoPre3 PRIVATE ${PEDAL_WARNING_FLAGS})
 #   target_link_libraries(<Name> PRIVATE chowdsp::chowdsp_wdf)
 #   target_compile_options(<Name> PRIVATE ${PEDAL_WARNING_FLAGS})
 #   add_test(NAME <Name> COMMAND <Name>)
+
+# Step 3 (CLAUDE.md): chowdsp_wdf smoke test, a trivial RC lowpass verified to a -3 dB point
+# within 1% -- confirms the library/toolchain wiring before any pedal-specific DSP is written.
+add_executable(WdfSmokeTest tests/WdfSmokeTest.cpp)
+target_link_libraries(WdfSmokeTest PRIVATE chowdsp::chowdsp_wdf)
+target_compile_options(WdfSmokeTest PRIVATE ${PEDAL_WARNING_FLAGS})
+add_test(NAME WdfSmokeTest COMMAND WdfSmokeTest)
+
+# Step 4 (CLAUDE.md): per-stage validation. Each linear stage is checked against the analytic
+# transfer function of its own component values AND against the corners circuit.md derives
+# independently, so a mis-wired tree and a mis-transcribed value fail differently.
+foreach(_stageTest InputNetworkTest OutputNetworkTest JfetStageTest ChainTest)
+    add_executable(${_stageTest} tests/${_stageTest}.cpp)
+    target_include_directories(${_stageTest} PRIVATE src)
+    target_link_libraries(${_stageTest} PRIVATE chowdsp::chowdsp_wdf)
+    target_compile_options(${_stageTest} PRIVATE ${PEDAL_WARNING_FLAGS})
+    add_test(NAME ${_stageTest} COMMAND ${_stageTest})
+endforeach()
 #
 # Tests needing juce::dsp (Oversampling / FFT) must be JUCE console apps:
 #   juce_add_console_app(<Name> PRODUCT_NAME "<Name>")
@@ -99,14 +125,14 @@ target_compile_options(EchoPre3 PRIVATE ${PEDAL_WARNING_FLAGS})
 #
 # UISnapshot — headless editor render to PNG (build.md "UI changes"). Needs juce_gui_extra +
 # PedalAssets and the shared UI/processor sources; it's a smoke test (asserts a non-empty image),
-# so add_test() with no CPU/pixel gate. Uncomment once you have src/PluginProcessor.{h,cpp}:
-#   juce_add_console_app(UISnapshot PRODUCT_NAME "UISnapshot")
-#   target_sources(UISnapshot PRIVATE
-#       tests/UISnapshot.cpp src/PluginProcessor.cpp src/PluginEditor.cpp
-#       src/ui/PedalLookAndFeel.cpp src/ui/PedalFace.cpp)
-#   target_include_directories(UISnapshot PRIVATE src)
-#   target_compile_definitions(UISnapshot PRIVATE
-#       JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0 JUCE_STANDALONE_APPLICATION=1 JucePlugin_VersionString="${PROJECT_VERSION}")
-#   target_link_libraries(UISnapshot PRIVATE juce::juce_gui_extra juce::juce_audio_utils juce::juce_dsp
-#       chowdsp::chowdsp_wdf PedalAssets juce::juce_recommended_config_flags)
-#   add_test(NAME UISnapshot COMMAND UISnapshot)
+# so add_test() with no CPU/pixel gate.
+juce_add_console_app(UISnapshot PRODUCT_NAME "UISnapshot")
+target_sources(UISnapshot PRIVATE
+    tests/UISnapshot.cpp src/PluginProcessor.cpp src/PluginEditor.cpp
+    src/ui/PedalLookAndFeel.cpp src/ui/PedalFace.cpp)
+target_include_directories(UISnapshot PRIVATE src)
+target_compile_definitions(UISnapshot PRIVATE
+    JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0 JUCE_STANDALONE_APPLICATION=1 JucePlugin_VersionString="${PROJECT_VERSION}")
+target_link_libraries(UISnapshot PRIVATE juce::juce_gui_extra juce::juce_audio_utils juce::juce_dsp
+    chowdsp::chowdsp_wdf PedalAssets juce::juce_recommended_config_flags)
+add_test(NAME UISnapshot COMMAND UISnapshot)

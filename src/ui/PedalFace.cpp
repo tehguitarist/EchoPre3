@@ -7,17 +7,15 @@ using namespace juce;
 
 namespace
 {
-// Per-knob tooltip formatter: turns the raw 0..1 parameter value into the control's real-world
-// unit, to two decimal places (ui.md "Tooltips"). Swap these for your pedal — e.g. a tone control
-// might read out its cutoff in Hz (run the value through the same taper the DSP uses), a drive as a
-// 0-10 dial number, a mix as a percentage. Placeholders here: Gain/Volume as a 0-10 dial, Tone as %.
-String fmtDial(double v01)    { return String(v01 * 10.0, 2); }            // "0.00" .. "10.00"
-String fmtPercent(double v01) { return String(v01 * 100.0, 2) + " %"; }    // "0.00 %" .. "100.00 %"
+// VOLUME's raw 0..1 rotation isn't a linear real-world unit (the taper is deliberately
+// non-monotonic — circuit.md "Validation notes" #1), so the tooltip reads out the knob's dial
+// position (0-10, as printed on the pedal) rather than a derived dB/percent figure.
+String fmtDial(double v01) { return String(v01 * 10.0, 2); }  // "0.00" .. "10.00"
 } // namespace
 
 PedalFace::PedalFace(AudioProcessorValueTreeState& apvts) : state(apvts)
 {
-    // ---- Pot knobs -----------------------------------------------------------------------------
+    // ---- VOLUME knob -----------------------------------------------------------------------------
     auto setupKnob = [this](Slider& s, Label& lab, const String& text, const char* paramId,
                             std::function<String(double)> fmt) {
         s.setSliderStyle(Slider::RotaryHorizontalVerticalDrag);
@@ -35,14 +33,14 @@ PedalFace::PedalFace(AudioProcessorValueTreeState& apvts) : state(apvts)
         lab.setColour(Label::textColourId, Colour(PedalLookAndFeel::cLabelText));
         addAndMakeVisible(lab);
     };
-    setupKnob(gainKnob,   gainLabel,   "GAIN",   "gain",   fmtDial);
-    setupKnob(toneKnob,   toneLabel,   "TONE",   "tone",   fmtPercent);
     setupKnob(volumeKnob, volumeLabel, "VOLUME", "volume", fmtDial);
 
-    // ---- 3-position mode switch, bound to the "mode" AudioParameterChoice -----------------------
+    // ---- 3-position MODE switch, bound to the "mode" AudioParameterChoice -------------------------
     // Two-way binding: the ParameterAttachment drives the switch when the host/automation changes
-    // the param; the switch's onChange writes back as a complete gesture.
-    modeSwitch.setLabels("I", "II", "III");   // placeholder positions — rename per pedal
+    // the param; the switch's onChange writes back as a complete gesture. Labelled top-to-bottom by
+    // physical lever position (circuit.md: up=Bright, middle=Dark/centre-off, down=Mid), matching
+    // the AudioParameterChoice order in PluginProcessor.
+    modeSwitch.setLabels("BRIGHT", "DARK", "MID");
     addAndMakeVisible(modeSwitch);
     modeAttachment = std::make_unique<ParameterAttachment>(
         *state.getParameter("mode"),
@@ -64,7 +62,7 @@ PedalFace::PedalFace(AudioProcessorValueTreeState& apvts) : state(apvts)
     addAndMakeVisible(bypassLabel);
 
     // ---- Logo ----------------------------------------------------------------------------------
-    logoLabel.setText("<PEDAL NAME>", dontSendNotification);   // <-- rename per pedal
+    logoLabel.setText("ECHO PRE 3", dontSendNotification);
     logoLabel.setJustificationType(Justification::centred);
     logoLabel.setColour(Label::textColourId, Colour(PedalLookAndFeel::cLabelText).withAlpha(0.85f));
     addAndMakeVisible(logoLabel);
@@ -98,19 +96,20 @@ void PedalFace::resized()
     // Logo across the top.
     place(logoLabel, W * 0.5f, H * 0.12f, W * 0.9f, jmax(14.0f, H * 0.12f));
 
-    // Knob row: GAIN / TONE / VOLUME.
+    // Knob row: VOLUME is the only pot on this pedal, so it sits centred.
     const float knobY = H * 0.42f;
-    const float gx = W * 0.25f, tx = W * 0.5f, vx = W * 0.75f;
-    place(gainKnob,   gx, knobY, knobD, knobD);
-    place(toneKnob,   tx, knobY, knobD, knobD);
+    const float vx = W * 0.5f;
     place(volumeKnob, vx, knobY, knobD, knobD);
-    placeLabelUnder(gainLabel,   gx, knobY, knobD);
-    placeLabelUnder(toneLabel,   tx, knobY, knobD);
     placeLabelUnder(volumeLabel, vx, knobY, knobD);
 
     // Bottom row: mode switch (left), LED (centre), footswitch (right).
+    // ThreePositionSwitch lays its body + label column out to roughly 1.35x its own height (see
+    // its internal `sc` scaling) -- with the real BRIGHT/DARK/MID labels (vs. the template's I/II/
+    // III placeholders) a width driven off W alone clips the text, so derive width from height.
     const float bottomY = H * 0.76f;
-    place(modeSwitch, W * 0.20f, bottomY, W * 0.16f, H * 0.30f);
+    const float modeH = H * 0.30f;
+    const float modeW = 1.4f * modeH;
+    place(modeSwitch, W * 0.20f, bottomY, modeW, modeH);
 
     const float ledD = jmin(W, H) * 0.07f;
     place(led, W * 0.5f, bottomY - ledD * 0.4f, ledD, ledD);
@@ -125,8 +124,7 @@ void PedalFace::refresh(float sc)
 {
     scale = sc;
     auto bold = [](float sz) { return Font(FontOptions(jmax(8.0f, sz), Font::bold)); };
-    for (auto* l : { &gainLabel, &toneLabel, &volumeLabel })
-        l->setFont(bold(11.0f * sc).withExtraKerningFactor(0.10f));
+    volumeLabel.setFont(bold(11.0f * sc).withExtraKerningFactor(0.10f));
     bypassLabel.setFont(bold(8.0f * sc).withExtraKerningFactor(0.20f));
     logoLabel.setFont(bold(18.0f * sc).withExtraKerningFactor(0.15f));
 }

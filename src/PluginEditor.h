@@ -16,7 +16,7 @@
  *
  * Expects this interface on the processor (see architecture.md / docs/ui-peripheral-spec.md):
  *   - `juce::AudioProcessorValueTreeState apvts` with params: input_trim, output_trim,
- *     oversampling, render_oversampling, bypass, gain, tone, volume, mode, and OPTIONALLY
+ *     oversampling, render_oversampling, bypass, volume, mode, and OPTIONALLY
  *     hq + trim_link (guarded below — the strip drops the toggle if the param is absent),
  *   - `float getInputLevel(int channel)` / `float getOutputLevel(int channel)` (post-/pre-trim
  *     peak, DAW domain), backed by std::atomic<float> written on the audio thread.
