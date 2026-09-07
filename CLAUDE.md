@@ -133,10 +133,40 @@ high, execute routine work cheap) is what should persist.
 > node graphs, triage, corners, validation targets). Both open questions resolved against the
 > maker's published notes. 2N5457 datasheet fetched to `docs/refs/`. Project builds; AU installs
 > with the placeholder pass-through DSP.
-> NEXT: step 2 (CMake scaffold → APVTS params matching the real controls: VOLUME + 3-way EQ), then
-> step 3 (chowdsp_wdf smoke test on the linear stages before touching the JFET).**
+> NEXT: **`docs/build-plan.md` (written 2026-09-07) is the working plan from here on** — it adapts
+> this build sequence to the reference data we actually have (seven NAM models, no raw captures, no
+> bypass anchor). Immediate work is its phase 0: redesign `analysis/gen_test_signal.py` for this
+> pedal, write `analysis/captures.py`, and get the eight renders made. Steps 2 and 3 (CMake scaffold
+> → APVTS for VOLUME + 3-way EQ, then the chowdsp_wdf smoke test) run in parallel with that.**
 
 ## Project-specific carry-forwards
+
+### Reference data: seven NAM models (see `docs/build-plan.md`)
+
+- **No raw pedal captures exist and none are coming.** The reference is seven `.nam` models across
+  three physical pedals, trained by three different people, at three VOLUME positions (2:30 / 10:30
+  / 10:00). Only P1 and P2 have all three MODE positions; P3 has Mid only. They are driven by
+  rendering a test signal through the NAM plugin — we never run inference on the files directly.
+- ⭐ **The mode differential is the jackpot, and it hands us `gm` for free.** Within one unit the
+  three modes differ in exactly one thing, so rig gain, converter response and unit variance all
+  cancel in the ratio. The bypassed-to-unbypassed plateau ratio is `k = 1 + gm·R5` with R5 known,
+  so `gm` comes out of a *ratio* — no level calibration needed — for the one parameter the 5:1
+  datasheet spread makes least predictable. Measured twice, independently.
+- ⚠ **The VOLUME taper CANNOT be fitted from this data.** Volume is confounded with both unit and
+  rig gain: P3 sits at a lower volume setting than P2 yet reports 8.5 dB more loudness. Fit the
+  taper to the maker's four published points (p ≈ 2.0) and use the NAM volume points only as a
+  shape check via the LF high-pass corner, which is level-independent.
+- ⚠ **There is no bypass anchor, so `kInputRef` cannot be measured.** Keep 0.87 V/FS as a declared
+  assumption, commented as an assumption — not as a calibrated constant.
+- ⚠ **All seven models have a 132 ms receptive field**, so a 13 Hz corner is seen for under two
+  cycles. Verify the low-frequency probe behaves before leaning on it. The top octave carries each
+  trainer's converters, not the pedal.
+- 📌 **Hypothesis to test first (M1 in the plan): the BRIGHT/MID labels may be backwards.** The
+  stored loudness figures order Bright above Mid above Dark in *both* units, but the 22 nF cap lifts
+  a wider band and should win a broadband comparison. Settles `circuit.md` note #2 either way.
+- **The old two-way pedal is the contingency**, held for the two things NAM data structurally
+  cannot give: a VOLUME sweep and a bypass anchor. Trigger only if volume becomes the dominant
+  error.
 
 > Record decisions, measured constants (kInputRef, rail voltages, makeup), and open questions here
 > as you go, so the next session resumes cleanly.

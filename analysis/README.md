@@ -72,24 +72,74 @@ These validate the estimators themselves before you trust any number they produc
 
 ### The Test Signal
 
-`test_signal_48k.wav` (48 kHz, 32-bit float) contains these segments in order:
+`test_signal_48k.wav` (48 kHz, 32-bit float, ~4.8 min, ~53 MB — gitignored, regenerate with
+`python analysis/gen_test_signal.py`). Built for Echo Pre 3, which is a **clean, high-headroom
+preamp**: sub-dB response differences and low-percent THD, so the signal favours long coherent
+dwells over broad coverage of things a distortion pedal would need.
 
 | Segment | Content | Purpose |
 |---------|---------|---------|
-| `cal_1k` | 1 kHz tone @ -18 dBFS | Level calibration + sample-rate detection anchor |
-| `sweep_clean` | Log sweep 20 Hz → 20 kHz @ -30 dBFS | Primary clean FR + alignment anchor |
-| `sweep_clean_-36` | Same sweep @ -36 dBFS | Second clean-end FR point (rolled-off input) |
-| `sweep_drv_-18` | Log sweep @ -18 dBFS | Driven FR + continuous THD(f) via Farina deconvolution |
-| `sweep_drv_-12` | Log sweep @ -12 dBFS | Deeper drive; bracket-tests the -18 sweep |
-| `sweep_drv_-6` | Log sweep @ -6 dBFS | Hot pickup level; heaviest clipping |
-| `lvl_-36` … `lvl_-3` | 1 kHz tone steps, 3 dB apart | Compression knee vs. input level |
-| `tone_82.41` … `tone_8000` | Discrete tones @ -14 dBFS | Harmonic spot-checks (anchor the swept THD) |
-| `imd_smpte` | 60 Hz + 7 kHz (4:1) | SMPTE intermodulation distortion |
-| `imd_guitar` | 220 Hz + 660 Hz (musical 5th) | Guitar-band intermod |
-| `decay_220`, `decay_1k` | Plucked exp-decay notes | Touch / dynamic response |
+| `marker_head` / `marker_tail` | 0.2 s chirp | Alignment; truncation detection |
+| `cal_1k` | 1 kHz @ -18 dBFS, at 0.5–1.8 s | Level anchor + sample-rate mislabel detection |
+| `noise_floor` | 2 s silence | The capture's own floor — the bound on everything else |
+| `sweep_clean`, `sweep_-26/-16/-6` | 4 × 20 s ESS, 10 Hz → 22 kHz | FR at four input levels; continuous THD(f) by Farina |
+| `comp_<f>_<dB>` | 16 freqs × 10 levels, ≥48 cycles/cell | **Per-band compression**, 20 Hz–20 kHz; doubles as THD(f, level) |
+| `tone_<f>_<dB>` | 16 freqs × 4 levels, ≥96 cycles/cell | **THD**, 20 Hz–8 kHz, orders H2–H8 |
+| `imd_guitar_<dB>` | 220 + 660 Hz at 3 levels | Audible chord intermod |
+| `repeat_800_-11` | Exact duplicate of `comp_800_-11` | Repeatability floor |
+
+Three design points that are easy to undo by accident:
+
+- **Sweeps run 10 Hz → 22 kHz, not 20 → 20 k**, so the 20 Hz and 20 kHz *reporting* bands sit
+  inside the sweep instead of on its edge where deconvolution artefacts live.
+- **Every tone cell carries a 0.15 s settle head that `seg_of()` discards.** It exceeds the 132 ms
+  receptive field of the reference NAM models, so no cell is contaminated by the one before it.
+  `GAP` is 0.25 s for the same reason.
+- **Cells hold at least 48 cycles**, which puts the nearest harmonic at least 48 DFT bins from the
+  fundamental — far outside a Blackman-Harris main lobe. That is what makes reading harmonics off
+  a compression cell valid rather than approximate.
+- **All three blocks draw their input levels from one grid**, so -26, -16 and -6 dBFS are each
+  measurable by the swept Farina THD, the discrete-tone THD and the comp-cell harmonic read.
+  THD is level-dependent, so grids that do not share levels give three instruments and no way to
+  arbitrate between them.
+
+**THD above ~12 kHz is not measurable at 48 kHz by any method**, because H2 of a 12.5 kHz tone is
+already past Nyquist. The tone grid therefore stops at 8 kHz, and `harmonics()` returns `None` for
+an unmeasurable order rather than zero, so THD is never silently understated.
 
 **Never insert segments in the middle** — it shifts every later segment's offset
 and invalidates all existing captures. Append new segments at the end only.
+
+### Reporting grids
+
+| Quantity | Grid | Where |
+|---|---|---|
+| Frequency response | **60 bands**, 1/6 octave, 20 Hz–20 kHz | `band_fr()` |
+| FR, densified | to 1/24 octave inside `INTEREST_BANDS` | `analysis_freqs()` |
+| Compression | **16 bands**, 2/3 octave, 20 Hz–20 kHz × 10 levels | `compression_table()` |
+| THD | **16 bands**, 20 Hz–8 kHz × 4 levels, H2–H8 | `thd_table()` |
+| THD, continuous | Farina swept curve to ~10.4 kHz | `harmonic_thd_curve()` |
+| Sign of the even term | waveform asymmetry, per cell | `asymmetry()` |
+| Sign of the cubic | slope of `comp_db` with level | `compression_curve()` |
+
+`INTEREST_BANDS` is set for this pedal: the C10 high-pass corner region (10–60 Hz, the
+level-independent VOLUME probe), the two MODE source-bypass corners (1.5–6 kHz), and the input
+low-pass plus top-octave droop region (5–13 kHz).
+
+### Self-test
+
+```bash
+python analysis/analyze.py --selftest
+```
+
+Feeds the real test signal through systems whose response is known in closed form and asks each
+instrument to recover it: a 1st-order 30 Hz–7.3 kHz bandpass for FR and for compression flatness,
+and `y = x + 0.05x² + 0.02x³` for the harmonics. Twelve checks, including both of the SIGNS
+`circuit.md` demands before a limiter is chosen: waveform asymmetry recovers the even term and
+flips with it, and the compression slope reads expansion for a positive cubic and compression for
+a negative one. Current margins are 0.037 dB on frequency response and 0.003 dB on harmonic
+levels. **Run this after touching either file** — an instrument that has
+not been checked against a known answer is not an instrument.
 
 ### The Farina THD Curve
 
@@ -219,7 +269,8 @@ If your pedal uses different knob labels, write your own `parse_capture()` in
 
 ## Dependencies
 
-- Python ≥ 3.9
+- Python ≥ 3.9 — a project venv is set up at `.venv/` (gitignored); the system `python3` on this
+  machine is 3.14 and has no numpy, so use `.venv/bin/python` or `python3.11`
 - `numpy`
-- `scipy` (for `scipy.io.wavfile`, `scipy.signal`)
+- `scipy` (for `scipy.io.wavfile`, `scipy.signal`, `scipy.signal.windows`)
 - Your pedal's `OfflineRender` binary (C++ or otherwise)

@@ -1,37 +1,72 @@
 #!/usr/bin/env python3
-"""Comprehensive A/B capture signal for circuit-emulation pedal plugins (template default).
+"""Comprehensive A/B capture signal — Echo Pre 3 (Echoplex EP-3 / Chase Tone Secret Preamp).
 
-Play this through the REAL pedal (one capture per setting in the matrix — see
-docs/validation-and-capture.md) and through the plugin (offline render), then compare with the
-analysis harness (analyze.py). The harness imports SEGMENTS / segment_times() / SWEEP_* from here
-so segment timings + sweep parameters have a single source of truth and never drift.
+Render this through each reference (a NAM model in the NAM plugin, or the real pedal via a reamp
+loop) and through the plugin's OfflineRender, then compare with analyze.py.
 
-Coverage (each item earns its place — these are the gaps a single-sweep signal misses):
-  - cal_1k            1 kHz @ -18 dBFS                  level-calibration anchor
-  - sweep_clean       log sweep 20->20k @ -30 dBFS      CLEAN linear FR (Farina ESS) + alignment anchor
-  - sweep_clean_-36   log sweep @ -36 dBFS              2nd clean-end FR point (rolled-off/soft input)
-  - sweep_drv_-18/-12/-6  log sweeps @ those dB         DRIVEN: continuous FR + THD-vs-freq at 3 depths
-        The 5 sweeps together = FR AND THD as a function of INPUT LEVEL (rolled-off volume / soft
-        playing at -36 through a hot active pickup digging in near -6) — the compressive circuit's
-        response changes with drive, so a single-level sweep can't show the hot-pickup/rolloff feel.
-  - lvl_<dB>      1 kHz steps -36..-3 dBFS (3 dB)        gain/compression knee vs input level (1 kHz anchor)
-  - tone_<f>      tones @ -14 dBFS, dense 1-8 kHz        harmonic spot-checks (anchor the swept THD)
-  - imd_smpte     60 Hz + 7 kHz (4:1)                    SMPTE intermodulation distortion
-  - imd_guitar    220 Hz + 660 Hz (musical 5th)          guitar-band intermod (audible chord IMD)
-  - decay_220/_1k plucked exp-decay notes                touch / dynamic response
+** This pedal is a CLEAN, high-headroom preamp, not a distortion. ** The signal is built for
+subtlety: sub-dB frequency-response differences, low-percent THD, and a compression characteristic
+that is a gentle square-law bend rather than a knee. That drives every choice below.
 
-Design notes (hard-won — see docs/validation-and-capture.md):
-  - The log sweeps are TRUE exponential sine sweeps (ESS): f(t)=f0*exp(t/T*k), k=ln(f1/f0). The
+Coverage
+--------
+  marker_head / marker_tail   short chirps          exact alignment + truncation detection
+  cal_1k                      1 kHz @ -18 dBFS      level anchor; occupies 0.5-1.8 s so
+                                                    captures.load_capture()'s rate-mislabel
+                                                    detector (window 0.5-1.45 s) still works
+  noise_floor                 2 s silence           the capture's own noise floor — the honest
+                                                    lower bound on every measurement below
+  sweep_clean / sweep_<dB>    4 x 20 s ESS 10 Hz -> 22 kHz
+                                continuous FR at four input levels. The sweep is continuous, so
+                                the FR band count is a REPORTING choice, not a signal limit —
+                                analyze.band_fr() reports 1/6 octave (60 bands, 20 Hz - 20 kHz)
+                                densified to 1/24 octave inside INTEREST_BANDS. Each sweep also
+                                yields a continuous THD(f) curve by Farina harmonic separation.
+  comp_<f>_<dB>               16 freqs x 10 levels  THE compression instrument: output level vs
+                                input level at 16 frequencies spanning 20 Hz - 20 kHz, so
+                                compression is characterised PER BAND. This is what shows treble
+                                compressing while bass does not — which is exactly what this
+                                circuit does, since the MODE bypass sets how much degeneration
+                                each band sees. Cells are long enough (>=48 cycles) to double as
+                                a harmonic read, giving THD(f, level) on the same 16 x 10 grid.
+  tone_<f>_<dB>               16 freqs x 4 levels   THE THD instrument: >=96 cycles per cell for
+                                harmonic SNR, 20 Hz - 8 kHz, densified through 1.25-3.15 kHz where
+                                the MODE corners sit. 8 kHz is the top because H2 of anything
+                                higher lands above Nyquist at 48 kHz. Orders H2..H8 are extracted
+                                per cell, each masked where N*f exceeds Nyquist, so "all the
+                                harmonics" means all the ones the sample rate can carry.
+  imd_guitar_<dB>             220 + 660 Hz @ 3 levels   audible chord intermod
+  repeat_1k                   duplicate of a comp cell  context-sensitivity / repeatability floor
+
+Removed from the template default, and why
+------------------------------------------
+  - imd_smpte (60 Hz + 7 kHz, 4:1). A distortion-pedal measure. On a stage this clean the products
+    sit near the capture noise floor and near a NAM model's own error, so it reports noise.
+  - decay_220 / decay_1k plucked notes. They probed touch response qualitatively; the per-band
+    compression ladder measures the same physics quantitatively across 16 bands and 13 levels.
+  - The single 1 kHz level ladder. Superseded by the 16-frequency ladder — compression on this
+    circuit is frequency-dependent by construction (the MODE bypass sets how much degeneration
+    each band sees), so a 1 kHz-only ladder measures one band of a control that acts on all of them.
+  - The -14 dBFS single-level discrete tone row. Superseded by the tone_ block, which sweeps level.
+  - The 8-frequency discrete tone row. Superseded by 16 frequencies at 4 levels each.
+
+Design notes
+------------
+  - The sweeps are TRUE exponential sine sweeps (ESS): f(t)=f0*exp(t/T*k), k=ln(f1/f0). The
     analyzer builds the matching Farina inverse filter to deconvolve them into the linear impulse
-    response PLUS time-separated harmonic-order responses -> a continuous THD(f) curve from ONE
-    capture. Valid for a memoryless/instantaneous nonlinearity (diode + op-amp clipping).
-  - All sweeps are the SAME length (10 s) so there's one inverse-filter length and well-spaced
-    harmonic impulse responses (short sweeps pack harmonics too close and the gating overlaps).
-  - NO CCIF 19k+20k twin-tone (default): near Nyquist the antialiasing filter response creates a
-    large, predictable difference between plugin and analog pedal — it's measuring antialiasing
-    design, not the modelled circuit's IMD character. The guitar-band twin-tone (220+660 Hz) is
-    where audible chord intermod actually lives. If your plugin needs to validate antialiasing
-    behaviour specifically, add a 19k+20k test segment explicitly.
+    response PLUS time-separated harmonic-order responses -> a continuous THD(f) curve from one
+    capture.
+  - Sweeps run 10 Hz -> 22 kHz, not 20 -> 20 k, so the 20 Hz and 20 kHz REPORTING bands sit inside
+    the sweep rather than on its edge, where Farina deconvolution artefacts live.
+  - 20 s sweeps (up from the template's 10 s). Longer buys two things this pedal needs: LF energy
+    for the C10 corner, and harmonic-order separation of 1.8 s at H2 instead of 0.9 s.
+  - All sweeps share ONE length, so there is one inverse filter and one gating layout.
+  - SETTLE (0.15 s) is prepended to every tone cell and discarded by the analyzer. It exceeds the
+    132 ms receptive field of the reference NAM models, so no cell is contaminated by the previous
+    one. GAP is 0.25 s for the same reason.
+  - Tone cell length scales as ~24 cycles at low frequencies so a 20 Hz cell is not measured over
+    five periods.
+  - Peak level is -1 dBFS, not 0, to keep an offline bounce clear of inter-sample clipping.
 
   ** Changing this layout invalidates existing captures.** Only ever APPEND new segments at the end
   (and re-capture); inserting in the middle shifts every later segment's offset.
@@ -40,27 +75,58 @@ import numpy as np
 
 FS = 48000
 
-# Sweep parameters — shared with the analyzer's Farina inverse filter (import, don't re-type).
-SWEEP_F0 = 20.0
-SWEEP_F1 = 20000.0
-SWEEP_SEC = 10.0                        # all sweeps share ONE length (one inverse-filter length; see notes)
-# The full sweep BANK spans the real instrument-input range (kInputRef = 0.87 V/FS, so 0 dBFS ~ 0.87 V
-# peak): -36 ~ soft/rolled-off volume, -18..-6 ~ passive-to-hot playing. Reading FR from each level
-# shows how the compressive circuit reacts to hot pickups vs a rolled-off volume; each DRIVEN sweep
-# ALSO yields a continuous THD(f) curve, so THD is likewise characterised across the input range.
-CLEAN_FR_LEVELS_DB = (-30, -36)        # low-level CLEAN FR sweeps; -30 is the primary EQ read + align anchor
-DRIVEN_LEVELS_DB = (-18, -12, -6)      # driven sweeps: continuous THD(f) AND a driven FR at each level
-# Back-compat aliases (older callers referenced these two names):
-SWEEP_CLEAN_SEC = SWEEP_SEC
-SWEEP_DRIVEN_SEC = SWEEP_SEC
+# --- ISO third-octave reporting grid -----------------------------------------------------------
+# 31 bands, 20 Hz .. 20 kHz. Synthesis and binning both use the EXACT base-2 centres; the nominal
+# labels are only for naming segments and printing tables.
+ISO31_EXACT = [1000.0 * 2.0 ** (k / 3.0) for k in range(-17, 14)]
+ISO31_NOMINAL = (20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
+                 1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000,
+                 20000)
+assert len(ISO31_EXACT) == len(ISO31_NOMINAL) == 31
 
-# Discrete tones (Hz) @ -14 dBFS — densified through 1-8 kHz; anchors for the continuous swept THD.
-TONE_FREQS = (82.41, 110, 220, 440, 1000, 2000, 4000, 8000)
+# --- Sweeps ------------------------------------------------------------------------------------
+SWEEP_F0 = 10.0                 # below the 20 Hz band edge (17.8 Hz) so that band is not on the edge
+SWEEP_F1 = 22000.0              # above the 20 kHz band edge (22.4 Hz -> clipped by Nyquist anyway)
+SWEEP_SEC = 20.0
+# Sweep, comp and tone levels are all drawn from ONE grid (COMP_LEVELS_DB below), so the swept
+# Farina THD, the discrete-tone THD and the comp-cell harmonic read can be compared to each other
+# at the SAME input level. THD is level-dependent, so grids that do not share levels cannot be
+# cross-checked at all — three instruments and no way to arbitrate between them.
+CLEAN_FR_LEVELS_DB = (-41, -26)     # linear-reference FR, and the clean end of the range
+DRIVEN_LEVELS_DB = (-16, -6)        # driven FR + continuous THD(f)
+SWEEP_LEVELS_DB = CLEAN_FR_LEVELS_DB + DRIVEN_LEVELS_DB
 
-LEVEL_STEPS_DB = tuple(range(-36, -2, 3))   # -36,-33,...,-3 — 1 kHz compression knee across the input range
+# --- Per-band compression ladder ---------------------------------------------------------------
+# Every other ISO band (2/3-octave spacing) = 16 frequencies across 20 Hz .. 20 kHz. Compression is
+# read per band because on this circuit it genuinely differs per band.
+COMP_FREQS = tuple(ISO31_EXACT[::2])
+COMP_FREQ_LABELS = tuple(ISO31_NOMINAL[::2])
+# 10 levels, 5 dB apart. -46 dBFS is a rolled-off volume knob; -1 dBFS is a hot humbucker dug into.
+COMP_LEVELS_DB = tuple(range(-46, 0, 5))
+COMP_CYCLES = 48          # cells hold >=48 periods, so they also serve as a harmonic read
 
-GAP = 0.3          # silence between segments (s)
-TONE_SEC = 0.8     # discrete tone / level-step duration (s)
+# --- THD / harmonic block ----------------------------------------------------------------------
+# 16 fundamentals, 20 Hz .. 8 kHz, densified through 1.25-3.15 kHz where the MODE bypass corners
+# sit. The 8 kHz ceiling is physics, not choice: at 48 kHz, H2 of a 12.5 kHz tone is already past
+# Nyquist, so THD is unmeasurable above ~12 kHz by ANY discrete-tone or swept method.
+_ISO = dict(zip(ISO31_NOMINAL, ISO31_EXACT))
+TONE_FREQ_LABELS = (20, 31.5, 50, 80, 125, 200, 315, 500, 800, 1250, 1600, 2000, 2500, 3150,
+                    5000, 8000)
+TONE_FREQS = tuple(_ISO[f] for f in TONE_FREQ_LABELS)
+TONE_LEVELS_DB = (-26, -16, -6, -1)
+TONE_CYCLES = 96          # long dwell -> harmonic SNR; this is the block the JFET shaper is fit to
+TONE_MAX_ORDER = 8        # H2..H8 extracted per cell, masked where N*f > Nyquist
+
+IMD_LEVELS_DB = (-19, -11, -3)
+REPEAT_TWIN = "comp_800_-11"   # repeat_800_-11 is a byte-for-byte duplicate of this cell
+
+SETTLE = 0.15      # discarded head of every tone cell (> the 132 ms NAM receptive field)
+GAP = 0.08         # silence between segments. Deliberately SHORT: clearing the reference models'
+                   # 132 ms memory is SETTLE's job and SETTLE is inside every cell, so a long gap
+                   # would buy the same thing twice. At 236 segments, 0.25 s of gap was 59 s (18%)
+                   # of the signal. The gap now only has to keep segment edges clear of alignment
+                   # error, which is sample-exact via cross-correlation.
+MARKER_SEC = 0.20
 
 
 def dbfs(db):
@@ -80,9 +146,19 @@ def fade(x, ms=5.0):
     return x
 
 
-def tone(freq, sec, db):
-    t = np.arange(int(sec * FS)) / FS
+def tone(freq, sec, db, settle=0.0):
+    """A sine of total length `settle + sec`. The analyzer discards the first `settle` seconds."""
+    t = np.arange(int((sec + settle) * FS)) / FS
     return fade(dbfs(db) * np.sin(2 * np.pi * freq * t))
+
+
+def cell_sec(freq, cycles=COMP_CYCLES, lo=0.35, hi=1.50):
+    """Analysis-window length for a tone cell: ~`cycles` periods, clamped. Keeps a 20 Hz cell
+    honest (many periods) without making an 8 kHz cell pointlessly long. The cycle count sets the
+    DFT resolution relative to the fundamental, so `cycles` periods puts the nearest harmonic
+    `cycles` bins away — far outside a Blackman-Harris main lobe, which is why harmonics can be
+    read off these cells without leakage."""
+    return float(np.clip(cycles / freq, lo, hi))
 
 
 def log_sweep(sec, db, f0=SWEEP_F0, f1=SWEEP_F1):
@@ -104,43 +180,65 @@ def twin_tone(f_lo, f_hi, sec, db_peak, ratio_lo=1.0, ratio_hi=1.0):
     return fade(x)
 
 
-def plucked(freq, sec, db_peak, decay_tau=0.35):
-    """A plucked note: fast attack, exponential decay — sweeps DOWN through the drive range as it
-    decays, so analysis can track harmonic content vs instantaneous level (touch-sensitivity)."""
-    t = np.arange(int(sec * FS)) / FS
-    env = np.exp(-t / decay_tau)
-    atk = int(0.003 * FS)
-    env[:atk] *= np.linspace(0, 1, atk)
-    return dbfs(db_peak) * env * np.sin(2 * np.pi * freq * t)
+def marker():
+    """Short chirp used only to pin alignment and prove the file is not truncated."""
+    return log_sweep(MARKER_SEC, -12, 200.0, 8000.0)
+
+
+def comp_name(label, db):
+    return f"comp_{label:g}_{db}"
+
+
+def tone_name(label, db):
+    return f"tone_{label:g}_{db}"
 
 
 def build_segments():
     """Ordered list of (name, audio_array). Pure data — no I/O."""
     segs = []
-    segs.append(("cal_1k", tone(1000, 1.0, -18)))
-    # Clean-band FR sweeps (low level -> clip harmonics don't pollute the tone fit). 'sweep_clean'
-    # (-30) is BOTH the primary EQ read and the alignment anchor (analyze.align()); the -36 sweep
-    # adds a second clean-end point so FR's level-dependence is visible at the quiet/rolled-off end.
+    segs.append(("marker_head", marker()))
+    segs.append(("cal_1k", tone(1000, 1.3, -18)))
+    segs.append(("noise_floor", silence(2.0)))
+
+    # Full-range FR + continuous THD(f) at four input levels. 'sweep_clean' is both the primary
+    # clean FR read and the alignment anchor (analyze.align()).
     segs.append(("sweep_clean", log_sweep(SWEEP_SEC, CLEAN_FR_LEVELS_DB[0])))
-    for db in CLEAN_FR_LEVELS_DB[1:]:
-        segs.append((f"sweep_clean_{db}", log_sweep(SWEEP_SEC, db)))
-    # Driven sweeps: each yields a continuous THD(f) curve (Farina) AND a driven FR at that level.
-    for db in DRIVEN_LEVELS_DB:
-        segs.append((f"sweep_drv_{db}", log_sweep(SWEEP_SEC, db)))
-    for db in LEVEL_STEPS_DB:
-        segs.append((f"lvl_{db}", tone(1000, TONE_SEC, db)))
-    for f in TONE_FREQS:
-        segs.append((f"tone_{f:g}", tone(f, TONE_SEC, -14)))
-    segs.append(("imd_smpte", twin_tone(60, 7000, 2.0, -12, ratio_lo=4.0, ratio_hi=1.0)))
-    segs.append(("imd_guitar", twin_tone(220, 660, 2.0, -12)))
-    segs.append(("decay_220", plucked(220, 1.5, -6)))
-    segs.append(("decay_1k", plucked(1000, 1.5, -6)))
+    for db in SWEEP_LEVELS_DB[1:]:
+        segs.append((f"sweep_{db}", log_sweep(SWEEP_SEC, db)))
+
+    # Per-band compression: frequency outer, level inner, so each frequency's ladder is contiguous.
+    for freq, label in zip(COMP_FREQS, COMP_FREQ_LABELS):
+        sec = cell_sec(freq)
+        for db in COMP_LEVELS_DB:
+            segs.append((comp_name(label, db), tone(freq, sec, db, settle=SETTLE)))
+
+    # THD / harmonic block: long dwell for harmonic SNR, level swept at every frequency.
+    for freq, label in zip(TONE_FREQS, TONE_FREQ_LABELS):
+        sec = cell_sec(freq, cycles=TONE_CYCLES, lo=0.60, hi=2.00)
+        for db in TONE_LEVELS_DB:
+            segs.append((tone_name(label, db), tone(freq, sec, db, settle=SETTLE)))
+
+    for db in IMD_LEVELS_DB:
+        segs.append((f"imd_guitar_{db}", twin_tone(220, 660, 2.0, db)))
+
+    # Repeatability / context floor: an EXACT duplicate of one comp cell, rendered in a different
+    # context. A memoryless system repeats it identically, so the residual against comp_800_-11 is
+    # the measurement's own noise floor — the number every other result has to beat to mean anything.
+    segs.append((REPEAT_TWIN.replace("comp_", "repeat_"),
+                 tone(_ISO[800], cell_sec(_ISO[800]), -11, settle=SETTLE)))
+    segs.append(("marker_tail", marker()))
     return segs
 
 
-def assemble(lead=0.5, gap=GAP, tail=0.5):
+def assemble(lead=None, gap=GAP, tail=0.5):
     """Concatenate segments with lead/gap/tail silence; return (signal, timing_map).
-    timing_map[name] = (t0, t1) bounds the AUDIO of that segment in seconds."""
+    timing_map[name] = (t0, t1) bounds the AUDIO of that segment in seconds.
+
+    `lead` defaults to whatever puts cal_1k at exactly 0.5 s (lead + MARKER_SEC + gap), which is
+    what captures.load_capture()'s sample-rate-mislabel detector expects. Derived, not hardcoded —
+    it silently broke once when GAP changed."""
+    lead = (0.5 - MARKER_SEC - gap) if lead is None else lead
+    assert lead > 0, f"GAP {gap} + marker {MARKER_SEC} leaves no room before cal_1k at 0.5 s"
     parts = [silence(lead)]
     pos = lead
     times = {}
@@ -161,6 +259,15 @@ def segment_times():
     return assemble()[1]
 
 
+def analysis_window(name, times=None):
+    """(t0, t1) of the part of a segment that is safe to measure: tone cells have SETTLE removed."""
+    times = times or segment_times()
+    t0, t1 = times[name]
+    if name.startswith(("comp_", "tone_", "repeat_")):
+        t0 += SETTLE
+    return t0, t1
+
+
 if __name__ == "__main__":
     from scipy.io import wavfile
 
@@ -169,7 +276,28 @@ if __name__ == "__main__":
     wavfile.write(out, FS, sig)
     peak = float(np.max(np.abs(sig)))
     print(f"wrote {out}  ({len(sig)/FS:.1f} s, {len(sig)} samples, {FS} Hz)")
-    print(f"peak = {peak:.3f}  ({20*np.log10(peak+1e-20):.1f} dBFS)")
-    print("\nsegment timing map (s):")
-    for name, (t0, t1) in times.items():
-        print(f"  {name:16} {t0:7.3f} .. {t1:7.3f}  ({t1-t0:.2f}s)")
+    print(f"peak = {peak:.3f}  ({20*np.log10(peak+1e-20):.2f} dBFS)")
+    print(f"segments: {len(times)}")
+    cal = times["cal_1k"]
+    print(f"cal_1k at {cal[0]:.3f}..{cal[1]:.3f} s "
+          f"(rate detector needs 0.5..1.45 inside: "
+          f"{'OK' if cal[0] <= 0.5 and cal[1] >= 1.45 else 'FAIL'})")
+    print(f"compression grid: {len(COMP_FREQS)} freqs x {len(COMP_LEVELS_DB)} levels")
+    print(f"  freqs (nominal): {', '.join(f'{f:g}' for f in COMP_FREQ_LABELS)}")
+    print(f"  levels (dBFS):   {', '.join(str(d) for d in COMP_LEVELS_DB)}")
+    print(f"THD grid: {len(TONE_FREQS)} freqs x {len(TONE_LEVELS_DB)} levels, "
+          f"orders H2..H{TONE_MAX_ORDER}")
+    print(f"  freqs (nominal): {', '.join(f'{f:g}' for f in TONE_FREQ_LABELS)}")
+    nyq = FS / 2.0
+    worst = [f for f in TONE_FREQ_LABELS if 2 * _ISO[f] > nyq]
+    print(f"  fundamentals with NO measurable H2 at {FS} Hz: {worst or 'none'}")
+    print("\nblock timing (s):")
+    for pfx in ("marker_head", "cal_1k", "noise_floor", "sweep_", "comp_", "tone_",
+                "imd_", "repeat_1k", "marker_tail"):
+        sel = [(n, v) for n, v in times.items() if n.startswith(pfx)]
+        if sel:
+            print(f"  {pfx:12} {sel[0][1][0]:8.3f} .. {sel[-1][1][1]:8.3f}  ({len(sel)} segs)")
+    assert REPEAT_TWIN in times, REPEAT_TWIN
+    a, b = times[REPEAT_TWIN]; c, d = times[REPEAT_TWIN.replace("comp_", "repeat_")]
+    print(f"\nrepeat twin: {REPEAT_TWIN} ({b-a:.3f}s) vs its duplicate ({d-c:.3f}s) "
+          f"-> {'OK' if abs((b-a)-(d-c)) < 1e-9 else 'LENGTH MISMATCH'}")
