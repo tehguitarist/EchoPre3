@@ -60,6 +60,17 @@
   rebuilt test is harder than the one it replaces and still passes, it is a correction; if it is
   easier, it is a concession.**
 
+- **Reading a harmonic with a single sin or cos projection measures its REAL PART, not its
+  magnitude.** Any filter between the nonlinearity and the readout gives the harmonic its own phase,
+  so a real-part-only correlation comes back `|H| * cos(phase)` — several dB light, and light by
+  *more* exactly where the filter is most active, which is exactly where the interesting prediction
+  lives. Correlate against `exp(-i*k*theta)` and take the magnitude. Echo Pre 3 hit this while
+  validating that a degeneration shelf filters the distortion product at 2f as well as the drive at
+  f: the model was exact and the instrument reported errors of up to 7.6 dB, rising with frequency,
+  which is a completely plausible-looking "the model's high end is wrong" signature. It was caught
+  only because a second test of the same structure — one running where the filter is a constant and
+  therefore phaseless — was exact at the same time, and both cannot be right.
+
 ### Known answers
 
 - **A known answer that starts at its own answer is a fixed point, not a test.** For any iterative

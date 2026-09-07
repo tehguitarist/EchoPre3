@@ -10,7 +10,9 @@ namespace pedal::dsp
  * Stage 2 -- the 2N5457 common-source gain stage, the ONLY nonlinear element in the signal path.
  * Implements Path B of docs/nonlinear-component-modeling.md §2:
  *
- *   Vg --[ 1/k(s) ]--[ static shaper g() ]--*(-gm)--> drain Norton current
+ *   Vg --[ 1/k(s) ]--+--------------------------------------+--*(-gm)--> drain Norton current
+ *                     |                                      |
+ *                     +--[ g(.) - identity ]--[ 1/k(s) ]-----+
  *
  * ============================ THE STRUCTURAL TRAP (worth ~20 dB) ============================
  * A degenerated CS stage is a CURRENT source, not a voltage source. With Zs = R5 || (bypass cap):
@@ -33,76 +35,164 @@ namespace pedal::dsp
  *
  * Modelled as a first-order shelf, taking Zs = R5 || (1/sC) for the engaged branch only:
  *
- *     1/k(s) = (1 + s*R5*C) / (K0 + s*R5*C),   K0 = 1 + gm*R5
+ *     1/k(s) = (1 + s*tau) / (K0 + s*tau),   K0 = 1 + gm*R5,  tau MEASURED (see JfetParams)
  *
- * zero at the bypass corner 1/(2*pi*R5*C), pole K0x above it; DARK (no cap engaged) is the constant
+ * zero at the bypass corner 1/(2*pi*tau), pole K0x above it; DARK (no cap engaged) is the constant
  * 1/K0. The un-engaged branch's 1 MOhm pulldown is treated as fully off: including it would shift the
  * HF degeneration from R5 to R5||500k, i.e. 0.7% / 0.06 dB (circuit.md sanctions this).
  *
+ * ============ THE SECOND TRAP: DEGENERATION SUPPRESSES DISTORTION TWICE, NOT ONCE ============
+ * ⚠⚠ This one is worth 16.4 dB = 20*log10(K0), it is invisible to every linear test, and the
+ * obvious structure gets it wrong. Feeding the shelf output through the shaper models the drive to
+ * the nonlinearity correctly -- and then stops. Local feedback ALSO suppresses whatever the device
+ * generates inside the loop. Expanding id = gm*u + c*u^2 with u = vg - id*Zs to second order:
+ *
+ *     order 1:   u1  = vg / k(s)                       (the shelf, as before)
+ *     order 2:   id2 = c * (u1^2) / k(s)               <-- the same shelf again, on the PRODUCT
+ *
+ *     so  H2/H1 = A / (4*Vov*k^2),  NOT  A / (4*Vov*k)
+ *
+ * Hence the second filter instance above: the shaper's nonlinear EXCESS (g(w) - w, i.e. everything
+ * the device adds beyond its own small-signal slope) is fed back through an identical 1/k(s) while
+ * the linear path is left untouched. That is exact to second order and structurally right at higher
+ * orders, since every term generated inside the loop is suppressed by it.
+ *
+ * Checked against an exact per-sample implicit solve of id = gm*g(vg - id*R5), which is the ground
+ * truth this approximation is answerable to (JfetStageTest section 7 runs it):
+ *
+ *     gate amplitude:   0.2 V     0.5 V     0.8 V     1.5 V
+ *     shelf-only:      +16.3 dB  +16.1 dB  +15.7 dB  +13.3 dB   of H2 error  (the bug)
+ *     this model:       -0.04     -0.24     -0.66     -3.08                  (Volterra truncation)
+ *
+ * Two consequences worth keeping. MODE now moves distortion as k^2: fully bypassed, H2 rises 32.7 dB
+ * relative to the fundamental versus DARK, because the drive rises by K0 AND the suppression is
+ * gone. And ADAA is now applied to the EXCESS ONLY, which is what makes it free -- see shapeAdaa().
+ *
  * ================================ APPROXIMATION, DECLARED ================================
- * This is a Wiener-Hammerstein approximation. True degeneration is nonlinear feedback
- * (vgs = vg - i_d*Zs, an implicit solve); linearising the degeneration into 1/k(s) and putting all
- * the curvature on vgs is a deliberate modelling CHOICE, not an oversight. Path A (a full coupled
- * solve at an R-type root) is the escalation if an A/B shows audible missed dynamics.
+ * This is a Wiener-Hammerstein approximation with the second-order feedback term restored. True
+ * degeneration is nonlinear feedback (vgs = vg - i_d*Zs, an implicit solve); linearising the
+ * degeneration into 1/k(s) and putting the curvature on vgs is a deliberate modelling CHOICE, not an
+ * oversight. Path A (the per-sample implicit solve above, with the source network's state carried
+ * through it) is the escalation, and the table above is its criterion in hand: it buys under 0.7 dB
+ * of H2 at full scale and 3.1 dB at +5 dB of input trim.
  */
 struct JfetParams
 {
-    // ================== EVERY FIELD BELOW IS A PLACEHOLDER AWAITING A FIT ==================
-    // The 2N5457 is spread 5:1 on every amplitude parameter (IDSS 1-5 mA, Vgs(off) -0.5..-6 V,
-    // Yfs 1000-5000 umhos), and the maker states Q1 is a "cherry picked" vintage part, so nominal
-    // is even less trustworthy than usual. Only the R/C corners and the polarity are known ahead of
-    // the reference renders. See docs/build-plan.md M2 (gm) and M5 (shaper).
+    // ============ MEASURED 2026-09-07 (build-plan.md M1/M2), no longer placeholders ============
+    // gm comes out of a RATIO of two captures, so it needed no level calibration: the mode-versus-
+    // DARK plateau is K0 = 1 + gm*R5, measured 6.5912 across two units (P1 6.46, P2 6.72). At
+    // R5 = 3.6 k that is gm = 1553 uS -- about TWICE the datasheet-typical self-bias solve's 813 uS,
+    // and ~9x the ~180 uS the maker's published control points implied. Both of those priors are
+    // refuted; circuit.md note #7 has the arithmetic.
     //
-    // Derived from a datasheet-TYPICAL self-bias solve (IDSS = 3 mA, Vp = -3.0 V, R5 = 3.6 k):
-    //     Id = IDSS*(1 - Vgs/Vp)^2 with Vgs = -Id*R5  =>  Id = 495 uA, Vgs = -1.78 V
-    //     Vov = |Vgs - Vp| = 1.22 V,  gm = 2*Id/Vov = 813 uS,  V_drain = VA - Id*R6 = 11.1 V
-    // The drain landing at mid-rail cross-checks circuit.md's independent "~11 V" bias estimate.
-    //
-    // !! KNOWN TENSION, do not mistake for a converged fit: the maker's published control points
-    // imply the whole stage is only +7-8 dB, which needs gm ~ 180 uS -- about 4.5x BELOW this
-    // nominal. circuit.md says to expect the fitted gm under nominal. M2 settles it from the mode
-    // plateau ratio k = 1 + gm*R5, which needs no level calibration at all.
+    // !! Use the raw K0 - 1 here, NOT circuit.md's ro-corrected 1.58-1.71 mS. That correction is for
+    // a model whose drain resistance rises as ro*k(s); this one folds Rout into the CONSTANT R6||ro
+    // (see outputImpedance()), and under that structure the mode differential this model produces is
+    // exactly K0 = 1 + gm*R5. Taking the corrected value would make the model MISS the measurement
+    // it was fitted to. ChainTest asserts the plateau lands on K0.
+    double gm = 1.5531069e-3; // S -- (K0 - 1)/R5 with K0 = 6.5912 measured. M2.
 
-    double gm = 813.0e-6;   // S      -- small-signal transconductance. M2 measures this directly.
-    double ro = 1.01e6;     // Ohm    -- drain output resistance, 1/(lambda*Id) at lambda = 2 mS/V.
+    // The mode shelf's time constants, MEASURED rather than computed as R5*C. Both branches' fitted
+    // zeros sit ~7% below the drawn 1/(2*pi*R5*C), by a common factor: the two branches imply the
+    // same R5 to within 1.6%, and the cap RATIO is confirmed (2.24 measured vs 2.20 drawn). So it is
+    // one offset -- either R5 measures ~3.85 k or both caps run ~7% high -- and schematic.png was
+    // re-read at high zoom to rule out a transcription error ("3k6" is unambiguous). This dataset
+    // cannot separate R5 from C, and the DSP only ever consumes (tau, K0), so the pair is what is
+    // stored. Means of the two units' fits; per-unit spread is 1.2% (bright) and 7.7% (mid).
+    double tauBright = 85.369e-6; // s -- 22 nF branch, zero at 1864 Hz (drawn R5*C = 79.2 us)
+    double tauMid    = 38.263e-6; // s -- 10 nF branch, zero at 4160 Hz (drawn R5*C = 36.0 us)
+
+    // ================== THE AMPLITUDE PARAMETERS BELOW ARE STILL NOT MEASURED ==================
+    // They are DERIVED from the measured gm plus one declared choice, because the harmonic data
+    // cannot pin them on its own -- see "the degeneracy" below.
+    //
+    // With gm measured, the square-law self-bias solve collapses to a ONE-parameter family. From
+    // Id = IDSS*(Vov/|Vp|)^2, gm = 2*Id/Vov and Vgs = -Id*R5:
+    //
+    //     |Vp|/Vov = 1 + gm*R5/2 = 3.7956      IDSS/Id = (|Vp|/Vov)^2 = 14.407
+    //
+    // so choosing any one of (IDSS, |Vp|, Id, Vov) fixes the rest. The datasheet's IDSS <= 5 mA caps
+    // the family at Vov = 0.447 V; its Vgs(off) >= 0.5 V floors it at Vov = 0.131 V; the load line
+    // (Vds > Vov with R6 = 22 k off a 22 V rail) would allow up to Vov = 1.053 V, so the datasheet
+    // binds first. This ships the IDSS = 5 mA end:
+    //
+    //     Id = 347 uA   Vov = 0.4469 V   |Vp| = 1.696 V   Vs = 1.249 V   Vd = 14.36 V   Vds = 13.1 V
+    //
+    // Two reasons for that end rather than the middle: the maker states Q1 is "cherry picked to
+    // cream-of-the-crop specs", which means high IDSS for a given pinch-off, and it is the
+    // MINIMUM-curvature admissible point (aEven = 1/Vov is smallest there), which is the
+    // conservative choice for a pedal whose whole claim is headroom. Note the drain lands at 14.4 V,
+    // not the ~11 V mid-rail circuit.md estimated from a nominal part -- high gm at this Id needs a
+    // small Vov, which needs a small Id.
+    //
+    // !! THE DEGENERACY, stated so it is not "re-fitted" later. The reference renders' H2 pins only
+    // the PRODUCT aEven x (the trainers' reamp level in V/FS), because both enter the harmonic
+    // amplitude linearly and this dataset has no absolute level anchor (build-plan.md L1/L2). At the
+    // shipped Vov the P2 ladder's top three cells imply the trainers reamped at 0.41-0.64 V/FS,
+    // which is ordinary reamp territory; at the other end of the family (Vov = 0.131) they imply
+    // 0.12-0.19 V/FS, which is also plausible. Nothing in the dataset chooses between them.
+    // What the datasheet cap DOES buy is a one-sided bound worth carrying to step 9:
+    //
+    //     the reference renders were driven at <= 0.41 V/FS, i.e. >= 6.6 dB below kInputRef = 0.87.
+    //
+    // So an A/B against those renders at matched DIGITAL level compares the plugin's distortion at
+    // a drive the reference never saw. Match the DRIVE (trim the plugin's input down, or set
+    // kInputRef to the fitted trainer level for the comparison), then null.
+    double ro = 1.4407e6; // Ohm -- 1/(lambda*Id) at lambda = 2 mV/V, with the fitted Id = 347 uA.
 
     // Shaper. g(w) = T(w) + (a*s^2/2)*tanh^2(w/s), w = effective vgs in REAL GATE VOLTS, so g'(0) = 1
     // exactly and gm alone sets the gain -- the shaper only adds curvature.
     //
-    // A JFET is a square-law device, so the curvature must be EVEN-dominant (H2 above H3). A tanh
-    // structurally cannot produce that (finding (a)): tanh is odd, so its cubic forces H3 whenever it
-    // makes H2. Hence the linear-core-plus-even-bump form, whose bump is exactly even and contributes
-    // zero odd content at any drive.
-    double aEven = 0.821;   // 1/V    -- quadratic coefficient = 1/Vov. THE square-law parameter.
-    double bumpScale = 1.218; // V    -- even-bump scale, set to Vov. Then a*s = 1 and the bump
-                              //         saturates at a*s^2/2 = Vov/2 = Id0/gm, i.e. exactly the
-                              //         cutoff current -- the physical scale, not a tuned one.
+    // The exact square-law device transfer, normalised the same way, is simply
+    //
+    //     g(w) = w + w^2/(2*Vov)      for w >= -Vov, and g = -Vov/2 below it (cutoff)
+    //
+    // which is where aEven = 1/Vov comes from: it is not a fitted knob, it is the square law. A tanh
+    // structurally cannot produce an even-dominant stage (nonlinear doc section 2 finding (a)), hence
+    // the linear-core-plus-even-bump form, whose bump is exactly even and adds no odd content.
+    // ⚠ Known deviation, measured: tanh^2 saturates where the true parabola does not, so at a 0 dBFS
+    // input (w ~ 0.118 V) the bump is 4.5% (0.4 dB of H2) below the exact parabola, growing with
+    // drive. An exact parabola with a cutoff clamp is the refinement; it is not the dominant error
+    // (the Volterra truncation below is larger), so both are deferred together.
+    double aEven = 2.2374867; // 1/V -- = 1/Vov. THE square-law parameter, now derived from measured gm.
+    double bumpScale = 0.44693002; // V -- even-bump scale = Vov. Then a*s = 1 and the bump saturates
+                                   //      at a*s^2/2 = Vov/2 = Id0/gm, i.e. exactly the cutoff
+                                   //      current -- the physical scale, not a tuned one.
     double beta = 0.0;      // 1/V^2  -- cubic coefficient of the odd core. 0 = pure square law.
-                            //         !! CHECK THE SIGN FROM CAPTURES BEFORE CHOOSING A LIMITER
-                            //         (finding (b)): a compressive core's H3 is ~180 deg out of
-                            //         phase with an expansive one, and no amount of knee tuning
-                            //         crosses that. beta > 0 expansive, < 0 compressive. M5 decides.
+                            //         M5 could NOT settle this: H3 sits under both NAM models' error
+                            //         floors (H4 comes back ABOVE H3, which no mild polynomial can
+                            //         do), so the only cubic evidence is 0.09-0.35 dB of top-cell
+                            //         compression, which fixes the SIGN (compressive, beta < 0) and
+                            //         nothing else. Left at 0 rather than fitted to a floor.
 
     // Per-side limits of the odd core, giving the stage its asymmetry. These are the DEVICE's own
-    // bounds, in the current domain: cutoff (Id -> 0) on the negative swing, gate conduction /
-    // IDSS on the positive. There is deliberately NO separate drain-voltage rail clamp -- §3 is
-    // explicit that a JFET drain limits by its own physics and that bolting an op-amp-style clamp
-    // on top double-limits it. Bounding the current here bounds the drain voltage via the load line
-    // (V_D = VA - Id*R6) for free, which is what circuit.md's VA = 22 V headroom note is really about.
-    // At guitar levels neither side is reached; this only shapes extreme input-trim settings.
-    double limitPos = 1.65; // V -- 1.5*L + a*s^2/2 = 3.08 ~= (IDSS - Id0)/gm, the channel ceiling.
-    double limitNeg = 1.20; // V -- see the monotonicity note below.
+    // bounds, in the current domain: cutoff (Id -> 0) on the negative swing, the channel ceiling
+    // (Id -> IDSS) on the positive. There is deliberately NO separate drain-voltage rail clamp --
+    // section 3 is explicit that a JFET drain limits by its own physics and that bolting an
+    // op-amp-style clamp on top double-limits it.
+    //
+    // ⚠ But be honest about what that leaves out, because the fitted bias makes it quantifiable for
+    // the first time: the LOAD LINE bites long before the channel ceiling does. With Vds = 13.1 V
+    // and a ~20.6 k AC load the drain enters triode after 575 uA of extra current, i.e. at
+    // g = +0.370 V -- while the channel ceiling sits at g = +3.00 V, 8x further out. The shaper's
+    // structure cannot carry the tighter bound (the even bump alone asymptotes at Vov/2 = 0.223,
+    // which would leave the core only 0.147 V and bend the map inside the normal operating range),
+    // so the load line is NOT modelled. It is reachable: +0.370 V of g needs w = +0.281 V, which is
+    // a 1.85 V gate swing, about +6.6 dB of input trim. Recorded as a known deferred limit, with the
+    // numbers, rather than left as an unexamined "extreme settings only".
+    double limitPos = 1.8482823; // V -- 1.5*L + a*s^2/2 = 3.00 = (IDSS - Id0)/gm, the channel ceiling.
+    double limitNeg = 0.34264635; // V -- see the monotonicity note below.
 
     // !! MONOTONICITY: limitNeg is NOT the physically exact value, and the difference is deliberate.
-    // Asymptoting exactly at cutoff would need limitNeg = 0.812, but on the negative swing the even
-    // bump's slope SUBTRACTS from the core's, and that triple folds back at w ~ -1.5 V -- a real
-    // fold, found only by scanning the combined function, exactly as finding (c) warns (a bound
-    // derived for one sub-term is not a bound on the sum). Fold-back inverts the waveform and breaks
-    // ADAA, so monotonicity wins; the cost is an asymptote about 2x deeper than cutoff in a region
-    // the signal only reaches under heavy input trim. JfetStageTest scans the shipped triple, so a
-    // later fit cannot silently reintroduce the fold.
+    // Asymptoting exactly at cutoff would need limitNeg = (2/3)*Vov = 0.2980, but on the negative
+    // swing the even bump's slope SUBTRACTS from the core's, and the sum folds back -- a real fold,
+    // found only by scanning the combined function, exactly as finding (c) warns (a bound derived
+    // for one sub-term is not a bound on the sum). The fold threshold measures 1.04x the exact
+    // value; this ships 1.15x for margin, giving an asymptote 1.30x deeper than cutoff. Fold-back
+    // inverts the waveform and breaks ADAA, so monotonicity wins. The reachable region matters here:
+    // the fold sits near w = -0.55 V, which is +12 dB of input trim, not a theoretical corner.
+    // JfetStageTest scans the shipped triple, so a later fit cannot silently reintroduce it.
 };
-
 /** MODE positions, ordered by physical lever position top-to-bottom to match the APVTS choice list
  *  and the hardware toggle (circuit.md note #2). Deliberately NOT ordered by brightness.
  *  RESOLVED 2026-09-07 by build-plan.md M1, and it DID swap Bright with Mid: the mode-differential
@@ -156,8 +246,8 @@ public:
 
     void reset()
     {
-        x1 = 0.0;
-        y1 = 0.0;
+        driveShelf.reset();
+        excessShelf.reset();
         wPrev = 0.0;
         fPrev = 0.0; // shapeAntiderivative(0) == 0 by construction of both terms' constants
     }
@@ -168,10 +258,14 @@ public:
      *  a null test against the reference renders even though it is inaudible solo. */
     inline double processSample(double vGate) noexcept
     {
-        const double w = b0 * vGate + b1 * x1 - a1 * y1;
-        x1 = vGate;
-        y1 = w;
-        return -params.gm * (adaaEnabled ? shapeAdaa(w) : shape(w));
+        const double w = driveShelf.process(vGate);
+
+        // The nonlinear EXCESS -- what the device adds beyond its own small-signal slope -- is the
+        // only part the loop suppresses a second time, so it is the only part that goes through the
+        // second shelf. Splitting it out this way also keeps the linear path bit-exact: the model's
+        // frequency response is the shelf and nothing else, at any drive and with ADAA on or off.
+        const double excess = adaaEnabled ? excessAdaa(w) : (shape(w) - w);
+        return -params.gm * (w + excessShelf.process(excess));
     }
 
     /** First-order ADAA of shape(): the mean of the map over [wPrev, w], evaluated exactly from the
@@ -188,6 +282,19 @@ public:
      *  difference of two nearly-equal antiderivatives loses its significant digits, so the quotient
      *  goes to noise precisely where the signal is quiet. The midpoint value is the exact limit of
      *  that quotient, so the crossover is smooth. */
+    /** ADAA of the EXCESS map g(w) - w, which is what processSample() actually needs.
+     *
+     *  ⭐ ADAA1 is linear in the map, so ADAA[g - id] = ADAA[g] - ADAA[id], and ADAA of the identity
+     *  is exactly the two-point average. Subtracting it therefore costs nothing and removes ADAA's
+     *  one real drawback outright: the (1 + z^-1)/2 rolloff no longer touches the linear path, so
+     *  ADAA can no longer darken the top octave at low oversampling. That was the entire reason
+     *  kAdaaMaxOsIndex is -1 -- re-run OSFidelity and FeatureProfile before assuming it still holds. */
+    inline double excessAdaa(double w) noexcept
+    {
+        const double wPrevBefore = wPrev; // shapeAdaa() advances it, so capture it first
+        return shapeAdaa(w) - 0.5 * (w + wPrevBefore);
+    }
+
     inline double shapeAdaa(double w) noexcept
     {
         const double f = shapeAntiderivative(w);
@@ -202,8 +309,9 @@ public:
     }
 
     /** Drain Norton impedance, R6 || ro. Stamped into OutputNetwork, never applied here.
-     *  ro*k(s) is frequency dependent in principle, but ro (~1 MOhm) is ~46x R6, so the parallel
-     *  combination moves by under 1% (0.1 dB) across the whole k range -- modelled as constant. */
+     *  ro*k(s) is frequency dependent in principle, but ro (1.44 MOhm at the fitted Id) is 65x R6, so
+     *  the parallel combination moves by under 1% (0.06 dB) across the whole k range -- modelled as
+     *  constant. That constancy is also why gm is taken straight from K0 - 1: see JfetParams. */
     double outputImpedance() const
     {
         return (circuit::kR6 * params.ro) / (circuit::kR6 + params.ro);
@@ -258,40 +366,67 @@ public:
     double degenerationDC() const { return 1.0 + params.gm * circuit::kR5; }
 
 private:
-    // Bypass capacitance engaged by the current MODE position; 0 means no branch grounded (DARK).
-    double bypassCap() const
+    /** One instance of 1/k(s). There are two, and they must NOT share state: the drive path and the
+     *  excess path carry different signals through identical coefficients. */
+    struct Shelf
+    {
+        double b0 = 1.0, b1 = 0.0, a1 = 0.0;
+        double x1 = 0.0, y1 = 0.0;
+
+        inline double process(double x) noexcept
+        {
+            const double y = b0 * x + b1 * x1 - a1 * y1;
+            x1 = x;
+            y1 = y;
+            return y;
+        }
+
+        void reset() noexcept { x1 = 0.0; y1 = 0.0; }
+    };
+
+    /** Source-bypass time constant engaged by the current MODE position; 0 means no branch grounded
+     *  (DARK). MEASURED, not computed as R5*C -- see JfetParams for why the two differ by 7%.
+     *  The lever->cap mapping itself was also measured and came out reversed (M1). */
+    double bypassTau() const
     {
         switch (mode)
         {
-            case Mode::Bright: return circuit::kC1;   // 22 nF -- measured, not inferred (M1)
-            case Mode::Mid:    return circuit::kC2;   // 10 nF
+            case Mode::Bright: return params.tauBright; // 22 nF branch, zero 1864 Hz
+            case Mode::Mid:    return params.tauMid;    // 10 nF branch, zero 4160 Hz
             case Mode::Dark:   break;
         }
         return 0.0;
     }
 
-    // Bilinear discretisation of 1/k(s) = (1 + s*tau) / (K0 + s*tau), tau = R5*C.
+    // Bilinear discretisation of 1/k(s) = (1 + s*tau) / (K0 + s*tau).
     void updateShelf()
     {
         const double k0 = degenerationDC();
-        const double cap = bypassCap();
+        const double tau = bypassTau();
 
-        if (cap <= 0.0)
+        if (tau <= 0.0)
         {
             // DARK: k is frequency-independent, so this degenerates to a plain gain. Taking the
             // tau -> 0 limit of the bilinear form instead would give a1 = 1, a marginally stable
             // filter rather than a constant.
-            b0 = 1.0 / k0;
-            b1 = 0.0;
-            a1 = 0.0;
-            return;
+            driveShelf.b0 = 1.0 / k0;
+            driveShelf.b1 = 0.0;
+            driveShelf.a1 = 0.0;
+        }
+        else
+        {
+            const double twoTauFs = 2.0 * tau * fs;
+            const double norm = 1.0 / (k0 + twoTauFs);
+            driveShelf.b0 = (1.0 + twoTauFs) * norm;
+            driveShelf.b1 = (1.0 - twoTauFs) * norm;
+            driveShelf.a1 = (k0 - twoTauFs) * norm;
         }
 
-        const double twoTauFs = 2.0 * circuit::kR5 * cap * fs;
-        const double norm = 1.0 / (k0 + twoTauFs);
-        b0 = (1.0 + twoTauFs) * norm;
-        b1 = (1.0 - twoTauFs) * norm;
-        a1 = (k0 - twoTauFs) * norm;
+        // Same filter, separate state. Copying the coefficients rather than sharing one object is
+        // what keeps the two paths independent.
+        excessShelf.b0 = driveShelf.b0;
+        excessShelf.b1 = driveShelf.b1;
+        excessShelf.a1 = driveShelf.a1;
     }
 
     JfetParams params {};
@@ -302,8 +437,8 @@ private:
     // shapeAdaa(). w is in real gate volts (order 1), so this is a ~1e-6 relative threshold.
     static constexpr double kAdaaEps = 1.0e-6;
 
-    double b0 = 1.0, b1 = 0.0, a1 = 0.0;
-    double x1 = 0.0, y1 = 0.0;
+    Shelf driveShelf {};
+    Shelf excessShelf {};
     bool adaaEnabled = false;
     double wPrev = 0.0, fPrev = 0.0;
 };

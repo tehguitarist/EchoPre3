@@ -73,14 +73,20 @@ int main()
     //    Norton architecture: the output network's transfer is mode-independent, so it divides out
     //    of the ratio and leaves only k(s). If the MODE lift had been applied as a voltage shelf AND
     //    the output network driven from an ideal source, it would be double-counted and this plateau
-    //    would come out near K0^2 -- about 24 dB instead of 12.
+    //    would come out near K0^2 -- about 33 dB instead of 16.4.
+    //
+    //    ⚠ This ratio is a LINEAR measurement, and it passed unchanged while the stage was
+    //    suppressing distortion by k instead of k^2 (JfetStageTest section 7). A correct mode
+    //    differential is not evidence that the nonlinear path is right.
     const double k0 = 1.0 + params.gm * circuit::kR5;
     std::printf("\nMode differential re DARK (this is build-plan.md M1/M2):\n");
     std::printf("  K0 = 1 + gm*R5 = %.4f (%.2f dB) -- the plateau both ratios must reach\n", k0, db(k0));
 
     struct Case { const char* name; dsp::Mode mode; double cornerHz; };
-    const Case cases[] = { { "Bright", dsp::Mode::Bright, 1.0 / (2.0 * M_PI * circuit::kR5 * circuit::kC1) },
-                           { "Mid",    dsp::Mode::Mid,    1.0 / (2.0 * M_PI * circuit::kR5 * circuit::kC2) } };
+    // Corners from the MEASURED time constants (M1), not from R5*C: the fitted zeros sit ~7% below
+    // the drawn ones in both units and both branches. See JfetParams.
+    const Case cases[] = { { "Bright", dsp::Mode::Bright, 1.0 / (2.0 * M_PI * params.tauBright) },
+                           { "Mid",    dsp::Mode::Mid,    1.0 / (2.0 * M_PI * params.tauMid) } };
 
     for (const auto& c : cases)
     {

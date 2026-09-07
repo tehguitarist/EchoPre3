@@ -237,11 +237,18 @@ Node S:  Q1 source, R5 leg 1, C1 leg 1, C2 leg 1 — no other connection
 Node GND: R5 leg 2
 ```
 
-DC bias (**estimate only — confirm by measurement / fit**): with R5 = 3.6 k self-bias and a typical
-mid-spread 2N5457, Id lands in the few-hundred-µA range, putting the drain near **mid-rail (≈ 11 V)**
-with VA = 22 V and R6 = 22 k. That is a deliberately generous, tube-like headroom — this stage is
-meant to stay clean at guitar levels. **Do not fit the bias from these numbers**; fit it to a
-capture (the device spread above swamps any nominal calculation).
+DC bias — ✅ **narrowed by the measured `gm` (note #8), no longer a free estimate.** Once `gm` is
+known the square-law self-bias solve is a ONE-parameter family: `|Vp|/Vov = 1 + gm·R5/2 = 3.796` and
+`IDSS/Id = 14.41`, so choosing any one of (IDSS, |Vp|, Id, Vov) fixes the rest. The datasheet's
+IDSS ≤ 5 mA caps it at **Vov = 0.447 V, Id = 347 µA, |Vp| = 1.70 V, Vs = 1.25 V, Vd = 14.4 V**; its
+Vgs(off) ≥ 0.5 V floors it at Vov = 0.131 V; the load line would allow Vov up to 1.05 V, so the
+datasheet binds first. The model ships the IDSS = 5 mA end (see `JfetStage.h`).
+
+⚠ **The earlier "drain near mid-rail ≈ 11 V" estimate is superseded.** It assumed a nominal part; the
+measured `gm` is ~2× nominal, and high `gm` at this device needs a small `Vov`, which needs a small
+`Id` — so the drain sits **high (14.4 V), not mid-rail**. Headroom is therefore asymmetric: 7.6 V of
+up-swing against 13.1 V down. Still deliberately generous — this stage is meant to stay clean at
+guitar levels.
 
 ⭐⭐⭐ **THE STRUCTURAL TRAP — READ `docs/nonlinear-component-modeling.md` §2 BEFORE WRITING THIS
 STAGE. It is worth ~20 dB, and on THIS pedal it is not a corner case — it is the whole circuit.**
@@ -266,6 +273,18 @@ mode-to-mode difference measurement, not just a single-mode FR.
 
 Drive the shaper with the **effective vgs** (real gate volts, order |Vp|), so `gm` alone sets the
 gain and the shaper only adds curvature (slope exactly 1 at the origin).
+
+⭐⭐ **AND THEN SUPPRESS WHAT IT GENERATES A SECOND TIME — see note #8.** The line above is necessary
+and NOT sufficient, and the difference is worth 16.4 dB. Feeding `vgs = vg/k(s)` into the shaper
+models the *drive* to the nonlinearity; the same local feedback also attenuates the distortion the
+device makes *inside* the loop, so the second-order product comes out filtered by `1/k(s)` as well:
+
+```
+id2 = c·(u1²)/k(s)      ⇒   H2/H1 = A/(4·Vov·k²),  NOT  A/(4·Vov·k)
+```
+
+Every linear test passes with that factor missing. It was shipped, and only an independent implicit
+solve of `id = gm·g(vg − id·Zs)` caught it.
 
 ⚠ **Expect a square-law, even-dominant character.** Per §2's finding (a), a `tanh` **structurally
 cannot** produce an even-dominant stage — and a JFET is a square-law device, so H2 should dominate
@@ -782,3 +801,47 @@ bolded peak cell, and the `C10` corner figure. The input-network and MODE-corner
 re-derived exactly. The lesson matches this file's own gotcha list: re-reading component values
 found nothing, re-solving the derived numbers found four errors. **Spend future passes on the
 derived quantities, not on the values.**
+
+### 8. ⭐⭐ Step 4b refit (2026-09-08) — what implementing the measurements found
+
+Full write-up in `docs/build-plan.md` §10; the code and its reasoning are in `src/dsp/JfetStage.h`.
+Two things came out of it, and the second is the one to carry forward.
+
+**(a) The fit itself.** `gm` = 1553 µS from M2's K0, the two shelf time constants from M1's fits
+(85.369 µs / 38.263 µs, ~7 % above the drawn R5·C), and — new here — the observation that a measured
+`gm` collapses the square-law self-bias solve to a **one-parameter family**, `|Vp|/Vov = 1 + gm·R5/2`
+and `IDSS/Id = (1 + gm·R5/2)²`. That is what turns the datasheet from a vague 5:1 spread into a
+genuine bracket on the operating point (stage 2 above).
+
+**(b) ⚠⚠ THE STRUCTURAL BUG: degeneration suppresses distortion TWICE, not once.** Worth
+**16.4 dB = 20·log10(K0)**. Expanding `id = gm·u + c·u²` with `u = vg − id·Zs` to second order gives
+`id2 = c·(u1²)/k(s)` — the squared term is filtered by the *same* `1/k(s)` that set the drive — so
+`H2/H1 = A/(4·Vov·k²)`. The model applied the shelf once, to the drive, and shipped that way. Checked
+against an exact per-sample implicit solve: shelf-only over-produced H2 by **+16.3 / +16.1 / +15.7 dB**
+at 0.2 / 0.5 / 0.8 V of gate swing; the corrected two-shelf structure lands at **−0.04 / −0.25 /
+−0.72 dB**.
+
+⭐ **The method lesson, which sits beside the phase-testing one in this file's history.**
+`ChainTest`'s mode differential is the test that exists to catch this class of error, and it passed
+the whole time — because the differential is a **linear** measurement and the linear path was
+correct. A correct frequency response is not evidence that the nonlinear path is right. Only an
+independent solve of the equation the model approximates could settle it, and building that oracle
+took less time than the two magnitude tests that could never have found it.
+
+**Two consequences that are now testable predictions, not modelling choices:**
+- **MODE moves distortion as `k²`.** Fully bypassed, H2 rises **32.7 dB** relative to the fundamental
+  versus DARK, because the drive rises by K0 *and* the suppression vanishes. M5's "more compression
+  in Bright at the same input" is the qualitative shape of this. The two-way pedal's session should
+  measure it.
+- **The reference renders were driven at ≤ 0.41 V/FS**, i.e. **≥ 6.6 dB below `kInputRef` = 0.87.**
+  This is a bound, not an assumption: H2 amplitude goes as `aEven × drive`, `aEven = 1/Vov`, and the
+  datasheet caps Vov at 0.447 V. ➡ **Binding on step 9: A/B the harmonics at matched DRIVE, not at
+  matched digital level.** Note this bound only exists because of finding (b) — under the old
+  structure, `kInputRef` = 0.87 demanded Vov = 6.3 V, which the 22 V rail and R6 = 22 k forbid, and
+  the impossibility was the first hint that the structure was wrong.
+
+⚠ **What is still NOT measured, so nobody re-derives it as if it were:** the shaper's curvature is
+degenerate 1:1 with the trainers' unknown reamp level, and no ratio in this dataset breaks that. The
+shipped `Vov` is the datasheet-capped end of the family, chosen because the maker's "cherry picked"
+claim points there and because it is the minimum-curvature admissible point. `beta` (the cubic) stays
+0 — M5 fixes its sign and nothing more.

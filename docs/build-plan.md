@@ -461,3 +461,150 @@ reported — freezing one as a threshold would make the report circular.
 
 They share `tests/ProbeHarness.h` so that a delta paired across two probes is a delta in the feature
 rather than in the instrument.
+
+---
+
+## 10. Step 4b — the JFET refit (2026-09-08). One measured fit, one structural bug.
+
+Everything phase 1 measured is now in `JfetStage.h`, and getting it in surfaced an error in the
+stage's structure that no linear test could see. Ten tests pass; CPU is unchanged (2.02–2.08 % at
+the 4× default).
+
+### 10.1 What was fitted
+
+| Parameter | Was | Now | Source |
+|---|---|---|---|
+| `gm` | 813 µS (datasheet-typical self-bias solve) | **1553 µS** | M2, `gm = (K0−1)/R5` with K0 = 6.5912 |
+| shelf τ, Bright | 79.2 µs (drawn R5·C1) | **85.369 µs** | M1, mean of two units' shelf fits |
+| shelf τ, Mid | 36.0 µs (drawn R5·C2) | **38.263 µs** | M1 |
+| `Vov` (⇒ `aEven`, `bumpScale`, limits) | 1.218 V | **0.4469 V** | derived from measured `gm`, see below |
+| `ro` | 1.01 MΩ | **1.44 MΩ** | 1/(λ·Id) at the refitted Id = 347 µA |
+
+⚠ **Use `K0 − 1` for `gm`, not `circuit.md`'s ro-corrected 1.58–1.71 mS.** That correction belongs to
+a model whose drain resistance rises as `ro·k(s)`; this one folds Rout into the constant `R6 ∥ ro`
+(they differ by 0.06 dB), and under *that* structure the model's own mode differential is exactly
+`1 + gm·R5`. Taking the corrected value would make the model miss the measurement it was fitted to.
+
+⭐ **The bias solve collapses to a one-parameter family once `gm` is measured**, which is worth more
+than the number it produced. From `Id = IDSS(Vov/|Vp|)²`, `gm = 2Id/Vov` and `Vgs = −Id·R5`:
+
+```
+|Vp|/Vov = 1 + gm·R5/2 = 3.7956        IDSS/Id = (|Vp|/Vov)² = 14.407
+```
+
+so choosing any one of (IDSS, |Vp|, Id, Vov) fixes the rest. The datasheet's IDSS ≤ 5 mA caps the
+family at Vov = 0.447 V; Vgs(off) ≥ 0.5 V floors it at 0.131 V; the load line would allow up to
+1.053 V, so the datasheet binds first. **Shipped at the IDSS = 5 mA end** — Id = 347 µA, |Vp| =
+1.696 V, Vs = 1.249 V, **Vd = 14.36 V** — because that is where "cherry picked to cream-of-the-crop
+specs" points and because it is the *minimum-curvature* admissible point, the conservative choice for
+a headroom pedal. Note the drain lands at 14.4 V, not the ~11 V mid-rail `circuit.md` estimated from
+a nominal part: high `gm` at this `Id` needs a small `Vov`, which needs a small `Id`.
+
+⚠ **The shaper's curvature is degenerate with the trainers' reamp level, 1:1, and no ratio in this
+dataset breaks it.** H2 amplitude goes as `aEven × drive`, and L1/L2 leave the drive unknown. What
+the datasheet cap does buy is a **one-sided bound: the reference renders were driven at ≤ 0.41 V/FS,
+i.e. ≥ 6.6 dB below `kInputRef` = 0.87.** At the shipped Vov the P2 ladder's top three cells imply
+0.41–0.64 V/FS, ordinary reamp territory; at the family's other end they imply 0.12–0.19 V/FS, also
+plausible. **Binding on step 9: an A/B at matched DIGITAL level compares the plugin's distortion at a
+drive the reference never saw.** Match the drive first, then null.
+
+### 10.2 ⚠⚠ The structural bug: degeneration suppresses distortion TWICE, not once
+
+Worth **16.4 dB = 20·log10(K0)**, invisible to every linear test in the suite, and shipped in the
+first build. Feeding the shelf output into the shaper models the *drive* to the nonlinearity and then
+stops. Local feedback also suppresses whatever the device generates inside the loop. Expanding
+`id = gm·u + c·u²` with `u = vg − id·Zs` to second order:
+
+```
+order 1:   u1  = vg / k(s)              (the shelf, as before)
+order 2:   id2 = c·(u1²) / k(s)         <-- the SAME shelf again, on the squared term
+⇒          H2/H1 = A / (4·Vov·k²),  not  A / (4·Vov·k)
+```
+
+The stage now carries **two instances of 1/k(s)**: one on the drive path, one on the shaper's
+nonlinear *excess* (`g(w) − w`). Exact to second order and structurally right above it, since every
+term generated inside the loop is suppressed by it. Verified against an exact per-sample implicit
+solve of `id = gm·g(vg − id·R5)` using the stage's own `shape()` (`JfetStageTest` §7):
+
+| gate amplitude | 0.2 V | 0.5 V | 0.8 V |
+|---|---|---|---|
+| shelf only (the bug) | +16.34 dB | +16.13 dB | +15.67 dB |
+| this model | −0.04 dB | −0.25 dB | −0.72 dB |
+
+The residual is the Volterra truncation; **Path A (the implicit solve, with the source network's
+state carried through it) is the escalation, and this table is its criterion in hand** — under 0.7 dB
+of H2 at full scale, 3.1 dB at +5 dB of trim.
+
+⚠ **An instrument trap found while proving the frequency dependence** (`JfetStageTest` §7b, which
+checks that the excess is *filtered* rather than *scaled* — the prediction is
+`K0²·|1/k(ω)|·|1/k(2ω)|`, since the drive is filtered at the tone and the product at the harmonic).
+Reading H2 with a single `cos(2θ)` projection measures its **real part**, not its magnitude, and the
+shelf gives the harmonic its own phase — so a correct model reported errors of up to **7.6 dB, rising
+with frequency**, which looks exactly like "the high end is wrong". A complex correlation makes all
+four points exact to 0.00 dB. Recorded in `docs/measurement-discipline.md` §1.
+
+📌 **Two consequences.** MODE now moves distortion as `k²`: fully bypassed, H2 rises 32.7 dB relative
+to the fundamental versus DARK, because the drive rises by K0 *and* the suppression is gone. This is
+the qualitative shape M5 saw as "more compression in Bright at the same input", and it is a strong
+prediction for the two-way pedal's session to test. And the H2-to-drive inference above only lands on
+a physically admissible device *because* of this factor: under the old structure, `kInputRef` = 0.87
+demanded Vov = 6.3 V, which the 22 V rail and R6 forbid outright.
+
+⭐ **The method note.** `ChainTest`'s mode differential — the test that exists to catch exactly this
+class of error — passed throughout, because the differential is a *linear* measurement and the linear
+path was right. A correct frequency response is not evidence that the nonlinear path is right; the
+only instrument that could settle it was an independent solve of the equation the model approximates.
+
+### 10.3 ADAA: the same restructure made it free, and it is still off
+
+ADAA1 is linear in the map, so `ADAA[g − id] = ADAA[g] − ADAA[id]`. Applying it to the excess alone
+therefore cancels the two-point average on the linear path exactly — **ADAA's entire cost in §9.2's
+table is gone** (12 kHz cost 2.99 dB → 0.00 dB at 1×), and `FeatureProfile`'s 1× verdict flipped from
+a rejection to "FREE WIN — keep always on".
+
+**It stays off, on a different column.** The cost moved rather than vanishing: averaging the map also
+averages away the harmonic the device is supposed to make, and at 1× that is **1.18 dB of wanted H2**
+(1.29 dB at a realistic −6 dBFS). `OSFidelity`'s own premise is that the wanted distortion must not
+move with the factor, or the OS selector becomes a voicing control. And the threshold-free argument
+is unchanged and now larger: **1× + ADAA is beaten outright by plain 2× by 18.0 dB of alias floor**,
+for 0.83 percentage points of CPU.
+
+📌 §9.2's "genuinely marginal 2× row" is **dissolved, not re-argued**: ADAA at 2× now makes the floor
+slightly *worse* (−0.52 dB), because at 2× and above the floor is the decimation FIR's stopband
+(−105.8 / −105.5 / −105.4 dBc, flat), not fold-back.
+
+### 10.4 What §9.3's shelf restore looks like now — still per-mode, and worse
+
+`OSFidelity` re-run after the refit. The 1× droop's **mode-to-mode spread is now 3.09 dB** (it was
+1.8 dB at the placeholder `gm`), and Mid is *brighter* than 8× out to 14 kHz:
+
+| mode | 8 kHz | 10 kHz | 12 kHz | 14 kHz | 16 kHz | 18 kHz |
+|---|---|---|---|---|---|---|
+| Bright | +0.43 | +0.26 | −0.17 | −0.92 | −2.09 | −3.89 |
+| Dark | −0.10 | −0.47 | −1.07 | −1.94 | −3.20 | −5.03 |
+| Mid | +0.50 | +0.53 | +0.42 | +0.07 | −0.62 | −1.95 |
+
+So `dsp.md`'s "the droop is pot-independent, one fixed shelf will do" premise fails here by a wider
+margin than before, exactly as predicted: the JFET's own 1/k(s) pole is inside the oversampled region
+and moves with MODE, and it now sits at 12.3 kHz (Bright) and 27.4 kHz (Mid, above Nyquist at 48 kHz).
+**A per-mode shelf is the right structure, and it is now unblocked** — `gm` is measured, so the pole
+is no longer a moving target. At the 4× default the droop is ≤ 0.14 dB, so nothing a normal session
+hears is waiting on it.
+
+### 10.5 Known, deliberate, and NOT bugs to rediscover
+
+1. **The load line is not modelled.** The shaper's positive limit is the channel ceiling
+   (g = +3.00 V); the drain actually enters triode at **g = +0.370 V**, 8× nearer — reachable at
+   w = +0.281 V, a 1.85 V gate swing, about **+6.6 dB of input trim**. The current shaper structure
+   cannot carry the tighter bound (the even bump alone asymptotes at Vov/2 = 0.223, leaving the core
+   0.147 V, which would bend the map inside the normal operating range). Recorded with numbers rather
+   than left as "extreme settings only".
+2. **`tanh²` is not the true parabola.** The exact device law is `g(w) = w + w²/(2Vov)` down to
+   cutoff; the bump saturates where the parabola does not, so at a 0 dBFS input it is **4.5 % (0.4 dB
+   of H2) low**, growing with drive. Smaller than the Volterra truncation above, so both are deferred
+   together — an exact parabola with a cutoff clamp is the joint refinement.
+3. **`beta` (the cubic) stays 0.** M5 could not settle it: H3 is under both models' error floors, and
+   the only evidence is 0.09–0.35 dB of top-cell compression, which fixes the sign (compressive) and
+   nothing else. Fitting it to a floor would be worse than leaving it out.
+4. **`kInputRef` and `kOutputMakeup` are untouched.** Nothing here anchors them, and §10.1's bound
+   constrains the *reference's* drive, not the plugin's.

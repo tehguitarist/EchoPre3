@@ -208,9 +208,10 @@ high, execute routine work cheap) is what should persist.
 >   last value even while disengaged so engaging it mid-session measures from where the knob is.
 >
 > ### Residuals — known, deliberate, and NOT bugs to rediscover
-> 1. **Every JFET amplitude parameter is a placeholder** (gm = 813 µS et al. from a datasheet-typical
->    self-bias solve). M2/M5 replace them. `kInputRef` = 0.87 is a declared ASSUMPTION (no bypass
->    anchor can exist), `kOutputMakeup` = 1.0 UNCALIBRATED.
+> 1. ~~**Every JFET amplitude parameter is a placeholder**~~ — SUPERSEDED by step 4b below: `gm` and
+>    both shelf τ are measured, and the rest of the amplitude parameters are derived from them.
+>    `kInputRef` = 0.87 is still a declared ASSUMPTION (no bypass anchor can exist) and
+>    `kOutputMakeup` = 1.0 is still UNCALIBRATED.
 > 2. **Base-rate (1× OS) top octave droops** −2.1 dB @ 12 kHz, −3.6 dB @ 16 kHz. Prewarp pins the
 >    corner but cannot invert the bilinear zero at Nyquist; that is why the input network was moved
 >    inside the oversampled region. `dsp.md`'s low-OS shelf restore is the remedy, at step 6.
@@ -369,11 +370,67 @@ high, execute routine work cheap) is what should persist.
 >   measured vs 2.20 drawn). Model the shelf from the measured (τ, K0) pair; this dataset cannot
 >   separate R5 from C.
 >
+> ### STEP 4b IS DONE (2026-09-08). The measurements are in the stage — and putting them there found
+> ### a 16.4 dB structural bug that every linear test in the suite passed straight through.
+>
+> Write-up `docs/build-plan.md` §10, reasoning in `src/dsp/JfetStage.h`, circuit consequences in
+> `.claude/rules/circuit.md` note #8. Ten tests pass; CPU unchanged (2.02–2.08 % at the 4× default).
+>
+> **Fitted:** `gm` 813 µS → **1553 µS** (from M2's K0, not from circuit.md's ro-corrected 1.58–1.71 mS
+> — that correction belongs to a model with a frequency-dependent Rout; this one folds Rout into a
+> constant, and under that structure the model's own differential is exactly 1 + gm·R5, so the
+> corrected value would MISS the measurement it was fitted to). Shelf τ from M1 (85.369 / 38.263 µs,
+> ~7 % above drawn R5·C). `ro` 1.01 → 1.44 MΩ.
+>
+> ⭐ **A measured `gm` collapses the square-law self-bias solve to a ONE-parameter family**
+> (`|Vp|/Vov = 1 + gm·R5/2 = 3.796`, `IDSS/Id = 14.41`), which turns the datasheet's useless 5:1
+> spread into a real bracket: Vov ∈ [0.131, 0.447] V. Shipped at the IDSS = 5 mA end → **Id = 347 µA,
+> Vd = 14.4 V, not the ~11 V mid-rail** circuit.md estimated from a nominal part.
+>
+> ⚠⚠ **THE BUG: degeneration suppresses distortion TWICE, not once.** `id2 = c·(u1²)/k(s)` — the
+> squared term is filtered by the *same* 1/k(s) that set the drive — so **H2/H1 = A/(4·Vov·k²)**. The
+> stage applied the shelf once and shipped that way. Against an exact per-sample implicit solve of
+> `id = gm·g(vg − id·R5)`: shelf-only over-produced H2 by **+16.3/+16.1/+15.7 dB** at 0.2/0.5/0.8 V of
+> gate swing; the corrected two-shelf structure lands at **−0.04/−0.25/−0.72 dB**. The stage now runs
+> a second 1/k(s) instance on the shaper's nonlinear EXCESS only.
+>
+> ⭐ **The method lesson, alongside the phase-testing one above.** `ChainTest`'s mode differential
+> exists to catch exactly this class of error and passed the entire time, because the differential is
+> a **linear** measurement and the linear path was right. **A correct frequency response is not
+> evidence that the nonlinear path is right.** Building the independent implicit solve took less time
+> than the two magnitude tests that could never have found it.
+>
+> **Two consequences that are now predictions, not choices:**
+> - **MODE moves distortion as k².** Fully bypassed, H2 rises **32.7 dB** re the fundamental versus
+>   DARK. M5's "more compression in Bright" is its qualitative shape; the two-way pedal session should
+>   measure it.
+> - ⚠ **The reference renders were driven at ≤ 0.41 V/FS, ≥ 6.6 dB below `kInputRef` = 0.87** — a
+>   BOUND, not an assumption (H2 goes as aEven × drive, aEven = 1/Vov, datasheet caps Vov). ➡ **Step 9
+>   must A/B the harmonics at matched DRIVE, never at matched digital level.** This bound only exists
+>   because of the bug fix: under the old structure kInputRef = 0.87 demanded Vov = 6.3 V, which the
+>   22 V rail forbids — the impossibility was the first hint the structure was wrong.
+>
+> ⭐ **ADAA became free and is still off, for a different reason.** ADAA1 is linear in the map, so
+> applying it to the excess alone cancels the two-point average on the linear path exactly: the
+> 12 kHz cost went 2.99 dB → **0.00 dB** at 1×, and FeatureProfile's 1× verdict flipped to "FREE WIN".
+> It stays off because the cost MOVED rather than vanished — at 1× it averages away **1.18 dB of
+> WANTED H2** (1.29 dB at −6 dBFS), which would make the OS selector a voicing control, and 1× + ADAA
+> is still beaten outright by plain 2× by 18.0 dB of alias floor for 0.83 pp of CPU. The old
+> "genuinely marginal 2× row" is dissolved: ADAA at 2× now makes the floor slightly WORSE, because
+> past 2× the floor is the decimation FIR's stopband (−105.8/−105.5/−105.4 dBc, flat), not fold-back.
+>
+> **Still deliberately not modelled** (build-plan §10.5): the load line (the drain enters triode at
+> g = +0.370 V, 8× nearer than the modelled channel ceiling, reachable at ~+6.6 dB of input trim);
+> `tanh²` versus the true parabola (4.5 %, 0.4 dB of H2 at 0 dBFS); `beta` = 0 (M5 fixes only its
+> sign). The shaper's curvature remains degenerate 1:1 with the trainers' unknown reamp level.
+>
 > ### NEXT
-> Step 4b, refitting the JFET stage to K0 = 6.59 and the two measured time constants, then M5's H2
-> slope for the shaper. After the stage is refitted, re-run `OSFidelity` and only THEN fit build-plan
-> §9.3's per-mode low-OS shelf restore — it was blocked on M2, and the pole it targets has moved from
-> the placeholder's ~18 kHz to a measured 12.6 kHz (Bright) / 26.8 kHz (Mid, past Nyquist at 48 kHz).
+> Fit build-plan §9.3's **per-mode** low-OS shelf restore. It is now fully unblocked — `OSFidelity`
+> was re-run after the refit, and the 1× droop's mode-to-mode spread has WIDENED to **3.09 dB** (Mid
+> is *brighter* than 8× out to 14 kHz), with the JFET's 1/k(s) pole now at a measured 12.3 kHz
+> (Bright) / 27.4 kHz (Mid, above Nyquist at 48 kHz). A single fixed shelf is ruled out by a wider
+> margin than before. At the 4× default the droop is ≤ 0.14 dB, so nothing a normal session hears is
+> waiting on this.
 
 ## Project-specific carry-forwards
 

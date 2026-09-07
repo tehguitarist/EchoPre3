@@ -72,45 +72,47 @@ private:
     // OSFidelity and FeatureProfile, then switched off on the numbers. Recorded here because the
     // next reader's instinct will be to reach for ADAA, and reading is cheaper than rebuilding it.
     //
-    // ADAA1 is a two-point average of the shaper: it lowers the alias floor and costs a
-    // cos(pi*f/fs_os) magnitude rolloff plus half an oversampled sample of delay. Measured on a hot
-    // tone (full scale at +12 dB input trim, far past any guitar), Dark:
+    // ⚠ REVISED 2026-09-08, and the reason changed completely. The step-4b refit moved ADAA from
+    // the shaper's whole map to its nonlinear EXCESS only (JfetStage.h: the loop suppresses only
+    // what it generates, so only the excess belongs in the second shelf). ADAA1 is linear in the
+    // map, so ADAA[g - id] = ADAA[g] - ADAA[id], and the two-point average on the linear path --
+    // ADAA's entire cost in the numbers below -- is now exactly cancelled. Re-measured, Dark, on a
+    // hot tone (full scale at +12 dB input trim, far past any guitar):
     //
-    //     factor   alias floor removed   12 kHz cost   CPU cost
-    //       1x           5.63 dB           2.99 dB      ~0 pp
-    //       2x           1.18 dB           0.68 dB      ~0 pp
-    //       4x           0.29 dB           0.17 dB      ~0 pp
-    //       8x           0.07 dB           0.04 dB     ~0.15 pp
+    //     factor   alias floor removed   12 kHz cost   wanted H2 lost   CPU cost
+    //       1x           8.41 dB           0.00 dB        1.18 dB        ~0 pp
+    //       2x          -0.52 dB           0.00 dB        0.29 dB        ~0 pp
+    //       4x          -0.18 dB           0.00 dB        0.07 dB       ~0.13 pp
+    //       8x          -0.04 dB           0.00 dB        0.01 dB       ~0.25 pp
     //
-    // CPU was never the question -- ADAA is free here. It is off because of the second column.
+    // The old middle column read 2.99 dB at 1x and 0.68 dB at 2x; it is zero at every factor now,
+    // and FeatureProfile's verdict for 1x flipped from a rejection to "FREE WIN -- keep always on".
     //
-    // Two things decide it. First, at 1x -- the only factor where either effect exceeds a dB -- ADAA
-    // buys 5.6 dB of a fold-back floor already sitting at -63 dBc under that absurd drive (-128 dBc
-    // at a realistic level) by TRIPLING the top-octave droop, -1.07 dB to -4.06 dB at 12 kHz. A
-    // broadband, always-present response error is not a fair trade for inharmonic content that far
-    // down. Second, and needing no such judgement: 1x + ADAA is beaten outright by plain 2x on BOTH
-    // axes -- 10.6 dB quieter and 3.9 dB less dark -- for 0.86 percentage points of CPU. Anyone who
-    // cares about that floor should spend the CPU on the factor the user already has.
+    // IT IS STILL OFF, on a different column. The cost moved rather than vanishing: averaging the
+    // map also averages away some of the harmonic the device is SUPPOSED to make, and at 1x that is
+    // 1.18 dB of wanted H2 (1.29 dB at a realistic -6 dBFS). OSFidelity's own premise is that the
+    // wanted distortion must not move with the factor -- the OS control is a quality knob, not a
+    // voicing knob -- and 1.2 dB of H2 is a voicing change. What it buys is 8.4 dB off an alias
+    // floor already at -79 dBc under that absurd drive, and -122 dBc at a realistic level.
     //
-    // !! One row is genuinely marginal and must not be misremembered as clear-cut. At 2x, ADAA
-    // clears a 1 dB alias-gain threshold and a 1 dB response budget -- 1.18 dB against 0.68 dB --
-    // so the verdict there flips on where those thresholds sit, and both are stated assumptions
-    // rather than measurements (FeatureProfile's kHfBudgetDb is provisional until M6 measures the
-    // real unit-to-unit spread). It is off at 2x too, on the grounds that a sub-dB effect whose sign
-    // depends on a placeholder threshold is not a basis for shipping a behaviour.
+    // And the argument that needs no threshold at all still stands, unchanged in direction and
+    // larger in size: 1x + ADAA is beaten outright by plain 2x, by 18.0 dB of alias floor, for 0.83
+    // percentage points of CPU. Anyone who cares about that floor should spend the CPU on the factor
+    // the user already has.
     //
-    // Note also that the floor stops improving past 2x: -79.3 dBc at 2x, 4x and 8x alike. That is no
-    // longer fold-back but the decimation FIR's own stopband, which is why ADAA's benefit column
-    // collapses rather than merely shrinking. It also means the "alias gain" at those factors is
-    // largely ADAA's own high-frequency attenuation measured a second time -- gain and cost track at
-    // roughly 1.8:1 at EVERY factor, which is what a broadband rolloff looks like rather than what
-    // selective antialiasing looks like.
+    // !! The 2x row is no longer marginal, and that is worth stating because the previous version of
+    // this comment warned at length that it was. ADAA at 2x now makes the floor slightly WORSE
+    // (-0.52 dB), because at 2x and above the floor is the decimation FIR's own stopband
+    // (-105.8/-105.5/-105.4 dBc at 2x/4x/8x, flat) rather than fold-back, so there is nothing left
+    // for ADAA to remove and only its own smoothing remains. The judgement call that comment
+    // documented has been dissolved by a measurement rather than re-argued.
     //
     // The gate stays a <= threshold on the OS INDEX (0 = 1x, 1 = 2x, 2 = 4x, 3 = 8x) rather than
-    // being deleted: dsp.md warns the benefit is not monotone in rate, so if a later refit moves the
-    // shaper's curvature far enough to change the picture, this is a one-line change with three
-    // probes already standing to justify it. -1 means "at no factor", which is where the
-    // measurement puts it today.
+    // being deleted: dsp.md warns the benefit is not monotone in rate, and this refit is the second
+    // time the picture has moved. -1 means "at no factor", which is where the measurement puts it
+    // today. If the 1x wanted-H2 loss ever becomes acceptable -- say the shelf restore of
+    // build-plan.md 9.3 lands and 1x becomes a supported setting rather than a fallback -- this is
+    // a one-line change with three probes already standing to justify it.
     static constexpr int kAdaaMaxOsIndex = -1;
 
     AdaaOverride adaaOverride = AdaaOverride::useOsGate;
