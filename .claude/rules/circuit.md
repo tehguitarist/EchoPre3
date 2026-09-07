@@ -158,6 +158,32 @@ clean preamp; the JFET's square-law curvature, not a clipper, is the entire nonl
 ⭐ **The triage is the deliverable: exactly one part (Q1) needs an external model.** Everything else
 is `CapacitorT`/`ResistorT`. Don't invent a model for anything above the Q1 row.
 
+### Designator census (re-verified against `schematic.png`, 2026-09-07)
+
+Every designator drawn on the schematic is accounted for in the tables above — **29 parts, none
+missing, none invented**:
+
+| Block | Designators | Count |
+|---|---|---|
+| Input network | R3, C3, C4, R4 | 4 |
+| Gain stage | Q1, R6, R5 | 3 |
+| MODE bypass | C1, R1, C2, R2, MODE | 5 |
+| Output / VOLUME | C10, R10, R9, R8, VOLUME | 5 |
+| Power (excluded from DSP) | D1, C9, IC1, D2–D5, C8, C7, C6, D6, C5 | 12 |
+
+`C1`–`C10` are gapless. `D1`–`D6` are gapless. **`R7` does not appear anywhere on the drawing** —
+the resistor series runs R1…R6, R8, R9, R10. The power section contains no resistors at all, so it
+is not hiding there.
+
+⚠ **Treat the R7 gap as an open question, not as noise.** A single gap in an otherwise gapless
+series usually means either (a) a part deleted in a schematic revision without renumbering, or
+(b) a part present on the real board but omitted from this drawing. Only (b) would affect the
+model. Its neighbours R6 (drain load) and R8 (volume upper shunt) bracket the drain-to-output
+region, so if a part is missing it most plausibly sits there — but that is a guess from numbering
+alone, with no circuit evidence behind it. **Do not add a speculative R7 to the model.** Model what
+is drawn, and resolve it if a photo of the real board or another trace of the same circuit ever
+becomes available.
+
 ## Topology — node graphs
 
 Signal-path stages are marked **Linear** / **Nonlinear** with the adaptor shape they need.
@@ -298,8 +324,17 @@ a dB or two by full rotation. Confirmed against the pedal maker's own published 
 "fix" it into a conventional divider.
 
 `C10` HP corner: into R10 ∥ (the volume network's input resistance), so it **moves with the volume
-setting** — roughly 1/(2π·75 k·100 n) ≈ **21 Hz** near the top of the range. It is not a fixed
-corner; solve it inside the coupled network rather than pre-computing one number.
+setting** — and it moves the opposite way round from what an earlier draft said. Recomputed with a
+20 kΩ drain impedance in series:
+
+| `Ra` | 10 k | 50 k | 100 k | 200 k | 300 k | 400 k | 500 k |
+|---|---|---|---|---|---|---|---|
+| C10 HP corner | 54 Hz | 27 Hz | 19 Hz | 14.5 Hz | 13.1 Hz | 13.0 Hz | 14.0 Hz |
+
+So the corner is **lowest (~13 Hz) near the top of the range** and climbs to ~54 Hz as the volume
+is wound down — the earlier "≈21 Hz near the top" was both the wrong value and the wrong end of
+the sweep (21 Hz corresponds to `Ra` ≈ 130 k, i.e. mid-rotation). It is not a fixed corner; solve
+it inside the coupled network rather than pre-computing one number.
 
 ## Op-amp model
 
@@ -363,16 +398,39 @@ Don't spend time refining it unless the supply itself is ever in question.
 Modelling the network exactly as drawn (wiper to ground, ends to node E and R8), driving node E
 from a ≈20 kΩ drain impedance, gives this control law for the **network alone**:
 
-| Ra (lug 1 → wiper) | 0 | 10 k | 25 k | 50 k | 100 k | 150 k | **200 k** | 300 k | 400 k | 500 k |
-|---|---|---|---|---|---|---|---|---|---|---|
-| Network gain | −87 dB | −11.3 | −7.1 | −5.2 | −4.1 | −3.8 | **−3.8 (peak)** | −4.2 | −5.2 | −7.7 |
+| Ra (lug 1 → wiper) | →0 | 10 k | 25 k | 50 k | 100 k | 150 k | **176 k** | 200 k | 300 k | 400 k | 500 k |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Network gain | −∞ | −11.3 | −7.1 | −5.2 | −4.1 | −3.8 | **−3.79 (peak)** | −3.80 | −4.2 | −5.2 | −7.7 |
 
-It peaks around 35–40 % of `Ra` and falls back by full rotation, with all the real attenuation in
-the bottom ~10 %. The shape is unchanged if the drain is treated as an ideal current source, so it
-is not an artefact of the source-impedance assumption.
+The true peak is at **`Ra` = 176 k = 35.3 % of the pot** (an earlier draft bolded 200 k; both round
+to −3.8 dB, so the table shape was right and only the marked cell was off). All the real
+attenuation is in the bottom ~10 % of `Ra`; the `Ra → 0` end is a genuine short, so its gain is
+−∞, not the finite figure an earlier draft quoted — that number was just whichever epsilon the
+sweep happened to use. Don't read it as a level.
+
+⚠ **CORRECTION (verified 2026-09-07): the peak's POSITION is NOT independent of the drain source
+impedance.** An earlier draft claimed the curve was unchanged under an ideal-current-source drive
+and therefore robust to that assumption. Re-solving the two-node network refutes this:
+
+| Drive impedance at node E | Peak `Ra` | % of pot | Peak-to-full-CW fall-back |
+|---|---|---|---|
+| 1 kΩ | 57 k | 11 % | 4.34 dB |
+| 10 kΩ | 143 k | 29 % | 4.01 dB |
+| **20 kΩ (≈ R6 ∥ ro — the physical case)** | **176 k** | **35 %** | **3.92 dB** |
+| 100 kΩ | 242 k | 48 % | 3.88 dB |
+| ideal current source | 280 k | 56 % | 4.11 dB |
+
+The *shape* (silence → peak → fall-back) survives everywhere, and the fall-back DEPTH is genuinely
+invariant (3.86–4.34 dB across the whole range) — but the peak **location** moves by a factor of
+1.6 in `Ra`, and the peak location is exactly what the taper fit below is anchored to. It is
+pinned in practice only because `R6` = 22 k sits permanently across the drain, so `Zout` cannot
+exceed ~22 k however large `ro` is. **Model the drain as a Norton current source with
+`Zout = ro·k(s) ∥ R6` stamped into this solve (stage 2's ⭐⭐⭐ note) — do not drive node E from an
+ideal voltage source, and do not assume the taper fit is insensitive to how you drive it.**
 
 **This was initially flagged as a probable schematic drawing error. It is not.** The pedal maker's
-published description of the control matches the computed curve point-for-point:
+published description of the control matches the computed curve in shape (see the caveat below —
+an earlier draft said "point-for-point", which overstates it):
 
 > FULL COUNTER-CLOCKWISE = NO SIGNAL · 10 to 11 o'clock = UNITY GAIN (depends upon EQ setting) ·
 > 1 to 2 o'clock = 3 dB+ MAXIMUM OUTPUT BOOST · 3 to 5 o'clock = 1 or 2 dB with FLAT EQ
@@ -381,6 +439,16 @@ published description of the control matches the computed curve point-for-point:
 Silence at full CCW, a peak short of full rotation, and a deliberate fall-back past it are all
 reproduced by the as-drawn topology and by nothing else. **Model it exactly as drawn.** A
 conventional wiper-to-output divider would be monotonic and therefore wrong.
+
+⚠ **One quantity does NOT match, and it is worth knowing before the capture session.** The maker
+puts the peak at +3 dB and 3–5 o'clock at +1 to +2 dB — a fall-back of **1–2 dB**. The as-drawn
+network falls back **3.9 dB** from peak to full CW, and as the table above shows that depth is
+insensitive to the drive impedance, so it is not an artefact of any assumption we've made. Roughly
+2 dB is unaccounted for. Candidate explanations, none confirmed: the taper compresses the top of
+the rotation so 5 o'clock never reaches `Ra` = 500 k electrically; "3 to 5 o'clock" is a rounded
+range quoted at 3 o'clock rather than at the stop; or the copy is simply approximate. **Treat this
+as an open discrepancy to settle with the VOLUME sweep capture (measurement #1 below), not as a
+confirmation.** Do not tune other constants to close a 2 dB gap that may not exist.
 
 ⭐ **This gives four free calibration points for the taper fit — use them.** `dsp.md` asks for at
 least two knob positions to constrain a taper's shape; the maker's notes supply four across the
@@ -393,9 +461,13 @@ full range, before any capture is made:
 | 1–2 o'clock | ≈ 58–67 % | **+3 dB (maximum)** |
 | 3–5 o'clock | ≈ 75–100 % | +1 to +2 dB |
 
-The peak of the *network* sits at `Ra` ≈ 35–40 % of 500 k; for that to land at 1–2 o'clock
-(≈60–65 % rotation) the 500 kA audio taper must rise slowly early — consistent with a standard
-audio law. **Fit the taper so the peak lands at 1–2 o'clock**, then check the other three points.
+The peak of the *network* sits at `Ra` = 35.3 % of 500 k **for the physical ~20 kΩ drive
+impedance**; for that to land at 1–2 o'clock (≈60–65 % rotation) a power-law taper
+`R = Rmax·x^p` needs **p ≈ 2.0** (p = 1.4 puts the peak at ~12 o'clock; the aggressive
+`10^(2x−2)` law puts it at ~2:40 — see `dsp.md`, which warns that approximation is too steep).
+Recompute `p` if the drive impedance assumption changes: at an ideal current source the peak needs
+only p ≈ 1.4, so the two questions are coupled and must be fitted together.
+**Fit the taper so the peak lands at 1–2 o'clock**, then check the other three points.
 Treat these as a sanity oracle, not gospel: they are marketing copy, rounded, and explicitly
 qualified with "depends upon EQ setting". A real VOLUME sweep capture still supersedes them.
 
@@ -457,3 +529,28 @@ Two build details the maker states that affect how much the nominal part numbers
 3. **Harmonic spectrum at 2–3 input levels** (low-frequency tone) — fits the JFET shaper: confirms
    the expected even-dominant square-law signature and the sign of the cubic (§2 findings a/b).
 4. **Bypass/unity anchor capture** — needed for `kInputRef` and output-makeup calibration.
+
+### 6. ✅ Topology re-verification pass (2026-09-07) — what was checked and what changed
+
+The whole signal path was re-traced node-by-node from `schematic.png` and the crops (not from this
+file), and every computed figure in it was re-derived independently. Result: **the topology is
+correct as recorded — no node connection changed.** Specifically re-confirmed against the image:
+
+- `R3` genuinely in series with IN (not a pulldown); `R4` is the pulldown; `C3` shunts node A.
+- Q1 drain at top (to `R6` → VA and `C10`), source at bottom (to `R5`, `C1`, `C2`) — the gate arrow
+  points into the channel, i.e. N-channel, consistent with the supply polarity.
+- MODE lug 3 → `C1` (22 nF) and lug 1 → `C2` (10 nF), common lug 2 → GND. The lug↔cap mapping is
+  confirmed; only the lever↔lug mechanical mapping remains open (note #2).
+- VOLUME wiper (lug 2) → GND, lug 1 → node E, lug 3 → `R8` → OUT; `R9` bridges E → OUT.
+- Node E is one node: `C10`, `R10`, `R9` and VOLUME lug 1 all meet there (the drawing shows two
+  junction dots on that same wire — they are not separate nodes).
+- `D1` cathode to +9 V, anode to GND — correct reverse-polarity shunt, as recorded.
+- LT1054 pins 3 and 5 to GND, pins 1 and 8 jumpered to +9 V, pin 2 driving the flying caps, pins
+  4/6/7 open — as recorded (and still immaterial to the audio model).
+
+**Four numeric claims were wrong and have been corrected in place** (all in note #1 and the stage-3
+section): the ideal-current-source invariance claim, the "matches point-for-point" claim, the
+bolded peak cell, and the `C10` corner figure. The input-network and MODE-corner figures all
+re-derived exactly. The lesson matches this file's own gotcha list: re-reading component values
+found nothing, re-solving the derived numbers found four errors. **Spend future passes on the
+derived quantities, not on the values.**

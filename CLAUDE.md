@@ -128,7 +128,7 @@ high, execute routine work cheap) is what should persist.
 ## Current step
 
 > Update this at the start/end of each session so progress doesn't rely on conversation history.
-> **CURRENT: Step 1 (Schematic analysis) — COMPLETE, no open blockers.
+> **CURRENT: Step 1 (Schematic analysis) — COMPLETE, re-verified 2026-09-07, no open blockers.
 > `schematics/schematic.png` is traced and `.claude/rules/circuit.md` is fully filled in (values,
 > node graphs, triage, corners, validation targets). Both open questions resolved against the
 > maker's published notes. 2N5457 datasheet fetched to `docs/refs/`. Project builds; AU installs
@@ -156,12 +156,20 @@ high, execute routine work cheap) is what should persist.
   ≈2.0 kHz). Both cap positions reach the same HF plateau; they differ in *where the lift starts*.
 - ⭐ **The VOLUME control is deliberately NON-MONOTONIC — this is correct, do not "fix" it.** The
   wiper grounds and both end lugs feed signal nodes, reproducing the original EP-3 wiring: silence
-  full CCW, **peak boost at 1–2 o'clock**, then falling back 1–2 dB by full rotation. I initially
-  flagged this as a probable schematic error; the maker's published control description matches the
-  computed curve point-for-point and refutes that. See circuit.md "Validation notes" #1.
+  full CCW, **peak boost at 1–2 o'clock**, then falling back by full rotation. I initially flagged
+  this as a probable schematic error; the maker's published control description reproduces the
+  computed SHAPE and refutes that. See circuit.md "Validation notes" #1.
+- ⚠ **Two VOLUME caveats found in the 2026-09-07 re-verification pass — both matter before the
+  taper is fitted.** (a) The peak's POSITION depends on the drain drive impedance (Ra = 176 k at
+  the physical ~20 kΩ, but 280 k at an ideal current source), so the taper fit and the Norton-source
+  modelling of stage 2 are coupled and must be done together. (b) The as-drawn network falls back
+  **3.9 dB** from peak to full CW, against the maker's stated **1–2 dB** — ~2 dB unexplained, and
+  invariant to every assumption tested. Settle it with the VOLUME sweep capture; do NOT tune other
+  constants to close it.
 - **Free taper-calibration targets (from the maker's notes):** full CCW = no signal · 10–11 o'clock
   = unity · 1–2 o'clock = +3 dB max · 3–5 o'clock = +1–2 dB. Fit the 500 kA taper so the network's
-  peak lands at 1–2 o'clock. Marketing copy — a real VOLUME sweep capture supersedes it.
+  peak lands at 1–2 o'clock — that needs a power-law exponent **p ≈ 2.0** at the physical drive
+  impedance (p ≈ 1.4 would put the peak at ~12 o'clock). Marketing copy — a real VOLUME sweep capture supersedes it.
 - 📌 **Level anchor:** those figures imply the JFET stage's own gain is ≈ **+7–8 dB**, about 4 dB
   *below* a nominal-2N5457 estimate. Expect fitted `gm` under nominal — the maker specifies a
   "cherry picked" vintage JFET, so nominal SPICE is even less trustworthy than the usual 5:1 spread.
