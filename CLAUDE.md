@@ -128,9 +128,11 @@ high, execute routine work cheap) is what should persist.
 ## Current step
 
 > Update this at the start/end of each session so progress doesn't rely on conversation history.
-> **CURRENT: Step 1 (Schematic analysis) — project scaffolded from the template (CMake, submodules
-> pending); the Chase Tone Secret Preamp schematic still needs to be dropped into `schematics/` and
-> `.claude/rules/circuit.md` filled in before any DSP work starts.**
+> **CURRENT: Step 1 (Schematic analysis) — DONE except one blocker. `schematics/schematic.png` is
+> traced and `.claude/rules/circuit.md` is fully filled in (values, node graphs, triage, corners).
+> Project builds; AU installs with the placeholder pass-through DSP.
+> BLOCKED on circuit.md "Validation notes" #1 before DSP: the VOLUME network is non-monotonic as
+> drawn. Next: resolve that, fetch a 2N5457 datasheet into `docs/refs/`, then step 2.**
 
 ## Project-specific carry-forwards
 
@@ -139,3 +141,21 @@ high, execute routine work cheap) is what should persist.
 
 - Emulation target: Echoplex EP-3 tube preamp circuit, traced via the **Chase Tone Secret Preamp**
   schematic (not an original circuit design).
+- **Rail: VA = 22 V**, charge-pumped from 9 V and clamped by the D6 1N4748A zener. The whole power
+  section (D1–D6, C5–C9, IC1) is supply-only — excluded from the DSP model. The high rail is the
+  point: this is a clean, high-headroom preamp, not a distortion.
+- **Exactly one part needs an external (non-WDF) model: Q1, a 2N5457 JFET common-source stage.**
+  No clipping diodes, no op-amps, no CMOS anywhere in the signal path. Follow
+  `docs/nonlinear-component-modeling.md` §2 Path B, and heed the ⭐⭐⭐ "a degenerated CS stage is a
+  CURRENT source" trap — on this pedal the MODE switch's entire audible job *is* that source-bypass
+  lift, so getting it wrong is worth ~20 dB and will be loudly obvious rather than subtle.
+- **MODE = 3-position ON-OFF-ON**, labelled by treble content: **up BRIGHT** (C2 10 nF, corner
+  ≈4.4 kHz) / **middle DARK** (no bypass — flat, lowest gain) / **down MID** (C1 22 nF, corner
+  ≈2.0 kHz). Both cap positions reach the same HF plateau; they differ in *where the lift starts*.
+- ⛔ **OPEN BLOCKER — the VOLUME network is non-monotonic as drawn** (peaks ≈ −3.8 dB at noon,
+  −7.7 dB fully up, all real attenuation in the bottom ~10%). Almost certainly a schematic drawing
+  error — most likely the wiper and an end lug swapped. See circuit.md "Validation notes" #1; do
+  not model it until arbitrated.
+- 📌 **TODO before DSP:** fetch a 2N5457 datasheet into `docs/refs/` (the template ships only a
+  J201 one). Device spread is IDSS 1–5 mA / Vgs(off) −0.5…−6 V, so every amplitude parameter must
+  be fitted to captures, never calculated from nominals.
