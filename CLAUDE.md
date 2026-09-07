@@ -319,10 +319,16 @@ high, execute routine work cheap) is what should persist.
 >   cannot pull it down the way a normal divider would. **`docs/calibration-and-gain-staging.md` §4
 >   ("output load: almost never worth modelling") therefore does NOT apply here** — its arithmetic
 >   assumes ~6 kΩ, this is 15–23× that, and its "treble corner ~50 kHz" bullet becomes ~3 kHz with
->   500 pF. That section now carries an explicit exception. The plugin drives an ideal load, so it
->   will always be brighter up top than the real pedal into a real cable: the mirror of the
->   input-side plugin-vs-pedal note in circuit.md stage 1. Decide explicitly whether to model a load
->   capacitance before step 9.
+>   500 pF. That section now carries an explicit exception.
+> - ✅ **DECIDED 2026-09-08 — model an ideal source AND an ideal load; add neither a guitar source
+>   impedance nor a cable capacitance.** Both open "decide explicitly" items (circuit.md stages 1 and
+>   3) close the same way for the same reason: **the loading is already somewhere else, or nowhere at
+>   all.** On the input, NAM's protocol reamps a digital file into the pedal, so the reference carries
+>   no guitar loading, and in use a DI track already carries the guitar's cable and pickup resonance —
+>   modelling it would double-count. On the output, the plugin feeds a DAW digitally, so there is no
+>   cable to model, and baking one in would import one trainer's 542 pF as a permanent voicing while
+>   P1 and P3 show 39–52 pF. **What this binds is step 9: A/B the top octave against P1 or P3 only,
+>   and never move a plugin constant to close a null against P2 above ~2 kHz.**
 > - ⛔ **VOLUME is ruled out as the cause of P2's rolloff, and the check is worth keeping** (P2 is the
 >   only capture at a high volume setting, so it was a fair suspicion). Across all three captured
 >   positions and every drain-drive assumption, the output impedance spans a factor of **1.5**; the

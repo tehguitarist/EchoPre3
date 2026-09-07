@@ -102,9 +102,9 @@ clean preamp; the JFET's square-law curvature, not a clipper, is the entire nonl
 ### MODE source-bypass network
 | Ref | Value | Function |
 |-----|-------|----------|
-| `C1` | 22 nF | Source-bypass cap, "MID" branch (→ MODE lug 3) |
+| `C1` | 22 nF | Source-bypass cap, **"BRIGHT"** branch (→ MODE lug 3) — label MEASURED, note #2 |
 | `R1` | 1 MΩ | Pulldown holding C1's bottom node at GND when not switched (anti-pop) |
-| `C2` | 10 nF | Source-bypass cap, "BRIGHT" branch (→ MODE lug 1) |
+| `C2` | 10 nF | Source-bypass cap, **"MID"** branch (→ MODE lug 1) — label MEASURED, note #2 |
 | `R2` | 1 MΩ | Pulldown holding C2's bottom node at GND when not switched (anti-pop) |
 | `MODE` | SPDT **ON-OFF-ON**, lug 2 = common → GND | Grounds one branch's bottom node, engaging that bypass cap; centre = neither = "DARK" |
 
@@ -209,11 +209,23 @@ Corners (unloaded / as-drawn):
 - Passband divider into the gate: R4/(R3+R4) ≈ 0.90 (**−0.9 dB**).
 - Input impedance seen by the source ≈ **1.11 MΩ** in the passband.
 
-⚠ **Plugin-vs-pedal note:** in hardware this LP corner sits *above* a real guitar's source
-impedance and pickup resonance, so the pedal is darker in situ than the maths suggests. A plugin's
-input is an ideal voltage source (Z = 0), so the modelled corner will land at the full ~7.3 kHz and
-read brighter than the real pedal fed from a guitar. Decide explicitly whether to model a source
-impedance; either way, **A/B against captures made through the same interface**, not against theory.
+✅ **Plugin-vs-pedal note — DECIDED 2026-09-08: model an IDEAL source, and do NOT add a guitar
+source impedance.** In hardware this LP corner sits *above* a real guitar's source impedance and
+pickup resonance, so the pedal is darker in situ than the maths suggests, and the modelled corner
+lands at the full ~7.3 kHz. That is the right answer in both contexts that matter, for two separate
+reasons:
+
+- **Against the reference.** NAM's standard training protocol plays a fixed digital input file out
+  of an interface through a reamp box into the gear, and a reamp box drives well under 1 kΩ — so the
+  reference captures contain no guitar loading either. (The seven `.nam` files record no chain
+  metadata, so that is the protocol rather than something verified per file. The M3 fits corroborate
+  it: P1 and P3 land at 6.7 and 7.2 kHz against 7.3 kHz drawn, which is where an ideal-source drive
+  puts the corner; a guitar's source impedance would have dragged them well below.)
+- **In use.** A DI track already contains the guitar's own cable capacitance, pickup resonance and
+  the loading of whatever it was recorded into. Adding a source impedance in the plugin would
+  **double-count** it.
+
+**A/B against captures made through the same interface**, not against theory.
 
 ### Stage 2 — JFET gain stage (**Nonlinear** — external model, NOT a WDF element)
 
@@ -342,10 +354,17 @@ source, the whole range is 92–139 kΩ — a spread of 1.5× against a rotation
   NOT apply to this pedal.** Its arithmetic assumes a ~6 kΩ source impedance; this is 15–23× that,
   which drags its "treble corner ~50 kHz" bullet down to **~3 kHz with 500 pF of ordinary cable**.
   That section now carries an explicit exception pointing here.
-- ⚠ **Mirror of the input-side plugin-vs-pedal note in stage 1.** The plugin drives an ideal load,
-  so it will always be brighter in the top octave than the real pedal into a real cable. Note #7
-  measures one reference capture that carries a 3.2 kHz output-load pole. Decide explicitly whether
-  to model a load capacitance, and **A/B only against captures made through a known output chain**.
+- ✅ **DECIDED 2026-09-08: ship NO load capacitance — same answer as the input side, same reason.**
+  The plugin drives an ideal load, so it will always be brighter in the top octave than the real
+  pedal into a real cable, and note #7 measures one reference capture carrying a 3.2 kHz output-load
+  pole from ~542 pF. Do not model it anyway: **the plugin's output goes to a DAW, digitally — the
+  user's signal path after the plugin has no cable in it.** Baking a load in would import one
+  trainer's cable as a permanent voicing. The evidence that it *is* one trainer's cable rather than a
+  property of the capture protocol is that P1 and P3 need only 39–52 pF, i.e. nothing.
+  ⚠ **What this DOES bind is step-9 validation:** A/B the top octave against P1 or P3 only. A null
+  against P2 above ~2 kHz is measuring that cable, and no plugin constant should be moved to close
+  it. If the "pedal into a long cable into an amp" darkening is ever wanted as a voicing, it belongs
+  behind a user-facing control, not inside a fitted constant.
 
 ⭐ **This network is deliberately NON-MONOTONIC, and that is CORRECT — it reproduces the original
 EP-3's volume wiring.** Output rises from silence to a peak around 1–2 o'clock, then *falls back*

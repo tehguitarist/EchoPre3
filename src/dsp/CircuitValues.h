@@ -21,8 +21,10 @@ inline constexpr double kR5 = 3.6e3;    // source degeneration ("3k6" -- 3.6 kOh
 // --- MODE source-bypass network (circuit.md stage 2b) ---
 // The un-engaged branch keeps its 1 MOhm pulldown in series, ~280x larger than R5, so it is modelled
 // as fully off. Including it would change the HF degeneration by 0.7% (0.06 dB) -- see JfetStage.h.
-inline constexpr double kC1 = 22.0e-9;  // "MID" branch  -> bypass corner 1/(2*pi*R5*C1) ~ 2.01 kHz
-inline constexpr double kC2 = 10.0e-9;  // "BRIGHT" branch -> bypass corner ~ 4.42 kHz
+// The lug wiring (C1 -> lug 3, C2 -> lug 1) is traced; which LABEL each lug carries was measured,
+// not inferred, and came out the reverse of the first guess -- see circuit.md note #2.
+inline constexpr double kC1 = 22.0e-9;  // "BRIGHT" branch -> corner 1/(2*pi*R5*C1) ~ 2.01 kHz (measured 1.86 kHz)
+inline constexpr double kC2 = 10.0e-9;  // "MID" branch    -> corner ~ 4.42 kHz (measured 4.17 kHz)
 
 // --- Output / VOLUME network (circuit.md stage 3) ---
 inline constexpr double kC10 = 100.0e-9;   // drain output coupling cap
