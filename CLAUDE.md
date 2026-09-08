@@ -976,6 +976,59 @@ high, execute routine work cheap) is what should persist.
 >   that it is degenerate with the trainers' reamp level, which the +12.2 dBu capture is designed to fix.
 > - **Unchanged:** `kOutputMakeup` = 1.0 with no anchor; the VOLUME sweep; the missing M0 null render.
 
+> ### 📋 NEXT STEPS (2026-09-09) — what P1 alone can still do, and what it cannot
+>
+> Asked directly: can P1's calibration carry the harmonics/THD/compression and the FR/phase targets,
+> or is the owner's capture required? Answered per axis, with the reason.
+>
+> **1. ⭐ Vov CAN be fitted from P1 now, to about a factor of 1.5 — do it.** P1's H2 deficit is
+> 8.9–11.6 dB across 125 Hz–800 Hz and **clears its own per-band floor by 1.6–6.0×**, so it is a real
+> measurement rather than noise. It already indicates `Vov ≈ 0.15` against the shipped 0.447.
+> ⚠⚠ **But do NOT expect √N from the 24 cells.** Note #15 established these floors are SYSTEMATIC
+> rather than noise, so averaging over cells does NOT reduce them — the pinning stays near the
+> single-cell floor. That kills the 0.61 dB standard error a naive sd/√24 would claim, and with it any
+> hope of the 5 % target from this dataset.
+> ⭐ **Use TWO independent P1 observables and check they agree**: the midband H2 deficit, and
+> compression **above 3 kHz only** (below that P1's compression reads POSITIVE, i.e. expansive, which
+> the circuit forbids — that region is floor despite exceeding the floor's magnitude). Agreement
+> between two unrelated routes on the same parameter is the strongest evidence available here.
+> ⛔ **What P1 structurally cannot give:** anything in the load-line region (its hottest cell puts
+> 0.25 V on the gate; triode starts at 1.69 V — a factor of 6.8 away), and any absolute level, so
+> `kOutputMakeup` stays unanchored. Both need the +12.2 dBu session.
+>
+> **2. ⭐ The 4–8 kHz FR dip is actionable NOW and has never been investigated.** `goal_check.py`
+> puts the core-band misses in two clusters, and only one of them is the known confound:
+>   * 80 / 101 / 127 Hz, **+0.6 to +1.06 dB** — the missing LF high-pass pole. ⛔ Still confounded
+>     (three units give 27 / 18 / 13.5 Hz), still needs the within-rig VOLUME sweep, still must not be
+>     fitted to P1's rig.
+>   * 4064 / 5120 / 6451 / 8127 Hz, **−0.5 to −0.67 dB**, present in all three modes — **NOT the LF
+>     story and not yet explained.** ⚠ Note the sign rules out the obvious candidate: P1 fits a
+>     6.7 kHz input pole against the 7.3 kHz shipped, and a LOWER real corner would make the plugin
+>     BRIGHTER there, not darker. This is the single most actionable FR item.
+>
+> **3. Phase: reconcile the instruments before touching the model.** Whole-band RMS agrees between
+> `phase_sweep.py` (3.14–4.43°) and `goal_check.py` (3.56–4.12°), so there is no instrument problem
+> there. But the recorded "within 2.4° over 200 Hz–12 kHz" and `goal_check`'s 6.66–8.22° over the same
+> band do not agree, and one of them is measuring something else (fit window, weighting, or 4× vs 8×).
+> ⚠ Settle that first — acting on the larger figure without knowing which is right would be tuning to
+> a measurement artefact. ⭐ And do it AFTER item 2: a minimum-phase magnitude dip at 4–8 kHz carries
+> phase with it, so the two may be one finding.
+>
+> **4. Everything else waits for the capture**, and the list is unchanged: `kOutputMakeup` has no
+> other possible route, the VOLUME sweep is the only within-rig measurement that can settle the taper
+> and the LF pole, and the M0 null render has still never run.
+>
+> 📌 **On component tolerance (owner asked whether the targets are too tight): they are not.**
+> Two real pedals agree to **0.33 dB RMS / 0.80 dB peak** on the rig-cancelling mode differential —
+> the only genuine unit-to-unit figure in the dataset. A ±5 % resistor tolerance on R5 is worth only
+> **±0.07 dB** of stage gain, because the degeneration factor is dominated by the product `gm·R5`
+> rather than by either term; what it does move is corner FREQUENCIES by the same ±5 %, worth a few
+> tenths of a dB near a corner. So ±0.5 dB is comfortable in the midband and sits at about the
+> tolerance level near the band edges. ⚠ The measured 7 % offset in the shelf zeros is exactly this
+> effect, and it is already absorbed because the model uses the measured τ rather than a computed
+> `R5·C`. ⚠ **But the fit is to P1 specifically**, so hitting ±0.5 dB against P1 does not guarantee
+> ±0.5 dB against the owner's own unit — that is what their capture answers.
+
 ## Project-specific carry-forwards
 
 ### Reference data: seven NAM models (see `docs/build-plan.md`)
