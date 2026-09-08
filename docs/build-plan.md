@@ -1121,3 +1121,67 @@ lever. The third-order products are 40 dB short, but P1's are floor and P2/P3 ha
 confirmed, not broken: the calibrated unit's nonlinear data is floor, and the units whose nonlinear
 data is real are uncalibrated. **Asking the P2 and P3 trainers for their `input_level_dbu` remains
 the single highest-value action available, and it is one message.**
+
+---
+
+## 15. Test-signal audit, and the capture level that removes the whole problem (2026-09-08)
+
+Prompted by the owner asking whether the signal needs revising, and noting that −12 dBFS is where
+strummed rhythm guitar averages and is the calibration level other amp sims use.
+
+### 15.1 −12 dBFS is already covered, and the signal is not the limitation
+
+The compression ladder runs −46 to −1 dBFS in 5 dB steps, so it samples **−11 dBFS, one dB from the
+stated operating point**, and its cells hold 48 cycles so they double as a harmonic read. The tone
+grid's nearest rows are −16 and −6, but H2 rises a clean 1 dB per dB between them, so interpolation
+there costs nothing. ➡ **No level needs adding.**
+
+### 15.2 ⭐⭐ The real hole is COVERAGE, and it is the capture rig's level, not the signal's
+
+At P1's −12 dBu the rig delivers 0.2752 V per full scale, which is 10.00 dB below `kInputRef`. So
+every capture cell lands far lower on the gate than its digital level suggests:
+
+| capture dBFS | gate volts | the user dBFS that equals it |
+|---|---|---|
+| −26 | 0.0124 | −36.0 |
+| −16 | 0.0392 | −26.0 |
+| −6 | 0.1241 | −16.0 |
+| **−1 (hottest)** | **0.2207** | **−11.0** |
+
+➡ **The reference constrains the model only up to a user playing at −11 dBFS. Above that it is
+extrapolating.** Rhythm guitar at −12 dBFS average is just inside that, but with a ~12 dB crest
+factor its peaks reach 0 dBFS, i.e. **0.783 V on the gate**, which P1's rig would need +10 dBFS to
+produce. The model's behaviour through the loudest 11 dB of ordinary playing is unconstrained by any
+capture in the set.
+
+### 15.3 ⭐⭐⭐ −2 dBu is the number, and it is exact
+
+| `input_level_dbu` | V/FS | vs `kInputRef` |
+|---|---|---|
+| −12 (P1) | 0.2752 | −10.00 dB |
+| −4 | 0.6912 | −2.00 dB |
+| −3 (≈ P3) | 0.7755 | −1.00 dB |
+| **−2** | **0.8701** | **+0.00 dB** |
+| 0 | 1.0954 | +2.00 dB |
+
+`0.7746 × 10^(−2/20) × √2 = 0.8701`, and `kInputRef` is 0.87. **Capture at −2 dBu and the reference's
+digital levels map 1:1 onto the plugin's**: matched-drive A/B becomes matched-level A/B, the drive
+offset vanishes, the existing signal covers the whole operating range with nothing left over, and the
+aEven-versus-reamp-level degeneracy cannot recur for that unit. This supersedes §5's vaguer "aim near
+P3's level". ⚠ `kInputRef` is itself still an assumption, so this pins the capture TO the plugin's
+declared calibration rather than pinning the calibration; the bypassed capture is still what anchors
+`kInputRef` itself.
+
+### 15.4 Two real signal defects, neither needing a re-capture
+
+1. ⚠⚠ **The twin-tone pair is harmonically related** — 220 and 660 Hz, 660 = 3 × 220 — so it cannot
+   measure intermodulation at all (§14.2). Needs a NEW segment with an inharmonic pair.
+2. ⚠ **The IMD levels break the signal's own design rule.** `gen_test_signal.py` states that sweep,
+   compression and tone levels are drawn from ONE grid so the three instruments can be cross-checked
+   at the same input level. The IMD levels are −19, −11, −3, and **−19 and −3 are not on that grid**.
+   So the one segment measuring a different physical quantity is also the one that cannot be compared
+   to the others at matched level. Put a replacement pair on the shared grid.
+
+📌 **Not a defect, though it reads like one:** the 20 Hz tone cell is 29.5 cycles long and perfectly
+well formed. The reference models' 132 ms receptive field sees only **2.6 periods** of it, which is
+why that band is floor (§13.1). No change to the signal can fix that.

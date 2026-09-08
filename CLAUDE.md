@@ -686,9 +686,19 @@ high, execute routine work cheap) is what should persist.
 > 3. ⭐ **A VOLUME sweep, everything else fixed.** Still the only within-rig measurement that can settle
 >    the taper (p ≈ 2.0), the 3.9 dB vs 1–2 dB fall-back, and the C10 corner — all three are currently
 >    blocked on exactly this and nothing else.
-> 4. ⚠ **Drive it HOT enough that compression clears ~0.2 dB.** P1's whole nonlinear dataset is unusable
->    because −12 dBu put the pedal below the models' floor. P3 at ≈ −3 dBu is 2–3× above it. **Aim near
->    P3's level, not P1's** — this is the single choice that decides whether the shaper becomes fittable.
+> 4. ⭐⭐ **SET NAM's INPUT CALIBRATION TO −2 dBu. Not "hot", not "near P3" — exactly −2 dBu.**
+>    `V/FS = 0.7746 × 10^(−2/20) × √2 = 0.8701`, which **IS `kInputRef` = 0.87 to three decimals.** At
+>    that setting the capture's digital levels map 1:1 onto the plugin's, so matched-drive A/B becomes
+>    matched-LEVEL A/B, the whole drive-offset axis disappears, and the aEven-versus-reamp-level
+>    degeneracy cannot recur for this unit. −3 dBu is within 1 dB and −4 dBu within 2 dB if the rig
+>    cannot hit it exactly; **−12 dBu, P1's setting, is 10 dB too quiet and is why P1's entire
+>    nonlinear dataset is floor.**
+>    ⚠ **This is also what fixes the COVERAGE hole, which is bigger than the floor problem.** At
+>    −12 dBu even the signal's hottest cell (−1 dBFS) puts only 0.22 V on the gate, which is what a
+>    user playing at **−11 dBFS** produces. Everything above that is extrapolation. Rhythm guitar
+>    tracked at −12 dBFS average with a ~12 dB crest factor peaks at 0 dBFS = **0.78 V on the gate**,
+>    which P1's rig would need +10 dBFS to reach — 11 dB off the top of the capture set. At −2 dBu the
+>    existing signal covers the whole range with nothing left over.
 > 5. Both switch positions, and the null/no-plugin render (still missing — M0 has never run).
 
 > ### ⭐⭐ A REAL BUG FIXED 2026-09-08: `useIntegerLatency = true` WAS DEFEATING THE LINEAR-PHASE FIR

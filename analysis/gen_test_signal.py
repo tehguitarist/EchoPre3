@@ -117,6 +117,21 @@ TONE_LEVELS_DB = (-26, -16, -6, -1)
 TONE_CYCLES = 96          # long dwell -> harmonic SNR; this is the block the JFET shaper is fit to
 TONE_MAX_ORDER = 8        # H2..H8 extracted per cell, masked where N*f > Nyquist
 
+# ⚠ THESE TWO DEFECTS ARE RECORDED, NOT FIXED: the signal is APPEND-ONLY, so changing them would
+# invalidate all seven existing captures. Fix both by APPENDING a replacement segment whenever the
+# signal is next revised (docs/build-plan.md §15.4).
+#
+#   (a) ⚠⚠ 220 and 660 Hz are HARMONICALLY RELATED -- 660 = 3 x 220 exactly -- so every
+#       intermodulation product m*f1 + n*f2 = (m + 3n)*220 lands on the 220 Hz harmonic grid and
+#       none is separable from harmonic distortion. Neither input tone is a clean amplitude
+#       reference either, each being contaminated by a third-order product of the other. This
+#       segment therefore cannot measure IMD at all. Use an INHARMONIC pair -- 220 Hz with 1234 Hz,
+#       say -- and the products separate completely.
+#   (b) ⚠ -19 and -3 are NOT on the shared level grid that COMP_LEVELS_DB defines, which breaks the
+#       rule stated above it: the whole point of one grid is that the swept, discrete-tone and
+#       twin-tone instruments can be compared at the SAME input level. The one segment measuring a
+#       different physical quantity is the one that cannot be cross-checked. Put the replacement on
+#       the grid (-21, -11, -1).
 IMD_LEVELS_DB = (-19, -11, -3)
 REPEAT_TWIN = "comp_800_-11"   # repeat_800_-11 is a byte-for-byte duplicate of this cell
 
