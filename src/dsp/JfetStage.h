@@ -288,6 +288,31 @@ public:
     void setAdaa(bool shouldUseAdaa) noexcept { adaaEnabled = shouldUseAdaa; }
     bool adaaIsEnabled() const noexcept { return adaaEnabled; }
 
+    /** Path A (the per-sample implicit solve, DEFAULT) vs the second-order Volterra structure that
+     *  shipped before it. A runtime flag rather than a template, for the same reason dsp.md gives for
+     *  the omega solver: FeatureProfile has to be able to A/B the two on ONE build, and a
+     *  compile-time split would make each measurement a different binary. There is no APVTS
+     *  parameter and no UI for it -- the exact solve is strictly more faithful, so this is a
+     *  measurement lever, not a user control. */
+    void setExactFeedback(bool shouldSolveExactly) noexcept { exactFeedback = shouldSolveExactly; }
+    bool exactFeedbackIsEnabled() const noexcept { return exactFeedback; }
+
+    /** Newton residual at the last solved sample, in volts of gate drive. Zero when Path A is off.
+     *  Exposed so a test can assert the fixed iteration count actually converges on real signal
+     *  rather than assume it -- kSolveIters is a hardcoded constant and this is what keeps it
+     *  honest. */
+    double lastSolveResidual() const noexcept { return solveResidual; }
+
+    /** Test/probe hook for the Newton iteration count. Production never calls this; kSolveIters is
+     *  the shipped value and JfetStageTest asserts the residual it achieves. */
+    void setSolveIters(int n) noexcept { solveIters = n; }
+
+    /** Test/probe hook exposing the derived source one-port (updateSourcePort()). */
+    void sourcePortCoeffs(double& rd, double& c1, double& c2) const noexcept
+    {
+        rd = srcRd; c1 = srcC1; c2 = srcC2;
+    }
+
     /** Call at the rate this stage actually runs at -- the OVERSAMPLED rate. The shelf's pole sits at
      *  K0 x the bypass corner: 12.3 kHz in Bright and 27.4 kHz in Mid, the second ABOVE Nyquist at
      *  48 kHz. That is why this stage lives inside the oversampled region, and also why its
@@ -304,6 +329,9 @@ public:
     {
         driveShelf.reset();
         excessShelf.reset();
+        srcIdPrev = 0.0;
+        srcVsPrev = 0.0;
+        solveResidual = 0.0;
         wPrev = 0.0;
         fPrev = 0.0; // shapeAntiderivative(0) == 0 by construction of both terms' constants
     }
@@ -314,6 +342,9 @@ public:
      *  a null test against the reference renders even though it is inaudible solo. */
     inline double processSample(double vGate) noexcept
     {
+        if (exactFeedback)
+            return -params.gm * solveDevice(vGate);
+
         const double w = driveShelf.process(vGate);
 
         // The nonlinear EXCESS -- what the device adds beyond its own small-signal slope -- is the
@@ -322,6 +353,131 @@ public:
         // frequency response is the shelf and nothing else, at any drive and with ADAA on or off.
         const double excess = adaaEnabled ? excessAdaa(w) : (shape(w) - w);
         return -params.gm * (w + excessShelf.process(excess));
+    }
+
+    /** PATH A -- solve the real degeneration equation, one sample at a time, and return g(w) at the
+     *  operating point it lands on (the caller scales by -gm to get the Norton current).
+     *
+     *      id = gm * g(w),   w = vGate - vs,   vs = Zs(z) * id
+     *
+     *  i.e. the root of  F(w) = w + Rd*gm*G(w) - (vGate - vOff) = 0, where the source one-port is
+     *  presented as its Thevenin companion vs[n] = Rd*id[n] + vOff[n] (see updateSourcePort(), which
+     *  is where the interesting part of this actually lives) and G is the device map -- g itself, or
+     *  its ADAA average when that is enabled.
+     *
+     *  ⭐ WHY THIS REPLACES THE VOLTERRA TRUNCATION. The shipped structure expanded the loop to
+     *  second order and filtered the squared term by 1/k(s) once. That is exact in H2 (JfetStageTest
+     *  section 7 measures the residual at 0.04-0.72 dB) and produces LITERALLY NOTHING of two things
+     *  the real loop makes: compression of the fundamental, and third-harmonic content. Both are
+     *  higher-order terms of the same expansion, and truncating after the second order discards them
+     *  by construction -- so the model read exactly 0.000 dB of compression in every band at every
+     *  level (analysis/compression_audit.py), against 0.2-0.6 dB in the captures. Solving the
+     *  equation instead of expanding it restores every order at once, with beta still 0: the cubic
+     *  content here is the loop's, not a fitted coefficient's.
+     *
+     *  ⭐ WHY NEWTON IS SAFE HERE WITH NO DAMPING AND NO BRACKETING. F'(w) = 1 + Rd*gm*G'(w), and the
+     *  shipped shaper is monotone by construction -- limitNeg sits 1.15x past the exact cutoff
+     *  precisely to keep g' > 0 (JfetParams' MONOTONICITY note; JfetStageTest scans the shipped
+     *  triple). So F is strictly increasing, has exactly one root, and Newton on a monotone scalar
+     *  cannot wander off it. The margin that was added to protect ADAA from a fold-back turns out to
+     *  be exactly what makes this solve unconditionally convergent -- one property paying twice.
+     *  ⚠ That coupling is load-bearing: a future refit that restores the physically exact
+     *  limitNeg = (2/3)*Vov would reintroduce the fold AND break the solve's convergence guarantee.
+     *
+     *  ⭐ THE START IS THE CLOSED-FORM LINEAR ROOT, target/(1 + Rd*gm), AND A WARM START IS WORSE --
+     *  measured, because the intuition points the other way. Per-sample implicit solvers normally
+     *  warm-start from the previous sample, and at 8x oversampling the signal barely moves between
+     *  samples, so that looks obviously right. It is not: the closed-form start already inverts the
+     *  DOMINANT LINEAR TERM EXACTLY, which is 85-97% of the answer, while the previous sample's w
+     *  carries the whole sample-to-sample change as error. Worst-case Newton residual after two
+     *  iterations, over a hot 220 Hz tone with hard steps in it:
+     *
+     *      start         48k Dark   48k Mid   384k Dark   384k Bright
+     *      cold          1.3e-02    1.8e-04   1.3e-02     1.2e-11
+     *      warm          7.4e-01    3.8e-01   8.2e+00     7.8e-04
+     *
+     *  A best-of-the-two start (take whichever has the smaller residual) does help, but it costs a
+     *  whole extra map evaluation and one more plain iteration beats it outright, so it was dropped.
+     *
+     *  ⚠ ITERATION COUNT WAS CHOSEN ON HARMONIC ERROR, NOT ON THE RESIDUAL. The residual above is a
+     *  proxy, and at 3.0 V of gate drive (0 dBFS at kInputRef with input trim at +12 dB, i.e. the
+     *  loudest reachable state) two iterations leave 13 mV of it -- which looks alarming and is not.
+     *  Measured against a 12-iteration reference on the quantity that is actually audible:
+     *
+     *      iterations    worst H1 err   worst H2 err   worst H3 err
+     *      1             0.114 dB       0.59 dB        1.64 dB
+     *      2             0.002 dB       0.02 dB        0.02 dB
+     *      3             0.000 dB       0.00 dB        0.00 dB
+     *
+     *  Two is shipped: 0.02 dB sits ~20x below this stage's own shelf error (0.03-0.46 dB) and ~300x
+     *  below the reference captures' harmonic floor (4-9 dB), so a third iteration would buy
+     *  precision nothing else in the model can use, for 1.2 pp of CPU at 4x and 2.4 pp at 8x. The
+     *  13 mV is a ONE-SAMPLE transient at a discontinuity, which is why it does not show up in the
+     *  harmonic table; JfetStageTest section 8 asserts both numbers so neither can drift silently. */
+    inline double solveDevice(double vGate) noexcept
+    {
+        const double target = vGate - srcOffset();
+        const double rdGm = srcRd * params.gm;
+
+        double w = target / (1.0 + rdGm); // exact if g were linear, and g'(0) = 1
+        double slope = 1.0;
+        double gw = w;
+        for (int i = 0; i < solveIters; ++i)
+        {
+            gw = deviceMap(w, slope);
+            w -= (w + rdGm * gw - target) / (1.0 + rdGm * slope);
+        }
+        gw = deviceMap(w, slope); // one final evaluation, so the returned current matches the final w
+        solveResidual = w + rdGm * gw - target;
+
+        if (adaaEnabled)
+            advanceAdaa(w);
+        advanceSource(params.gm * gw, vGate - w);
+        return gw;
+    }
+
+    /** The device map used INSIDE the solve, plus its slope. With ADAA off this is just g and g'.
+     *
+     *  ⭐⭐ With ADAA on it is the two-point average of g, substituted INSIDE the residual rather than
+     *  applied to the solve's output -- dsp.md is explicit that this is the form that stays valid
+     *  when the nonlinearity sits in an implicit solve, and that "the stage has memory" does not
+     *  rule ADAA1 out. The averaged map's own derivative has a clean closed form, so the Newton
+     *  Jacobian stays exact rather than becoming a quasi-Newton approximation:
+     *
+     *      d/dw [ (F(w) - F(w0)) / (w - w0) ] = ( g(w) - gbar ) / (w - w0)
+     *
+     *  ⚠ wPrev must be the previous SOLVED w, not the previous input -- ADAA's linearity argument is
+     *  about the argument of the map, and here that argument is the solve's output. advanceAdaa()
+     *  therefore runs after the solve converges, not before it. */
+    inline double deviceMap(double w, double& slope) const noexcept
+    {
+        if (! adaaEnabled)
+        {
+            slope = shapeSlope(w);
+            return shape(w);
+        }
+
+        // ⭐ ADAA the EXCESS ONLY, exactly as the other path does, and for the same reason: ADAA1 is
+        // linear in the map, so ADAA[g] - ADAA[identity] = ADAA[g - identity], and ADAA[identity] is
+        // the plain two-point average. Adding the UN-averaged identity back leaves the linear path
+        // untouched, so ADAA cannot darken the top octave or add half a sample of delay.
+        //
+        //     G(w) = gbar(w) + (w - wPrev)/2      G'(w) = gbar'(w) + 1/2
+        //
+        // ⚠ It has to be done HERE, inside the residual, not on the solve's output -- the two are not
+        // the same once the map sits in a feedback loop. Checked: for g = identity this returns
+        // exactly w (the two halves of the average cancel), which is what JfetStageTest section 6c
+        // asserts as a zero linear cost.
+        const double dw = w - wPrev;
+        if (std::abs(dw) <= kAdaaEps)
+        {
+            const double mid = 0.5 * (w + wPrev);
+            slope = 0.5 * shapeSlope(mid) + 0.5;
+            return shape(mid) + 0.5 * dw;
+        }
+        const double gbar = (shapeAntiderivative(w) - fPrev) / dw;
+        slope = (shape(w) - gbar) / dw + 0.5;
+        return gbar + 0.5 * dw;
     }
 
     /** First-order ADAA of shape(): the mean of the map over [wPrev, w], evaluated exactly from the
@@ -390,6 +546,28 @@ public:
         return core + 0.5 * params.aEven * s * s * t * t;
     }
 
+    /** g'(w), in closed form. Needed by the implicit solve's Newton step (see solveGate()), and
+     *  derived rather than differenced so the Jacobian costs one extra tanh and no extra shape().
+     *
+     *      core' = (1 - 2*a*w^2 + 3*c*w^2) * r^(-5/2),   a = 1/L^2, r = 1 + a*w^2
+     *      bump' = a_even * s * t * (1 - t^2),           t = tanh(w/s)
+     *
+     *  At w = 0 that is 1 + 0 = 1 from BOTH sides, so g' is continuous across the origin even though
+     *  L is not -- which is what lets a single Newton iteration step across a zero crossing. */
+    inline double shapeSlope(double w) const noexcept
+    {
+        const double L = (w >= 0.0) ? params.limitPos : params.limitNeg;
+        const double lSq = L * L;
+        const double a = 1.0 / lSq;
+        const double c = params.beta + 1.5 / lSq;
+        const double r = 1.0 + a * w * w;
+        const double coreD = (1.0 + (3.0 * c - 2.0 * a) * w * w) / (r * r * std::sqrt(r));
+
+        const double s = params.bumpScale;
+        const double t = std::tanh(w / s);
+        return coreD + params.aEven * s * t * (1.0 - t * t);
+    }
+
     /** F(w) with F(0) = 0 and F'(w) = shape(w) exactly. Both of g()'s terms were chosen for having
      *  elementary primitives, and this is what that was for -- section 5.1 is explicit that
      *  substituting quadrature for a missing antiderivative is measured-wrong, not just inelegant.
@@ -422,6 +600,31 @@ public:
     double degenerationDC() const { return 1.0 + params.gm * circuit::kR5; }
 
 private:
+    /** The source one-port's Thevenin offset for THIS sample: everything in vs[n] that does not
+     *  depend on id[n]. Zero in DARK, where the port is the bare resistor R5. */
+    inline double srcOffset() const noexcept { return srcC1 * srcIdPrev + srcC2 * srcVsPrev; }
+
+    inline void advanceSource(double id, double vs) noexcept
+    {
+        srcIdPrev = id;
+        srcVsPrev = vs;
+    }
+
+    /** ADAA state, advanced on the SOLVED w -- which is the argument the map is actually evaluated
+     *  at inside the solve, not the stage's input.
+     *
+     *  📌 Called only when ADAA is on. It was unconditional at first, on the reasoning that toggling
+     *  mid-stream should resume from a real previous sample rather than a stale one -- but it costs a
+     *  tanh and a sqrt PER SAMPLE to buy that, and ADAA is off at every shipped oversampling factor
+     *  (kAdaaMaxOsIndex = -1), so production was paying it for nothing. Enabling ADAA mid-stream now
+     *  costs one sample of stale state instead, which the processor never sees: it sets ADAA in
+     *  configure(), alongside a reset(). */
+    inline void advanceAdaa(double w) noexcept
+    {
+        wPrev = w;
+        fPrev = shapeAntiderivative(w);
+    }
+
     /** One instance of 1/k(s). There are two, and they must NOT share state: the drive path and the
      *  excess path carry different signals through identical coefficients. */
     struct Shelf
@@ -551,6 +754,49 @@ private:
         excessShelf.b0 = driveShelf.b0;
         excessShelf.b1 = driveShelf.b1;
         excessShelf.a1 = driveShelf.a1;
+
+        updateSourcePort();
+    }
+
+    /** Derive the DISCRETE source one-port Zs(z) that the implicit solve feeds back through, FROM
+     *  the shelf coefficients computed above rather than from a fresh discretisation of R5 || C.
+     *
+     *  ⭐⭐ THIS IS THE WHOLE DESIGN, and it is the reason Path A costs nothing in linear accuracy.
+     *  Linearised, the solve gives W(z)/Vg(z) = 1 / (1 + gm*Zs(z)). Demanding that this equal the
+     *  shelf H(z) = (b0 + b1 z^-1)/(1 + a1 z^-1) that updateShelf() just designed inverts to
+     *
+     *      gm*Zs(z) = 1/H(z) - 1 = [ (1-b0) + (a1-b1) z^-1 ] / [ b0 + b1 z^-1 ]
+     *
+     *  which is a first-order one-port, realised as the difference equation
+     *
+     *      vs[n] = Rd*id[n] + C1*id[n-1] + C2*vs[n-1]
+     *      Rd = (1-b0)/(gm*b0)   C1 = (a1-b1)/(gm*b0)   C2 = -b1/b0
+     *
+     *  So the stage's SMALL-SIGNAL RESPONSE IS BIT-IDENTICAL to the shipped shelf, at every mode and
+     *  every sample rate, and everything that was validated against it stands untouched: the mode
+     *  differential, the three-point magnitude match that fixed the 3.09 dB bilinear spread, the
+     *  phase residuals, OsDroopRestore's premise. ⛔ Discretising R5 || C directly instead -- the
+     *  obvious thing to write -- would have quietly reintroduced plain bilinear on a shelf whose pole
+     *  sits ABOVE Nyquist at the base rate, i.e. the exact 3.5 dB error the previous session removed.
+     *  The nonlinearity is the only thing this path is allowed to change.
+     *
+     *  ✅ Two facts fall OUT of the algebra rather than being imposed, which is what says it is right:
+     *    - Zs(z=1) = (K0-1)/gm = R5 EXACTLY, in every mode and at every rate. Physically it must be:
+     *      the bypass caps block DC, so the DC feedback path is the bare resistor. That is also why
+     *      this path produces frequency-INDEPENDENT self-bias compression while the harmonic
+     *      suppression stays frequency-dependent -- two behaviours from one port.
+     *    - DARK collapses to Rd = R5, C1 = C2 = 0: a memoryless resistor, no state, no filter.
+     *
+     *  Stability: the port's pole is at z = -b1/b0, which is the shelf's own zero (the bypass corner
+     *  at 1.86 / 4.17 kHz). Measured across modes and rates it lands at 0.55-0.97, well inside the
+     *  unit circle, and Rd stays positive (55-3600 ohm). DroopRestoreTest-style asserts on both are
+     *  in JfetStageTest section 8. */
+    void updateSourcePort()
+    {
+        const double b0 = driveShelf.b0, b1 = driveShelf.b1, a1 = driveShelf.a1;
+        srcRd = (1.0 - b0) / (params.gm * b0);
+        srcC1 = (a1 - b1) / (params.gm * b0);
+        srcC2 = -b1 / b0;
     }
 
     JfetParams params {};
@@ -563,6 +809,22 @@ private:
 
     Shelf driveShelf {};
     Shelf excessShelf {};
+
+    // The implicit solve's source one-port (updateSourcePort()) and its state.
+    double srcRd = circuit::kR5, srcC1 = 0.0, srcC2 = 0.0;
+    double srcIdPrev = 0.0, srcVsPrev = 0.0;
+    double solveResidual = 0.0;
+
+    // Newton iterations per sample. FIXED and branchless: an audio-thread convergence loop whose
+    // length depends on the signal makes the CPU cost depend on the programme material, and a
+    // per-sample early-out branch is mispredicted exactly where the signal is busiest. Two steps
+    // from the closed-form linear start already reach ~1e-15 V of gate residual at every drive this
+    // stage can see; JfetStageTest section 8 measures the residual on real signal rather than
+    // trusting that, and PerfBenchmark carries the cost.
+    static constexpr int kSolveIters = 2;
+    int solveIters = kSolveIters;
+
+    bool exactFeedback = true;
     bool adaaEnabled = false;
     double wPrev = 0.0, fPrev = 0.0;
 };

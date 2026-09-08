@@ -749,6 +749,94 @@ high, execute routine work cheap) is what should persist.
 >   bypassed capture and the VOLUME sweep, which is now the *only* thing standing between the model and
 >   both stated targets. Everything else in the audio band is already inside them.
 
+> ### ⭐⭐ PATH A IS IN (2026-09-08): the loop is SOLVED, not expanded. Compression and H3 now exist.
+>
+> `src/dsp/JfetStage.h`, guarded by a new section 8 in `tests/JfetStageTest.cpp`. New instrument
+> `analysis/band_audit.py` (+ `analysis/reports/band_audit.json`). Write-up `docs/build-plan.md` §13,
+> circuit consequences `.claude/rules/circuit.md` notes #12–#14. **All 11 tests pass, warning-free.**
+> ⚠ **NO fitted constant changed** — `gm`, both shelf τ, `aEven`/`Vov`, `beta` = 0 are exactly as
+> step 4b left them. Only the structure moved.
+>
+> **The gap note #11 identified is closed.** The stage now solves `id = gm·g(vGate − Zs(z)·id)` by
+> Newton per sample. Compression and H3 are higher-order terms of the truncated expansion, so the old
+> structure could not make them **at all** (exactly 0.000 dB of compression in every band at every
+> level). Now: **−0.032 dB at 0 dBFS and −0.178 dB at +6 dB of trim, H3 −57.6 and −41.2 dBc** against
+> the truncation's −79.5 / −60.9. `beta` stays 0 — the cubic is the LOOP's, not a fitted coefficient.
+>
+> ⭐⭐ **The one design decision that mattered: the discrete source one-port is DERIVED FROM THE
+> SHIPPED SHELF**, by inverting `1/(1 + gm·Zs(z)) = H(z)`, not by discretising R5 ∥ C afresh. The
+> small-signal response is therefore unchanged to **1.1e-11 dB / 4.8e-15°** over 3 modes × 4 rates ×
+> 5 frequencies, so the mode differential, the three-point discretisation, the phase residuals and
+> `OsDroopRestore`'s premise all stand untouched. ⛔ **The obvious alternative — discretising R5 ∥ C
+> directly — would have silently reintroduced plain bilinear on a shelf whose pole is above Nyquist
+> at base rate, i.e. the exact 3.5 dB error the previous session removed.** Two facts fall OUT of the
+> algebra rather than being imposed: `Zs(z=1) = R5` to 1e-16 in every mode at every rate, and DARK
+> collapses to the bare resistor with no state.
+>
+> ⭐ **Cross-implementation check:** `compression_audit.py`'s Python oracle, written weeks earlier,
+> said −0.032 dB at 0.783 V. The C++ solve reads **−0.0324**. Neither can inherit the other's bug.
+>
+> ⚠ **Two intuitions were measured and both were WRONG.** (a) **A warm start is decisively worse than
+> a cold one** — the closed-form linear root already inverts 85–97 % of the answer, while the previous
+> sample's `w` carries the whole sample-to-sample change as error (worst residual 1.3e-02 cold vs
+> 8.2e+00 warm at 384 kHz DARK). (b) **The residual is the wrong criterion for the iteration count**:
+> two iterations leave an alarming-looking 13 mV at the loudest reachable state, but that is a
+> ONE-SAMPLE transient at a discontinuity and the harmonic error there is 0.02 dB. Two is shipped.
+>
+> 📌 **CPU: 2.07 → 4.78 % at the 4× default, 3.51 → 8.95 % at 8× (2.3×).** Still comfortable, but
+> `dsp.md`'s "the linear-phase FIR costs nothing worth recovering" was decided when the chain was 2 %.
+> 📌 A fused shape-and-slope function to recover it measured **exactly free** (5.01 vs 5.05 %) — both
+> inline on the same argument, so the compiler already shared the work — and was removed rather than
+> kept. The cost is the iteration count, nothing else.
+>
+> ### ⚠⚠ AND THE THD QUESTION THAT PROMPTED IT: the deficit is the REFERENCE's, not the model's
+>
+> **Below ~100 Hz.** The captures read up to **50 % THD at 20 Hz**, 12–37 dB above the model. Three
+> independent reasons none of it is the pedal: **H3 comes back ABOVE H2 at 20 and 31.5 Hz in every P1
+> mode** (impossible for a square law); the known-answer probe reads **20.2 dB at 20 Hz where the
+> circuit forces 0.00**; and 50 % THD cannot happen at ~0.14 V of gate drive into a 22 V rail. The
+> mechanism is structural — **132 ms of receptive field is 2.6 periods at 20 Hz**, and the output
+> high-pass being reproduced sits at 24–44 Hz. ⛔ **Do not fit anything to a capture below ~100 Hz.**
+> ⚠ The floor probe measures mode SPREAD, so an error common to all three modes reads ZERO — and an LF
+> receptive-field artefact is exactly that, since the high-pass is identical in every mode. **At low
+> frequency the probe systematically under-reports**; its 8.3 dB at 50 Hz is a lower bound.
+>
+> **From 125 Hz up the deficit is real but FLAT** (P1-dark −7.0 to −11.6 dB across 125 Hz–1.6 kHz, no
+> trend, mean −9.6 dB). That is note #10's `Vov` scalar, unchanged. ➡ **There is no missing
+> frequency-dependent distortion mechanism to build.** The treble goes the same way: P1-dark's −18 dB
+> at 8 kHz cannot be physical (in DARK `k` is constant, so H2 in dBc must not move with frequency) and
+> its 5 kHz cell fails the order-inversion test.
+>
+> 📌 ⚠ **"Rises 2 dB/dB with level" does NOT establish that a harmonic is real.** P3's H2 rises at a
+> clean 1.9–2.1 dB/dB in every band — and its THD is flat at ≈ −30 dBc from 20 Hz to 8 kHz, which the
+> circuit forbids since distortion moves as k². Pair the level-slope test with a frequency-shape test.
+> ⚠ `band_audit.py` applies P1's −12 dBu offset to EVERY capture, so **only P1's column is a valid
+> matched-drive comparison**; P2/P3 carry an unknown ~8 dB (their rig levels are inferred, not known).
+>
+> ### ⚠⚠ The compression known-answer probe needs 3f below the shelf zero, not f
+> Compression is third order, so it reads the loop at 3f. Measured on the plugin, the probe's own
+> spread is 0.0015 dB at 94 Hz but **0.0585 dB at 797 Hz** (3f = 2391 Hz, past the 1864 Hz zero) —
+> and `compression_audit.py`'s top known-zero band was 800 Hz. ✅ On this dataset it reaches nothing:
+> dropping that row leaves both floors unchanged (0.145 P1 / 0.210 P2), so a lower band binds. Both
+> figures are now reported. ⭐ A second effect hides under it: at the lowest probe frequency the
+> model's spread stops falling at 0.0017 dB, which is **the fixed iteration count leaving a
+> mode-dependent bias** (`Rd·gm` differs ~30× between Dark and Bright). Converging collapses it to
+> 0.00005 dB. Harmless at 85× below the capture floor, but exactly what would later be mistaken for a
+> real mode asymmetry.
+>
+> ### NEXT — and note #11's coupling is now discharged in one direction
+> - ⭐ **`Vov` is the remaining compression gap and it is now applicable in principle.** The plugin
+>   moves the right way on every axis (Bright compresses more than Dark, more at HF) but is 10–20×
+>   short in magnitude. Path A across the admissible bracket at 0 dBFS: **−0.032 dB at the shipped
+>   0.4469, −0.143 at 0.250, −0.808 at note #10's 0.1502, −1.100 at the 0.131 floor** (captures:
+>   P2-bright −0.18..−0.35, P3 −0.42..−0.61). ⛔ **Still NOT applied** — three of note #10's four
+>   reasons stand (the −12 dBu is a recollection; the floor pins `Vov` only to ~1.4×; it moves the
+>   drain 14.4 → 19.4 V and **invalidates `JfetStage.h`'s load-line arithmetic**). Only the fourth,
+>   the truncation, is discharged. ➡ Apply with a re-derived load line, or wait for a second
+>   calibrated capture.
+> - **Unchanged and still blocking:** `kOutputMakeup` = 1.0 with no anchor; the two-way pedal's VOLUME
+>   sweep; the missing no-plugin null render (M0 has never run).
+
 ## Project-specific carry-forwards
 
 ### Reference data: seven NAM models (see `docs/build-plan.md`)

@@ -959,3 +959,93 @@ the exact solve compresses −0.032 dB at the shipped `Vov` but **−1.05 dB at 
 vs −24.5 dBc. Lowering the curvature alone would leave the stage quantitatively wrong in its own
 normal operating range.
 
+
+### 12. ⭐⭐ Path A (2026-09-08) — the loop is SOLVED now, not expanded. Compression and H3 are real.
+
+Code and reasoning in `src/dsp/JfetStage.h`; full write-up `docs/build-plan.md` §13; new instrument
+`analysis/band_audit.py`. All 11 tests pass. **No fitted constant changed** — `gm`, both shelf τ,
+`aEven`, `Vov`, `beta` = 0 are all exactly as note #8 left them. Only the structure changed.
+
+**What note #11 identified is now fixed.** The stage solves `id = gm·g(vGate − Zs(z)·id)` by Newton,
+per sample, instead of expanding it to second order and filtering the squared term once. Compression
+and third-harmonic content are higher-order terms of that same expansion, so the truncation could not
+produce them **at all** — the model read exactly 0.000 dB of compression in every band at every level.
+It now reads −0.032 dB at a 0 dBFS input and −0.178 dB at +6 dB of trim, with H3 at −57.6 and
+−41.2 dBc against the truncation's −79.5 and −60.9. `beta` stays 0: this cubic is the LOOP's.
+
+⭐⭐ **The design decision that makes it safe, and the obvious alternative that would have been
+wrong.** The discrete source one-port is **derived from the shipped shelf coefficients**, by inverting
+`1/(1 + gm·Zs(z)) = H(z)`, rather than by discretising R5 ∥ C afresh. So the stage's small-signal
+response is unchanged to **1.1e-11 dB and 4.8e-15°** across three modes × four rates × five
+frequencies, and everything validated against it stands — the mode differential `gm` was fitted to,
+note #8's shelf τ, the three-point discretisation that removed the 3.09 dB bilinear spread, the phase
+residuals of note #9, `OsDroopRestore`'s premise. ⛔ **Discretising R5 ∥ C directly would have
+silently reintroduced plain bilinear on a shelf whose pole sits above Nyquist at base rate** — the
+exact 3.5 dB error the previous session removed. Two facts fall OUT of the algebra rather than being
+imposed, which is the evidence it is right: **Zs(z=1) = R5 to 1e-16 in every mode at every rate**
+(the caps block DC, so the DC feedback path must be the bare resistor), and **DARK collapses to the
+bare resistor with no state at all**.
+
+⭐ **Independent cross-check.** `analysis/compression_audit.py`'s Python oracle, written weeks earlier
+in another language, reported −0.032 dB of compression at 0.783 V of gate drive at the shipped `Vov`.
+The C++ solve reads **−0.0324**. Neither can inherit the other's bug.
+
+⚠ **A coupling that is now load-bearing.** Newton needs no damping and no bracketing here only
+because `g` is monotone, and `g` is monotone only because `limitNeg` was set 1.15× past the exact
+cutoff to stop a fold-back (note in `JfetParams`). **A future refit that restores the physically exact
+`limitNeg = (2/3)·Vov` would break the solve's convergence guarantee as well as ADAA.**
+
+📌 **CPU: 2.07 → 4.78 % of realtime at the 4× default, 3.51 → 8.95 % at 8×.** Comfortable, but
+`dsp.md`'s "the FIR costs nothing worth recovering" was decided when the chain was 2 %.
+
+### 13. ⚠⚠ The low-frequency THD "deficit" is the REFERENCE's, and the treble one too
+
+`analysis/band_audit.py`, raw `analysis/reports/band_audit.json`, write-up `build-plan.md` §13.1–13.2.
+
+Below ~100 Hz the captures read up to **50 % THD at 20 Hz** and 12–37 dB more H2 than the model.
+Three independent reasons none of it is the pedal:
+
+1. ⭐⭐ **H3 comes back ABOVE H2 at 20 and 31.5 Hz in every P1 mode.** A square-law device cannot do
+   that — the order-inversion test that disqualified everything above H2 in note #7, localised.
+2. **This file's own known-answer probe reads 20.2 dB at 20 Hz where the circuit forces 0.00.**
+3. **50 % THD is physically impossible** at P1's calibrated ~0.14 V of gate drive into a 22 V rail.
+
+Mechanism: a **132 ms receptive field is 2.6 periods at 20 Hz**, and the output high-pass the models
+are trying to reproduce sits at 24–44 Hz. ⛔ **Do not fit anything to a capture below ~100 Hz.**
+⚠ And the floor probe measures mode SPREAD, so an error common to all three modes reads zero — an LF
+receptive-field artefact is exactly that, since the high-pass is identical in every mode. **At low
+frequency the probe systematically under-reports**, so its 8.3 dB at 50 Hz is a lower bound.
+
+**From 125 Hz up the deficit is real but FLAT** — P1-dark reads −7.0 to −11.6 dB across 125 Hz–1.6 kHz
+with no trend, mean ≈ −9.6 dB. That is note #10's `Vov` scalar, unchanged. ➡ **There is no missing
+frequency-dependent distortion mechanism.** The treble claim goes the same way: P1-dark's −18 dB at
+8 kHz cannot be physical (in DARK `k` is constant, so H2 in dBc must not move with frequency) and its
+5 kHz cell fails the order-inversion test.
+
+📌 ⚠ **"Rises 2 dB/dB with level" is NOT sufficient evidence that a harmonic is real.** P3's H2 rises
+at a clean 1.9–2.1 dB/dB in every band — and its THD is flat at ≈ −30 dBc from 20 Hz to 8 kHz, which
+the circuit forbids outright since distortion moves as k². Pair the level-slope test with a
+frequency-shape test before believing a harmonic.
+
+### 14. ⚠⚠ The compression known-answer probe needs 3f below the shelf zero, not f
+
+The probe used throughout this file — below the shelf zero every MODE has `Zs = R5`, so all three must
+agree — has **three flavours with different validity conditions**, which had not been written down.
+Magnitude (note #7) and harmonic (#10) are exact as soon as f is below the 1.86 kHz zero.
+**Compression is a THIRD-ORDER quantity, so it reads the loop at 3f**, and is not exact until 3f is.
+
+Measured on the PLUGIN, where the answer is known by construction (`JfetStageTest` 8e):
+
+| probe f | 23 Hz | 94 Hz | 492 Hz | 797 Hz |
+|---|---|---|---|---|
+| model's own spread | 0.0017 dB | 0.0015 | 0.0201 | **0.0585** (3f = 2391 Hz, past the zero) |
+
+✅ On this dataset it reaches nothing — dropping the 800 Hz row leaves both capture floors unchanged
+(0.145 dB P1, 0.210 P2), so a lower band binds. Both figures are now reported by the script.
+
+⭐ **A second effect hides under the first.** At the lowest probe frequency the model's spread stops
+falling, at 0.0017 dB. It is not the 3f effect (it does not scale with f) and not a modelling error:
+it is the **fixed Newton iteration count leaving a mode-dependent bias**, because `Rd·gm` differs
+~30× between Dark and Bright so two iterations converge to different depths per mode. Converging the
+solve collapses it to 0.00005 dB. It is 85× below the capture floor and changes nothing — but it is
+exactly the residue that would later be mistaken for a real mode asymmetry.

@@ -807,3 +807,230 @@ only one carries the correlation instrument's leakage — and on the rows where 
 bypasses itself the entire droop is 0.004 dB, an order below that noise. A correctly-bypassed restore
 read as a 0.001 dB regression until the floor was measured. **That is now twice in one session that
 an asymmetric comparison — closed form against measurement — failed a correct implementation.**
+
+---
+
+## 13. Per-band THD/compression, and Path A — the implicit solve (2026-09-08)
+
+Two questions, one session: *are we light on THD at the bottom, and sometimes in the treble?*, and
+*build the compression mechanism, circuit-accurate if possible*. The first turned out to be mostly a
+question about the reference data; the second was a real structural change.
+
+New instrument: `analysis/band_audit.py` (per-band THD and per-band compression, plugin vs capture,
+at matched drive, with a **measured floor beside every delta**). Raw output
+`analysis/reports/band_audit.json`.
+
+### 13.1 The low-frequency THD deficit is the REFERENCE's, not the model's — below ~100 Hz
+
+At −6 dBFS, matched drive, P1's captures read up to **50 % THD at 20 Hz** and 12–37 dB more H2 than
+the plugin through 20–50 Hz. None of that survives contact with a floor:
+
+| band | P1 floor (mode spread, dB) | H2 delta, dark | clears floor by | order inversion |
+|---|---|---|---|---|
+| 20 | 20.2 | −37.2 | 1.8× | **H3 ≥ H2 in all three modes** |
+| 31.5 | 11.7 | −15.9 | 1.4× | **H3 ≥ H2 in all three modes** |
+| 50 | 8.3 | −16.1 | 2.0× | — |
+| 125 | 2.8 | −11.6 | 4.1× | — |
+| 315 | 1.9 | −11.2 | 6.0× | — |
+| 500 | 2.0 | −9.2 | 4.7× | — |
+
+Three independent reasons the bass rows are the models' own error:
+
+1. ⭐⭐ **H3 comes back ABOVE H2 at 20 and 31.5 Hz in every P1 mode, and in P2-dark.** A square-law
+   device cannot do that. It is the same order-inversion test that disqualified everything above H2
+   in phase 1, now localised to the bass.
+2. **The known-answer probe reads 20.2 dB at 20 Hz where the circuit forces 0.00.** Below the shelf
+   zero all three modes have `Zs = R5`, so their H2 in dBc must be identical; they differ by 20 dB.
+3. **50 % THD is physically impossible here.** At P1's calibrated −12 dBu the gate sees ~0.14 V into
+   a 22 V-rail stage biased at `Vov` ≥ 0.131 V.
+
+The mechanism is structural, not sloppiness: **all seven models have a 132 ms receptive field, which
+is 2.6 periods at 20 Hz**, and the output high-pass they are trying to reproduce sits at 24–44 Hz.
+⛔ **Do not fit anything to a capture below ~100 Hz.** This is the same conclusion §1's limit L3
+reached from the receptive field alone, now measured on the harmonics.
+
+⚠ **And note what the floor probe CANNOT see.** It measures mode *spread*, so an error common to all
+three modes reads zero. An LF artefact from a receptive-field limit is exactly that kind of error —
+the high-pass is identical in every mode — so at low frequency the probe **systematically
+under-reports**, and the 8.3 dB it gives at 50 Hz is a lower bound on the real error there.
+
+### 13.2 From 125 Hz up the deficit is real, FLAT, and already explained
+
+Above the floor-corrupted region the deficit stops having a shape: P1 dark reads −11.6 / −8.9 /
+−11.2 / −9.2 / −9.8 / −7.9 / −7.0 dB at 125 / 200 / 315 / 500 / 800 / 1250 / 1600 Hz. Mean ≈ −9.6 dB,
+no trend. That is **circuit.md note #10's `Vov` result, unchanged** — a single scalar, not a
+per-band shape. ➡ There is no frequency-dependent THD mechanism missing from the linear structure.
+
+**The treble claim does not survive either, and the same test kills it.** P1-dark's 8 kHz delta
+(−18.0 dB) is the biggest in the set, but the circuit forbids any frequency dependence of H2 in DARK
+(`k` is constant there), and P1-dark's 5 kHz cell **fails the order-inversion test**. The captures'
+top octave is each trainer's converters, as §1's limit L3 already says. P1-bright's treble deltas
+(−10.7 to −13.5 dB) are simply its midband deficit continuing.
+
+📌 **P3 is floor throughout**: its THD is flat at ≈ −30 dBc from 20 Hz to 8 kHz, which the circuit
+forbids outright, since distortion moves as k². ⚠ Its H2 nevertheless rises at a clean 1.9–2.1 dB/dB,
+so "moves with level like a square law" is **not** sufficient evidence that a harmonic is real —
+add the frequency-shape check. ⚠ Also note `band_audit.py` applies P1's −12 dBu offset to every
+capture, so **only P1's column is a valid matched-drive comparison**; P2/P3 carry an unknown ~8 dB.
+
+### 13.3 ⭐⭐ Path A: solve the loop instead of expanding it
+
+The compression question had a definite answer already recorded (circuit.md note #11): the model
+produced **exactly 0.000 dB of compression at every band and every level**, and essentially no H3
+(−115 to −150 dBc), because both are higher-order terms of an expansion truncated after the second
+order. `src/dsp/JfetStage.h` now solves
+
+```
+id = gm·g(w),   w = vGate − vs,   vs = Zs(z)·id
+```
+
+per sample by Newton, replacing the shelf-on-the-excess structure. `beta` is still 0 — the cubic
+content is the **loop's**, not a fitted coefficient's.
+
+**⭐⭐ The design decision that makes this safe: the discrete source one-port is DERIVED FROM THE
+SHIPPED SHELF, not from a fresh discretisation of R5 ∥ C.** Linearised, the solve gives
+`W/Vg = 1/(1 + gm·Zs(z))`; demanding that equal the shelf `H(z)` §11 designed inverts to
+
+```
+gm·Zs(z) = 1/H(z) − 1 = [(1−b0) + (a1−b1)z⁻¹] / [b0 + b1 z⁻¹]
+vs[n] = Rd·id[n] + C1·id[n−1] + C2·vs[n−1]
+Rd = (1−b0)/(gm·b0)    C1 = (a1−b1)/(gm·b0)    C2 = −b1/b0
+```
+
+so the **small-signal response is unchanged to 1.1e-11 dB and 4.8e-15°** across three modes × four
+rates × five frequencies. Everything validated against it stands: the mode differential `gm` was
+fitted to, §11's three-point match, the phase residuals, `OsDroopRestore`'s premise. ⛔ Discretising
+R5 ∥ C directly — the obvious thing to write — would have silently reintroduced plain bilinear on a
+shelf whose pole sits above Nyquist at base rate, i.e. **exactly the 3.5 dB error §11 removed**.
+
+✅ Two facts fall out of the algebra rather than being imposed, which is what says it is right:
+**Zs(z=1) = R5 to 1e-16 in every mode at every rate** (physically it must be — the caps block DC),
+and **DARK collapses to Rd = R5 with no state at all**.
+
+### 13.4 What it produces, and the two intuitions that were wrong
+
+DARK, 192 kHz, third-harmonic and compression the truncation could not make:
+
+| gate V | Path A comp | Path A H3 | truncated comp | truncated H3 |
+|---|---|---|---|---|
+| 0.2752 (P1's calibrated drive) | −0.004 dB | −77.0 dBc | −0.000 dB | −114.4 dBc |
+| 0.7830 (0 dBFS at `kInputRef`) | **−0.032 dB** | **−57.6 dBc** | −0.002 dB | −79.5 dBc |
+| 1.5000 | **−0.178 dB** | **−41.2 dBc** | −0.018 dB | −60.9 dBc |
+
+⭐ **Cross-implementation check: `analysis/compression_audit.py`'s independent Python oracle, written
+weeks earlier, reported −0.032 dB at 0.783 V. The C++ solve reads −0.0324.** Neither can inherit the
+other's bug. `JfetStageTest` section 8d asserts it.
+
+⚠ **INTUITION 1 THAT WAS WRONG: a warm start is worse than a cold one, decisively.** Per-sample
+implicit solvers normally warm-start from the previous sample, and at 8× the signal barely moves —
+so it looks obviously right. Worst Newton residual after two iterations (volts of gate drive):
+
+| start | 48k Dark | 48k Mid | 384k Dark | 384k Bright |
+|---|---|---|---|---|
+| cold (closed-form linear root) | 1.3e-02 | 1.8e-04 | 1.3e-02 | 1.2e-11 |
+| warm (previous solved w) | 7.4e-01 | 3.8e-01 | 8.2e+00 | 7.8e-04 |
+
+The closed-form start **already inverts the dominant linear term exactly**, which is 85–97 % of the
+answer; the previous sample's `w` carries the whole sample-to-sample change as error.
+
+⚠ **INTUITION 2 THAT WAS WRONG: the residual is the wrong criterion for the iteration count.** Two
+iterations leave 13 mV of residual at the loudest reachable state (3.0 V of gate drive = 0 dBFS at
+`kInputRef` with input trim at +12 dB), which looks alarming. Measured on what is audible instead:
+
+| iterations | worst H1 err | worst H2 err | worst H3 err | CPU at 4× | CPU at 8× |
+|---|---|---|---|---|---|
+| 1 | 0.114 dB | 0.59 dB | 1.64 dB | — | — |
+| **2 (shipped)** | **0.002 dB** | **0.02 dB** | **0.02 dB** | **4.8 %** | **9.0 %** |
+| 3 | 0.000 dB | 0.00 dB | 0.00 dB | 6.2 % | 11.9 % |
+
+The 13 mV is a **one-sample transient at a discontinuity**, which is why it never reaches the
+harmonics. 0.02 dB sits ~20× below this stage's own shelf error and ~300× below the captures'
+harmonic floor, so a third iteration would buy precision nothing else in the model can use.
+
+📌 **CPU is no longer a non-issue, and §9.4's verdict needs amending.** Path A costs **2.4× the
+truncated path**: 2.07 → 4.78 % at the 4× default, 3.51 → 8.95 % at 8×. Still comfortable for one
+stereo instance, but "polyphase IIR not worth scoping" was decided when the whole chain was 2 %.
+📌 **Two attempts to recover it, one worthless and one real.** A fused shape-and-slope function
+measured **exactly free** (5.01 vs 5.05 %) — both are inline on the same argument, so the compiler
+had already shared the subexpressions — and was removed rather than kept. What did help: the ADAA
+state advance was running an antiderivative **every sample even with ADAA off**, which is the shipped
+state at every factor. Gating it saved 0.24 pp at 4× and 0.52 pp at 8×, at the cost of one sample of
+stale state if ADAA is ever enabled mid-stream (the processor sets it in `configure()`, beside a
+`reset()`, so it never is). The rest of the cost is the iteration count and nothing else.
+
+✅ **The cubic it produces is a real cubic**, checked end-to-end rather than only at the stage: through
+the whole chain the plugin's H3 now rises **2 dB per dB in dBc** — 3 dB/dB absolute, exactly what a
+third-order term must do — and sits at −60 to −110 dBc where the truncation gave −115 to −150.
+⚠ It is still 25–40 dB under P1's captured H3, and that is NOT actionable: note #10 established that
+**P1's H3 is its own floor** (it rises 0.75–1.81 dB/dB where a cubic needs 3.0). The units whose H3
+does clear its floor, P2-bright and P3, have no known reamp level.
+
+### 13.5 ⚠⚠ The compression known-answer probe has a validity condition nobody had written down
+
+The probe (below the shelf zero all modes have `Zs = R5`, so they must agree) is used in three
+flavours — magnitude (note #7), harmonic (#10), compression (#11). **The compression flavour needs
+3f below the zero, not f**, because compression is a third-order quantity and reads the loop at 3f.
+Measured on the plugin, where the answer is known by construction:
+
+| probe f | 23 Hz | 94 Hz | 492 Hz | 797 Hz |
+|---|---|---|---|---|
+| model's own spread | 0.0017 dB | 0.0015 | 0.0201 | **0.0585** (3f = 2391 Hz, past the zero) |
+
+`compression_audit.py`'s top known-zero band was **800 Hz**, where the probe carries ~0.06 dB of its
+own systematic error. ✅ **Re-measured with that row dropped, the reported floors do not move at all**
+— 0.145 dB (P1) and 0.210 (P2) either way — so some lower band is the binding one and the probe's
+error was never reaching the answer. Both figures are now reported so that stays checkable rather
+than assumed. ⚠ The correction still matters for the *plugin* side, where 0.06 dB would otherwise be
+30× the model's real 0.0017 dB spread, and for any future dataset whose binding band is nearer the
+top of the list.
+
+⭐ **A second effect hides under the first, and only this probe sees it.** At the lowest probe
+frequency the spread stops falling, at 0.0017 dB — not the 3f effect (it does not scale with f) and
+not a modelling error. It is the **fixed iteration count leaving a mode-dependent bias**: `Rd·gm`
+differs ~30× between Dark (5.59) and Bright (0.17 at 192 kHz), so the same two iterations converge
+to different depths per mode. Converging the solve collapses it to 0.00005 dB. At 85× below the
+capture floor it changes nothing, but it is exactly the residue that would later be mistaken for a
+real mode asymmetry, so `JfetStageTest` 8e bounds both numbers separately.
+
+### 13.5b 📌 ADAA's profile moved a long way, and the conclusion did not
+
+`FeatureProfile` re-run under Path A. ADAA is implemented inside the residual (the form `dsp.md`
+sanctions for a map in an implicit solve) and on the EXCESS only, so its linear cost is still exactly
+0.00 dB at 12 kHz at every factor. What changed is its value:
+
+| factor | alias improvement | 12 kHz cost | CPU pp | verdict |
+|---|---|---|---|---|
+| 1× | **+16.71 dB** | +0.00 | +0.24 | free win in isolation |
+| 2× | −5.30 dB | +0.00 | +0.50 | now makes aliasing WORSE |
+| 4× | −15.86 dB | +0.00 | +0.97 | worse |
+| 8× | −14.59 dB | +0.00 | +1.90 | worse |
+
+At 1× ADAA is now worth **+16.7 dB** against §9.2's +5.6 dB, because Path A's nonlinearity generates
+real higher-order content for it to work on. ⛔ **It stays off anyway**, for the same reason as
+before and by a smaller margin: 1× + ADAA is beaten outright by plain 2× by 10.3 dB of alias floor
+for 1.3 pp of CPU. ✅ §9.2's "genuinely marginal 2× row" is now unambiguous — past 2× the floor is
+the decimation FIR's stopband, and ADAA only adds to it.
+
+### 13.6 Where the compression gap now stands — and it is `Vov`, coupled as note #11 warned
+
+End-to-end (`analysis/compression_audit.py`, matched drive, 8×), the plugin now moves in the right
+direction on every axis it should: **Bright compresses more than Dark, and more at high frequency**,
+which is the physically correct sign the captures show. It is still 10–20× short in magnitude
+(plugin −0.002 to −0.038 dB against captures' −0.03 to −1.74).
+
+That gap is `Vov`, and note #11's coupling warning is now discharged in one direction: the truncation
+is gone, so applying `Vov` no longer ships a stage that is quantitatively wrong in its own operating
+range. Path A across the admissible bracket, DARK, all derived parameters moved consistently:
+
+| `Vov` V | comp at 0.2752 V | H2 | H3 | comp at 0.7830 V | H2 | H3 |
+|---|---|---|---|---|---|---|
+| 0.4469 (shipped) | −0.004 dB | −49.1 | −76.2 | −0.032 dB | −39.5 | −57.6 |
+| 0.2500 | −0.012 | −43.9 | −66.4 | −0.143 | −32.4 | −43.4 |
+| 0.1502 (note #10) | −0.036 | −39.1 | −56.7 | **−0.808** | −21.0 | −27.5 |
+| 0.1310 (datasheet floor) | −0.049 | −37.6 | −53.7 | −1.100 | −18.8 | −25.7 |
+
+⛔ **`Vov` is still NOT applied**, and the three surviving reasons from note #10 are unchanged: the
+−12 dBu is a recollection nothing in the data can re-derive; the capture floor pins `Vov` only to
+about a factor of 1.4; and it moves the drain 14.4 → 19.4 V, which **invalidates the load-line
+arithmetic in `JfetStage.h`**. The fourth reason (the truncation) is now discharged. ➡ Apply it
+together with a re-derived load line, or wait for a calibrated capture.

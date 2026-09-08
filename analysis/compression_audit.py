@@ -42,8 +42,27 @@ import gen_test_signal as G
 OUTPUT_JSON = "analysis/reports/compression_audit.json"
 PLUGIN_VFS = 0.87
 DBU_REF_V = 0.7746
-# Bands below the lowest mode shelf zero (1.86 kHz), where all three modes must agree exactly.
+# Bands where the modes must agree exactly.
+#
+# ⚠⚠ THE VALIDITY CONDITION IS 3f BELOW THE SHELF ZERO, NOT f -- corrected 2026-09-08, and it is not
+# the same probe as the magnitude one. Compression is a THIRD-ORDER quantity, so it reads the
+# feedback loop at 3f as well as at f; the magnitude flavour of this probe (circuit.md note #7) is
+# exact as soon as f is under the 1.86 kHz zero, but this one is not exact until 3f is, which is a
+# factor of three in probe frequency. Measured on the PLUGIN, where the answer is known by
+# construction (JfetStageTest section 8e), the probe's own systematic spread is:
+#
+#     probe f      23 Hz     94 Hz     492 Hz    797 Hz
+#     spread     0.0017 dB  0.0015    0.0201     0.0585   <- 3f = 2391 Hz, past the zero
+#
+# The 800 Hz row therefore carries ~0.06 dB of the probe's own error. On THIS dataset that turns out
+# to reach nothing: dropping the row leaves both floors unchanged to three decimals (0.145 on P1,
+# 0.210 on P2), so a lower band is the binding one. Both figures are reported anyway, because that
+# is a fact about this capture set rather than about the probe, and a future set could bind at the
+# top of the list. It matters more on the PLUGIN side, where 0.06 dB would be 30x the model's own
+# 0.0017 dB spread.
 KNOWN_ZERO_BANDS = (125, 200, 500, 800)
+# The subset where 3f is also comfortably below the zero, i.e. where the probe is exact.
+STRICT_ZERO_BANDS = (125, 200, 500)
 
 
 def vfs_from_dbu(dbu):
@@ -99,19 +118,29 @@ def main():
     by_unit = defaultdict(dict)
     for n, m in meta.items():
         by_unit[m["unit"]][m["mode"]] = n
+    floor_strict = {}
     for unit, modes in by_unit.items():
         if len(modes) < 3:
             continue
-        worst = 0.0
-        for lab in KNOWN_ZERO_BANDS:
-            arr = np.array([cap_c[modes[m]][lab] for m in ("bright", "dark", "mid")])
-            worst = max(worst, float(np.max(arr.max(axis=0) - arr.min(axis=0))))
-        floor[unit] = worst
-        print(f"  FLOOR {unit}: modes disagree by up to {worst:.3f} dB where they must agree exactly")
+
+        def spread(bands):
+            w = 0.0
+            for lab in bands:
+                arr = np.array([cap_c[modes[m]][lab] for m in ("bright", "dark", "mid")])
+                w = max(w, float(np.max(arr.max(axis=0) - arr.min(axis=0))))
+            return w
+
+        floor[unit] = spread(KNOWN_ZERO_BANDS)
+        floor_strict[unit] = spread(STRICT_ZERO_BANDS)
+        print(f"  FLOOR {unit}: modes disagree by up to {floor[unit]:.3f} dB where they must agree "
+              f"exactly ({floor_strict[unit]:.3f} dB over the 3f-valid bands only)")
 
     payload = {"generated": datetime.now(timezone.utc).isoformat(), "os_factor": args.os,
                "matched": "drive" if offset is not None else "level", "drive_offset_db": offset,
-               "levels_db": list(G.COMP_LEVELS_DB), "floor_db": floor, "captures": {}}
+               "levels_db": list(G.COMP_LEVELS_DB), "floor_db": floor,
+               "floor_db_3f_valid_bands": floor_strict,
+               "known_zero_bands": list(KNOWN_ZERO_BANDS),
+               "strict_zero_bands": list(STRICT_ZERO_BANDS), "captures": {}}
     for n in cap_c:
         payload["captures"][n] = {
             "unit": meta[n]["unit"], "mode": meta[n]["mode"],

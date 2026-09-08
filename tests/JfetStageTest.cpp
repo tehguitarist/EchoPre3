@@ -503,8 +503,17 @@ int main()
     //    shelf is the constant 1/K0, so it is just g(vg/K0)). Keeping it in the output means the bug
     //    stays visible as a number rather than as a paragraph.
     {
+        // ⚠⚠ READ THIS BEFORE TRUSTING THE "path A" COLUMN BELOW. Since Path A became the shipped
+        // structure it IS this oracle -- the same equation, the same shape(), Newton on both -- so
+        // its column is DEFINITIONAL and reads 0.00 dB by construction. That is not evidence of
+        // anything, and this project has already been bitten twice by a test that compared a thing
+        // to itself (JfetStageTest section 1c against the bilinear-warped frequency; ChainTest
+        // against an asymptote). It is kept because the OTHER two columns still measure something
+        // real: the shelf-only structure must stay visibly wrong by ~20*log10(K0), and the TRUNCATED
+        // path's deviation is the number that justified replacing it. Section 8 carries the checks
+        // that actually constrain Path A.
         std::printf("\n7. Distortion law vs an exact implicit solve of id = gm*g(vg - id*R5):\n");
-        std::printf("     gate A      exact      this model   shelf-only (the bug)\n");
+        std::printf("     gate A      exact    path A (= oracle)   truncated (prev)   shelf-only (the bug)\n");
         stage.setMode(dsp::Mode::Dark);
 
         auto h2dbc = [](const auto& fn, double amp) {
@@ -538,36 +547,45 @@ int main()
             return id;
         };
         auto shelfOnly = [&stage, &params, k0](double vg) { return -params.gm * stage.shape(vg / k0); };
-        auto model = [&stage](double vg) {
+        auto runStage = [&stage](double vg) {
             stage.reset();
-            // Memoryless in DARK, but run a few samples anyway so the shelf states are settled.
+            // Memoryless in DARK, but run a few samples anyway so the filter states are settled.
             double y = 0.0;
             for (int i = 0; i < 4; ++i)
                 y = stage.processSample(vg);
             return y;
         };
+        auto model = [&](double vg) { stage.setExactFeedback(true); return runStage(vg); };
+        auto truncated = [&](double vg) { stage.setExactFeedback(false); return runStage(vg); };
 
-        double worst = 0.0;
+        double worst = 0.0, worstTrunc = 0.0;
         for (const double amp : { 0.2, 0.5, 0.8 })
         {
             // The exact solve returns +id (into the drain resistor); the stage returns the injected
             // Norton current, which is -id. H2 re fundamental is unaffected by that sign.
             const double e = h2dbc(exact, amp);
             const double m = h2dbc(model, amp);
+            const double t = h2dbc(truncated, amp);
             const double b = h2dbc(shelfOnly, amp);
-            std::printf("     %.2f V   %+7.2f dBc  %+7.2f (%+.2f)   %+7.2f (%+.2f)\n",
-                        amp, e, m, m - e, b, b - e);
+            stage.setExactFeedback(true);
+            std::printf("     %.2f V   %+7.2f dBc  %+7.2f (%+.2f)      %+7.2f (%+.2f)   %+7.2f (%+.2f)\n",
+                        amp, e, m, m - e, t, t - e, b, b - e);
             worst = std::max(worst, std::abs(m - e));
+            worstTrunc = std::max(worstTrunc, std::abs(t - e));
 
             // The bug must stay caught: shelf-only over-produces H2 by ~20*log10(K0) = 16.4 dB.
             if (b - e < 10.0)
                 fail("the shelf-only structure is NOT visibly wrong here -- this test has stopped "
                      "guarding the k^2 law and would pass with the bug reinstated");
         }
-        std::printf("     worst deviation from the exact solve: %.2f dB "
-                    "(Volterra truncation; Path A is the fix if this ever matters)\n", worst);
+        std::printf("     path A %.2f dB from the oracle (definitional), truncated %.2f dB "
+                    "(the Volterra error Path A removes)\n", worst, worstTrunc);
         if (worst > 1.0)
             fail("second-order feedback term is missing or mis-scaled -- H2 does not follow k^2");
+        if (worstTrunc < 0.1)
+            fail("the truncated path no longer deviates from the exact solve -- either it has been "
+                 "changed or setExactFeedback(false) has stopped selecting it, and this test has "
+                 "stopped recording why Path A exists");
     }
 
     // 7b. The suppression is FREQUENCY DEPENDENT, which is the half of it a constant 1/K0 would fake.
@@ -633,6 +651,318 @@ int main()
                          "is being scaled rather than filtered");
             }
         }
+    }
+
+
+    // ================================ 8. PATH A -- THE IMPLICIT SOLVE ================================
+    //
+    // Section 7 cannot constrain Path A: it IS the oracle there, so its column is definitional. These
+    // are the checks that do constrain it, and each one targets a different way the design could be
+    // wrong while every existing test still passed.
+
+    // 8a. ⭐⭐ THE LINEAR PATH MUST BE UNTOUCHED, and this is the check that makes the whole design
+    //     safe. Path A's source one-port is DERIVED from the shelf coefficients so that the
+    //     linearised loop 1/(1 + gm*Zs(z)) reproduces H(z) exactly. If that algebra is wrong, the
+    //     stage's frequency response moves -- and with it the mode differential gm was fitted to, the
+    //     three-point match that removed the 3.09 dB bilinear spread, the phase residuals, and
+    //     OsDroopRestore's premise. Comparing Path A against the TRUNCATED path at a probe amplitude
+    //     where both are linear isolates exactly that algebra, in magnitude AND phase, at every rate
+    //     the stage runs at -- and phase is not optional here: this project has three defects on
+    //     record that magnitude testing could not see.
+    {
+        std::printf("\n8a. Path A vs the truncated path in the LINEAR regime (must be identical):\n");
+        double worstMag = 0.0, worstPhase = 0.0;
+        for (const double fs : { 48000.0, 96000.0, 192000.0, 384000.0 })
+        {
+            for (const auto m : { dsp::Mode::Bright, dsp::Mode::Dark, dsp::Mode::Mid })
+            {
+                stage.setMode(m);
+                stage.prepare(fs);
+                for (const double f : { 20.0, 200.0, 2000.0, 12000.0, 0.45 * fs })
+                {
+                    stage.setExactFeedback(false);
+                    const auto want = shelfResponseAt(stage, f, fs);
+                    stage.setExactFeedback(true);
+                    const auto got = shelfResponseAt(stage, f, fs);
+                    worstMag = std::max(worstMag, std::abs(db(std::abs(got) / std::abs(want))));
+                    worstPhase = std::max(worstPhase,
+                                          pedal::test::phaseErrorDeg(std::arg(got), std::arg(want)));
+                }
+            }
+        }
+        std::printf("    worst over 3 modes x 4 rates x 5 frequencies: %.3e dB, %.3e deg\n",
+                    worstMag, worstPhase);
+        // The two paths compute the response by completely different arithmetic (a direct-form
+        // difference equation against a Newton solve), so they are not expected to be bit-identical;
+        // they are expected to agree to the solve's own convergence, which is far below anything
+        // audible or measurable.
+        if (worstMag > 1.0e-6 || worstPhase > 1.0e-4)
+            fail("Path A's linearised response is NOT the shipped shelf -- updateSourcePort()'s "
+                 "algebra is wrong, and the mode differential, the three-point discretisation and "
+                 "OsDroopRestore's premise all move with it");
+        stage.prepare(kFs);
+    }
+
+    // 8b. The source one-port's DC impedance must be R5 EXACTLY, in every mode and at every rate.
+    //     This is physics, not a tolerance: the bypass caps block DC, so the DC feedback path is the
+    //     bare resistor whatever the switch is doing. It falls out of the derivation rather than
+    //     being imposed, which is what makes it a real test of it. Realisability is checked here too
+    //     -- Rd > 0 (a negative instantaneous resistance would be an unstable solve) and |C2| < 1
+    //     (the port's own pole, which is the shelf's zero).
+    {
+        std::printf("\n8b. Derived source one-port Zs(z), per mode and rate:\n");
+        std::printf("    rate      mode      Rd ohm    C1        C2 (pole)   Zs(DC) ohm   err\n");
+        for (const double fs : { 48000.0, 96000.0, 192000.0, 384000.0 })
+        {
+            for (const auto m : { dsp::Mode::Bright, dsp::Mode::Dark, dsp::Mode::Mid })
+            {
+                stage.setMode(m);
+                stage.prepare(fs);
+                double rd = 0.0, c1 = 0.0, c2 = 0.0;
+                stage.sourcePortCoeffs(rd, c1, c2);
+                // vs = Rd*id + C1*id[n-1] + C2*vs[n-1]  ->  at DC, Zs = (Rd + C1)/(1 - C2)
+                const double zsDc = (rd + c1) / (1.0 - c2);
+                const double err = std::abs(zsDc / circuit::kR5 - 1.0);
+                std::printf("    %-9.0f %-9s %8.1f %9.1f %10.5f %12.4f %10.1e\n",
+                            fs, m == dsp::Mode::Bright ? "Bright" : (m == dsp::Mode::Dark ? "Dark" : "Mid"),
+                            rd, c1, c2, zsDc, err);
+                if (err > 1.0e-12)
+                    fail("Zs(DC) is not R5 -- the DC feedback path must be the bare resistor, since "
+                         "the bypass caps cannot pass DC");
+                if (rd <= 0.0)
+                    fail("negative instantaneous source resistance -- the Newton solve is not "
+                         "guaranteed to converge");
+                if (std::abs(c2) >= 1.0)
+                    fail("the source one-port's own pole is outside the unit circle");
+            }
+        }
+        stage.setMode(dsp::Mode::Dark);
+        stage.prepare(kFs);
+        double rd = 0.0, c1 = 0.0, c2 = 0.0;
+        stage.sourcePortCoeffs(rd, c1, c2);
+        if (std::abs(rd - circuit::kR5) > 1.0e-9 || c1 != 0.0 || c2 != 0.0)
+            fail("DARK must collapse the port to the bare resistor R5 with no state at all");
+    }
+
+    // 8c. ⚠ THE FIXED ITERATION COUNT, MEASURED ON BOTH AXES. kSolveIters is a hardcoded constant, so
+    //     something has to keep it honest. Two numbers, because the cheap one is misleading on its
+    //     own: the Newton RESIDUAL peaks at ~1e-2 V at a hard discontinuity with the input trim at
+    //     +12 dB, which looks alarming; the HARMONIC error at the same settings is under 0.02 dB,
+    //     because the residual spike lasts one sample. The iteration count was chosen on the second.
+    {
+        std::printf("\n8c. Solve convergence at the shipped kSolveIters:\n");
+        const double kHot = 3.0; // 0 dBFS at kInputRef with input trim at +12 dB -- the loudest reachable
+        double worstRes = 0.0;
+        for (const auto m : { dsp::Mode::Bright, dsp::Mode::Dark, dsp::Mode::Mid })
+        {
+            stage.setMode(m);
+            stage.prepare(kFs);
+            for (int n = 0; n < 20000; ++n)
+            {
+                double x = kHot * std::sin(2.0 * M_PI * 220.0 * (double) n / kFs);
+                if (n % 997 == 0)
+                    x = kHot; // a hard step, i.e. the worst case the solve can be handed
+                stage.processSample(x);
+                worstRes = std::max(worstRes, std::abs(stage.lastSolveResidual()));
+            }
+        }
+        std::printf("    worst Newton residual over a hot tone with steps: %.2e V of gate drive\n",
+                    worstRes);
+        if (worstRes > 5.0e-2)
+            fail("the solve is not converging -- raise kSolveIters");
+
+        // The axis that actually decided the count: harmonic error against a converged solve.
+        stage.setMode(dsp::Mode::Dark);
+        auto harmonicsAt = [&stage](double amp, int iters, double* h) {
+            stage.setSolveIters(iters);
+            stage.reset();
+            constexpr int kN = 8192;
+            double a[4] = { 0, 0, 0, 0 }, b[4] = { 0, 0, 0, 0 };
+            for (int n = -2048; n < kN; ++n)
+            {
+                const double th = 2.0 * M_PI * 107.0 * (double) n / kN;
+                const double y = stage.processSample(amp * std::sin(th));
+                if (n < 0)
+                    continue;
+                for (int k = 1; k <= 3; ++k)
+                {
+                    a[k] += y * std::sin(k * th);
+                    b[k] += y * std::cos(k * th);
+                }
+            }
+            for (int k = 1; k <= 3; ++k)
+                h[k - 1] = std::hypot(a[k], b[k]);
+        };
+        double worstHarm = 0.0;
+        for (const double amp : { 0.2752, 0.7830, 3.0 })
+        {
+            double got[3], ref[3];
+            harmonicsAt(amp, 12, ref);
+            harmonicsAt(amp, 2, got); // the shipped kSolveIters; setSolveIters is a probe hook only
+            std::printf("    amp %.4f V: H1 %+.4f dB  H2 %+.3f dB  H3 %+.3f dB vs a 12-iteration solve\n",
+                        amp, db(got[0] / ref[0]), db(got[1] / ref[1]), db(got[2] / ref[2]));
+            for (int k = 0; k < 3; ++k)
+                worstHarm = std::max(worstHarm, std::abs(db(got[k] / ref[k])));
+        }
+        stage.setSolveIters(2);
+        // 0.05 dB is ~10x below this stage's own shelf error and ~100x below the reference captures'
+        // harmonic floor, so anything under it cannot be the limiting error in this model.
+        if (worstHarm > 0.05)
+            fail("the shipped iteration count does not reach the harmonic accuracy it was chosen for");
+    }
+
+    // 8d. ⭐⭐ WHAT PATH A EXISTS FOR: compression and third-harmonic content, neither of which the
+    //     truncated structure can produce AT ALL. Both are higher-order terms of the same expansion,
+    //     so truncating after the second order discards them by construction -- the model read
+    //     exactly 0.000 dB of compression in every band at every level, against 0.2-0.6 dB in the
+    //     captures (analysis/compression_audit.py). beta is still 0: this cubic content is the
+    //     LOOP's, not a fitted coefficient's.
+    {
+        std::printf("\n8d. Compression and H3 -- what the Volterra truncation could not make:\n");
+        std::printf("      gate V |   path A: comp dB   H3 dBc |  truncated: comp dB   H3 dBc\n");
+        stage.setMode(dsp::Mode::Dark);
+        stage.prepare(kFs);
+        auto probe = [&stage](double amp, bool exact, double& compDb, double& h3dbc) {
+            stage.setExactFeedback(exact);
+            constexpr int kN = 8192;
+            auto run = [&](double a) {
+                stage.reset();
+                double s1 = 0, c1 = 0, s3 = 0, c3 = 0;
+                for (int n = -2048; n < kN; ++n)
+                {
+                    const double th = 2.0 * M_PI * 107.0 * (double) n / kN;
+                    const double y = stage.processSample(a * std::sin(th));
+                    if (n < 0)
+                        continue;
+                    s1 += y * std::sin(th); c1 += y * std::cos(th);
+                    s3 += y * std::sin(3 * th); c3 += y * std::cos(3 * th);
+                }
+                return std::pair<double, double> { std::hypot(s1, c1), std::hypot(s3, c3) };
+            };
+            constexpr double kRef = 1.0e-4;
+            const auto lo = run(kRef);
+            const auto hi = run(amp);
+            compDb = db(hi.first / (lo.first * amp / kRef));
+            h3dbc = db(hi.second / hi.first + 1.0e-30);
+        };
+        double lastComp = 0.0;
+        bool monotone = true;
+        for (const double amp : { 0.2752, 0.7830, 1.5 })
+        {
+            double ca, h3a, ct, h3t;
+            probe(amp, true, ca, h3a);
+            probe(amp, false, ct, h3t);
+            std::printf("      %6.4f |      %+9.4f %8.1f |       %+9.4f %8.1f\n", amp, ca, h3a, ct, h3t);
+            if (ca >= 0.0)
+                fail("Path A's compression is not compressive -- the fundamental's gain must FALL "
+                     "with level (circuit.md note #11 fixes the sign from the captures)");
+            if (ca > lastComp)
+                monotone = false;
+            lastComp = ca;
+            if (h3a - h3t < 10.0)
+                fail("Path A is not producing third-harmonic content the truncation lacks -- the "
+                     "loop's own cubic term is missing");
+            // The truncated path is kept measurable so the reason for Path A stays a number.
+            if (std::abs(ct) > 0.02)
+                fail("the truncated path has started compressing -- it cannot, and if it does then "
+                     "setExactFeedback(false) is no longer selecting the structure this compares to");
+        }
+        if (! monotone)
+            fail("compression must deepen with level");
+
+        // ⭐ Cross-implementation check against the INDEPENDENT Python oracle that motivated all this
+        // (analysis/compression_audit.py, an exact solve of id = gm*g(vg - id*R5) written months and
+        // one language apart): at the shipped Vov it reported -0.032 dB of compression at a 0 dBFS
+        // input, A_gate = 0.783 V. Two implementations agreeing to the third decimal is the strongest
+        // evidence available that the solve is right, since neither can inherit the other's bug.
+        double comp = 0.0, h3 = 0.0;
+        probe(0.7830, true, comp, h3);
+        std::printf("      cross-check vs the Python oracle at 0 dBFS: %.4f dB (oracle -0.032)\n", comp);
+        if (std::abs(comp + 0.032) > 0.004)
+            fail("Path A disagrees with the independent exact-solve oracle");
+        stage.setExactFeedback(true);
+    }
+
+    // 8e. ⭐ THIS PROJECT'S FREE KNOWN-ANSWER PROBE, applied to the MODEL rather than to a capture --
+    //     and it turns out the probe has a validity condition nobody had written down.
+    //
+    //     The probe: below the mode shelf's zero every MODE position has Zs = R5, so all three must
+    //     behave IDENTICALLY there. circuit.md notes #7/#10/#11 use it to measure the reference
+    //     models' own floor with no reference capture (magnitude, harmonic, and compression flavours).
+    //
+    //     ⚠⚠ BUT COMPRESSION IS A THIRD-ORDER QUANTITY, so it reads the loop at 3f, not at f. The
+    //     magnitude flavour of the probe is exact as soon as f is below the zero; this one is not
+    //     exact until 3f is. That is a factor of three in probe frequency, and it is not academic:
+    //     analysis/compression_audit.py's highest known-zero band is 800 Hz, where 3f = 2400 Hz is
+    //     ABOVE the Bright shelf's 1864 Hz zero. The table below measures what that costs.
+    //
+    //     It does not overturn anything -- the systematic error is ~0.02 dB against a measured
+    //     capture floor of 0.145 dB (P1) and 0.210 dB (P2), so it is 7-10x below the number it would
+    //     have to corrupt. It does mean the floor those scripts report is very slightly pessimistic
+    //     at their top band, and that any future tightening of that floor has to drop the 800 Hz row.
+    {
+        std::printf("\n8e. Known-answer probe: below the shelf zero the modes must behave identically.\n");
+        std::printf("    ⚠ compression reads the loop at 3f, so the probe is only exact once 3f << fz:\n");
+        std::printf("      probe f   3f       modelled spread\n");
+        stage.prepare(kFs);
+        auto compAt = [&stage](dsp::Mode m, double amp, double bin) {
+            stage.setMode(m);
+            constexpr int kN = 16384;
+            auto run = [&](double a) {
+                stage.reset();
+                double s = 0, c = 0;
+                for (int n = -4096; n < kN; ++n)
+                {
+                    const double th = 2.0 * M_PI * bin * (double) n / kN;
+                    const double y = stage.processSample(a * std::sin(th));
+                    if (n < 0)
+                        continue;
+                    s += y * std::sin(th); c += y * std::cos(th);
+                }
+                return std::hypot(s, c);
+            };
+            constexpr double kRef = 1.0e-4;
+            return db(run(amp) / (run(kRef) * amp / kRef));
+        };
+        auto spreadAt = [&compAt](double bin) {
+            const double b = compAt(dsp::Mode::Bright, 1.5, bin);
+            const double d = compAt(dsp::Mode::Dark, 1.5, bin);
+            const double m = compAt(dsp::Mode::Mid, 1.5, bin);
+            return std::max({ b, d, m }) - std::min({ b, d, m });
+        };
+        for (const double bin : { 2.0, 8.0, 42.0, 68.0 }) // 23.4 .. 797 Hz at 192 kHz / 16384
+        {
+            const double f = bin * kFs / 16384.0;
+            std::printf("      %7.1f Hz %7.1f Hz   %.5f dB%s\n", f, 3.0 * f, spreadAt(bin),
+                        3.0 * f > 1864.0 ? "   <- 3f is past the Bright shelf zero" : "");
+        }
+
+        // ⭐⭐ AND A SECOND EFFECT SITS UNDER THE FIRST, WHICH THIS PROBE IS THE ONLY THING THAT SEES.
+        // At the lowest probe frequency the spread stops falling, at ~0.0017 dB, and that residue is
+        // NOT the 3f effect (it does not scale with f) and NOT a modelling error. It is the fixed
+        // Newton iteration count: rdGm differs by ~30x between Dark (5.59) and Bright (0.17 at
+        // 192 kHz), so the same two iterations converge to different depths per mode, and the
+        // shipped count leaves a small MODE-DEPENDENT bias. Converging the solve collapses it.
+        //
+        // 0.0017 dB is ~85x below the 0.145 dB floor the same probe measures on the reference
+        // captures, so it changes nothing -- but it is exactly the kind of residue that would later
+        // be mistaken for a real mode asymmetry, so it is measured and bounded here rather than left
+        // to be rediscovered. The two thresholds below separate the two questions: is the MODEL right
+        // (converged), and is the SOLVE converged enough (shipped).
+        const double shipped = spreadAt(2.0);
+        stage.setSolveIters(12);
+        const double converged = spreadAt(2.0);
+        stage.setSolveIters(2);
+        std::printf("      at 23.4 Hz: %.5f dB at the shipped 2 iterations, %.5f dB converged\n",
+                    shipped, converged);
+        if (converged > 1.0e-4)
+            fail("the modes do not compress identically well below the shelf zero even with the "
+                 "solve converged -- Zs is not R5 there, so the source one-port's DC behaviour is "
+                 "wrong");
+        if (shipped > 5.0e-3)
+            fail("the fixed iteration count is leaving a mode-dependent compression bias large "
+                 "enough to matter -- raise kSolveIters");
+        stage.setMode(dsp::Mode::Dark);
     }
 
     std::printf(ok ? "\nPASS: JFET stage structure\n" : "\nFAILED: JFET stage structure\n");
