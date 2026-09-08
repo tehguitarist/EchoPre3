@@ -1,95 +1,171 @@
-# Pedal Plugin Template
+# Echo Pre 3
 
-![Build](https://github.com/tehguitarist/Guitar-Pedal-Plugin-Template/actions/workflows/ci.yml/badge.svg?branch=main)
+![Build](https://github.com/tehguitarist/EchoPre3/actions/workflows/ci.yml/badge.svg?branch=master)
 [![License](https://img.shields.io/badge/License-AGPLv3-blue.svg)](https://opensource.org/license/agpl-v3)
-[![Downloads](https://img.shields.io/github/downloads/tehguitarist/Guitar-Pedal-Plugin-Template/total)](https://somsubhra.github.io/github-release-stats/?username=tehguitarist&repository=Guitar-Pedal-Plugin-Template&page=1&per_page=30)
+[![Downloads](https://img.shields.io/github/downloads/tehguitarist/EchoPre3/total)](https://somsubhra.github.io/github-release-stats/?username=tehguitarist&repository=EchoPre3&page=1&per_page=30)
 
-A starting point for building a new circuit-level guitar-pedal plugin (AU/VST3, JUCE 8+,
-`chowdsp_wdf`), capturing hard-won generic engineering, validation tooling, and UI so you don't
-reinvent the wheel each time. Nothing here is tied to a specific pedal — fill in the `<...>`
-placeholders for yours.
+Echo Pre 3 is a circuit-level emulation of the Echoplex EP-3 preamp (AU/VST3), traced from the
+**Chase Tone Secret Preamp** schematic. It's a single-JFET, high-headroom clean preamp — no
+clipping diodes anywhere in the signal path — so the entire character comes from a 2N5457
+common-source gain stage and a three-position source-bypass tone switch, both solved sample by
+sample as a [Wave Digital Filter](https://en.wikipedia.org/wiki/Wave_digital_filter) network
+rather than curve-fit.
 
-Please note, whilst this template is geared toward AI assistance, if you don't have a basic grounding in software development, electronics, audio physics, harmonics, and how the pedals really work, you will have an extremely difficult time.
+> Echo Pre 3 is an independent circuit emulation built from schematic analysis and is not
+> affiliated with or endorsed by Echoplex, Oberheim, or Chase Tone.
 
-## What's here
+<img src="docs/images/screenshot.png" width=50% />
+
+## Status
+
+The DSP chain is fully wired end-to-end and host-verified (`auval -v aufx Ep3p Lprc` passes,
+plugin runs clean in a real host). Every linear stage matches its analytic transfer function to a
+fraction of a dB and a fraction of a degree; the JFET stage's `gm` and both tone-shelf time
+constants are fitted from reference NAM captures of three physical units, not guessed from a
+datasheet. **What's still open:** absolute input/output level calibration (`kInputRef`,
+`kOutputMakeup`) and full reference validation against real-pedal captures are blocked on a couple
+of additional recordings (a within-rig VOLUME sweep and a bypass anchor) — see
+[`CLAUDE.md`](CLAUDE.md) for the detailed log. Until then, treat the shaper's absolute drive level
+and the VOLUME taper's exact shape as provisional; everything else described below is measured.
+
+## Overview
+
+The signal path is one gain stage: `input LPF → JFET common-source stage (2N5457) → 3-way
+source-bypass tone switch → coupled output/VOLUME network`. There's no VREF divider and no
+op-amps — the JFET self-biases off a 22 V charge-pumped rail, and its square-law curvature is the
+only nonlinearity in the circuit. `chowdsp_wdf` has no native JFET element, so the gain stage is a
+fitted Norton-source model (current out, not voltage out — a degenerated common-source stage is a
+current source) with an independently-verified implicit solve backing the fit.
+
+A few things this pedal's build surfaced that were worth solving properly rather than
+approximating:
+
+- **The MODE switch's "brighter" position isn't a bigger shelf, it's a lower one.** Both cap
+  positions reach the same HF plateau; they only differ in where the lift starts. Fitting that
+  shelf (rather than reading a plateau off an FFT) also caught that the switch's own printed
+  labels were backwards.
+- **Degeneration suppresses distortion twice, not once.** The same feedback network that sets the
+  JFET's gain also filters the second-harmonic product it generates — missing the second pass was
+  worth 16 dB of excess distortion, and only an independent implicit solve of the transistor
+  equation caught it; every linear frequency-response test passed the whole time.
+- **A source-port WDF read silently inverted the input network's polarity.** Magnitude was
+  perfect at every frequency; only a phase/DC-step check caught the missing 180°, which would have
+  cancelled the JFET's own inversion and left the plugin backwards.
+- **The low-OS top-octave droop is derived, not fitted.** A trapezoidal-cap WDF is the bilinear
+  transform of its own analog prototype, so the correction shelf's coefficients fall out of that
+  transfer function in closed form and self-scale to whatever sample rate the host supplies.
+
+## Features
+
+- **Single fitted JFET gain stage** — 2N5457 common-source stage with a measured transconductance
+  and a two-stage shelf structure (drive shelf + a second shelf on the shaper's nonlinear excess)
+  that reproduces the circuit's own double degeneration
+- **Three-position MODE switch** (Bright / Dark / Mid) — three precomputed source-bypass
+  topologies, each a fitted first-order shelf against the un-bypassed stage
+- **Non-monotonic VOLUME control**, faithfully reproduced — the pot grounds its wiper and shunts
+  both node E and OUT, so gain rises to a peak around 1–2 o'clock and genuinely falls back past
+  it, exactly as the original EP-3's volume wiring does
+- **Oversampling on the linear-phase FIR path** (1×/2×/4×/8×, separate live/render factors) with a
+  closed-form low-OS top-octave droop restore, so the base-rate response tracks the oversampled
+  one instead of needing a high factor to sound right
+- **ADAA implemented and measured, shipped off** — proven exact against an independent Simpson
+  integral; left disabled because at this pedal's operating point it costs more wanted second
+  harmonic than the alias floor it buys back (see `docs/build-plan.md` §9 for the measurements)
+- **Calibrated I/O** — input and output trim with VU-style metering, Trim Link to hold overall
+  loudness while pushing drive
+- **True bypass** with a crossfade and a deterministic oversampler reset, so post-bypass output
+  never depends on how long the pedal was off
+- **Resizable UI** from 50% to 250%, remembered per session
+
+## Where to find things
 
 ```
-CLAUDE.md                          project-memory template + the build/validation sequence
-.claude/rules/
-  circuit.md                       fill-in-from-schematic template (with reading gotchas)
-  dsp.md                           WDF / chowdsp / oversampling / ADAA rules + gotchas
-  architecture.md                  threading, plugin structure, processBlock, bypass, OS, state
-  ui.md                            UI contract (points at the spec + provided components)
-  build.md                         CMake, submodules, layout, testing, CI, validation gates
-.claude/agents/
-  schematic-checker.md             reads circuit.md, answers component/topology questions exactly
-  dsp-validator.md                 checks a DSP stage's implementation against circuit.md/dsp.md
-docs/
-  nonlinear-component-modeling.md  ★ the parts WDF can't model: CMOS clippers, JFETs, op-amp rails
-  measurement-discipline.md        ★ the analysis traps: instruments, aggregates, fits, screens
-  calibration-and-gain-staging.md  ★ the hard-won DSP/level lessons — read first
-  validation-and-capture.md        ★ how to measure accuracy vs the real pedal + capture protocol
-  ui-peripheral-spec.md            full visual spec for the reusable UI elements
-  refs/                            datasheets + DAFx papers the nonlinear doc cites
-analysis/
-  gen_test_signal.py               comprehensive A/B capture signal (sweep + driven + IMD + tones)
-  analyze.py                       reusable harness: FR, THD (incl. Farina swept), null + null-floor
-.github/workflows/
-  ci.yml                           build + ctest on macOS/Windows/Linux (push/PR); auval on macOS
-  release.yml                      manual-trigger packaging -> one zip per platform on a GH Release
 src/
-  ui/PedalLookAndFeel.{h,cpp}      palette, knobs, octagonal footswitch, ComboBox, VU drawing
-  ui/VUMeter.h                     22-segment bar meter
-  ui/ThreePositionSwitch.h         generic vertical toggle (setLabels / onChange)
-  ui/LEDIndicator.h                bypass LED
-  utils/TaperUtils.h               taper helpers (incl. audioTaperR0 for large gain pots)
+  PluginProcessor.{h,cpp}    Plugin entry point, parameter layout, processBlock
+  PluginEditor.{h,cpp}       Top-level UI layout
+  ui/PedalFace.{h,cpp}       The one-knob-plus-switch centre pedal face
+  dsp/
+    InputNetwork.h             Input LPF / gate-bias network
+    JfetStage.h                 The fitted 2N5457 common-source stage + MODE shelves
+    OutputNetwork.h             Coupled output/VOLUME network (not a simple divider)
+    OsDroopRestore.h             Derived low-OS top-octave shelf
+    EchoPreDsp.h                 Wires the stages into the full signal chain
+  utils/TaperUtils.h          Potentiometer taper curves
+
+tests/                      Per-stage validation executables (frequency response + phase,
+                            JFET shelf/shaper checks, bypass click, oversampling fidelity)
+analysis/                   Offline render tool + Python harness used to compare the plugin
+                            against reference NAM captures (FR, THD, phase, compression, null)
+schematics/                 Source schematic images
+
+.claude/rules/              Detailed circuit/DSP/architecture/UI/build references — read
+                            circuit.md for the full component-by-component schematic breakdown
+                            and every measurement that fed the fitted constants above
 ```
 
-The `src/ui/*` and `utils/*` files are **drop-in** — proven, production-tested code with all
-pedal-specific names removed (`PedalLookAndFeel`, `ThreePositionSwitch`). The colour palette is a
-dark-navy theme; recolour via the constants in `PedalLookAndFeel.h`.
+## Building
 
-## How to use it
+Requires CMake 3.15+, a C++17 compiler, and the JUCE, chowdsp_wdf, and xsimd submodules
+(xsimd accelerates the WDF matrix math). Builds as an Audio Unit + VST3 on macOS, VST3 on
+Windows/Linux.
 
-1. Copy this folder to a new repo (or `cp -R` it and `git init`).
-2. Add JUCE / chowdsp_wdf (+ optional xsimd) as submodules under `libs/` (see `.claude/rules/build.md`).
-3. Drop the schematic images into `schematics/` and fill in `.claude/rules/circuit.md`. Triage the
-   parts list against `docs/nonlinear-component-modeling.md` §0 and gather external data for
-   anything not WDF-native **now**, not once you're mid-DSP.
-4. Write `CMakeLists.txt` from `CMakeLists.txt.template` (replace every `<PLACEHOLDER>`; see build.md
-   for the structure), then `PluginProcessor`/`PluginEditor` following `architecture.md`.
-5. Follow the build/validation sequence in `CLAUDE.md`, validating each stage.
-6. **Calibrate** per `docs/calibration-and-gain-staging.md` — measure `kInputRef` for your own rig;
-   set the output makeup by **level-matching to your captures** (not to a headroom target).
-7. **Validate** against real-pedal captures per `docs/validation-and-capture.md` (frequency
-   response, THD-by-band, null depth) using the `analysis/` harness.
+```bash
+git clone --recurse-submodules https://github.com/tehguitarist/EchoPre3
+cd EchoPre3
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target EchoPre3_AU    # macOS only
+cmake --build build --target EchoPre3_VST3  # all platforms
+```
 
-## The things that bit us before (so they don't bite you)
+The AU is copied into `~/Library/Audio/Plug-Ins/Components/` automatically after the build.
+Logic caches AU components — bump the project `VERSION` in `CMakeLists.txt` to force a rescan.
+Validate without opening a DAW:
 
-1. **Input level calibration** — the circuit is nonlinear, so the absolute input voltage decides
-   where it clips. Anchor `kInputRef` (volts per full-scale) to a real measurement.
-2. **The audio-taper floor** — a 1%-floored taper on a large (1 M) gain pot injects ~10 kΩ that
-   adds ~8 dB of phantom minimum gain. Use `audioTaperR0` for pots whose minimum is ~0 Ω.
-3. **The `10^(2x-2)` audio taper is too steep** — it puts ~10 % of pot R at the midpoint where a
-   real audio pot is ~35–40 %, making tone controls too shallow. Fit a power-law taper from
-   captures instead (calibration doc §3b).
-4. **Output makeup is calibrated, not padded** — level-match it to the captures; it may exceed 1.0,
-   and a faithful pedal genuinely exceeds 0 dBFS at high drive+volume (the output trim manages it).
-   Do NOT pad it down "for headroom" — that breaks the A/B match (calibration doc §2).
-5. **The capture MATRIX, not the test signal, is the usual limit** — sweep one knob at a time,
-   capture a bypass/unity anchor, keep the recording gain fixed, and never truncate
-   (validation doc §3).
-6. **A multi-stage pedal's true signal order isn't always what the physical layout suggests** —
-   verify it from the hardware/schematic, never assume left-to-right or numbered layout matches
-   processing order (`.claude/rules/circuit.md`).
-7. **Never reconstruct a WDF node voltage from a source port's voltage** — combine only passive
-   ports, or you get a spurious one-sample-averaged low-pass that masquerades as ordinary bilinear
-   warping (`.claude/rules/dsp.md`).
-8. **A degenerated common-source JFET stage is a CURRENT source, not a voltage source** — model it
-   as a Norton current with its output impedance stamped into the next stage, or the source-bypass
-   cap's "HF lift" gets double-counted, worth ~20 dB
-   (`docs/nonlinear-component-modeling.md`).
-9. **An aggregate that moved has usually changed membership, not value** — never quote a total
-   without its count, and re-grade on the shared subset before believing any improvement. This is
-   the single most-repeated trap in `docs/measurement-discipline.md`; that file is worth a skim
-   before your first A/B, not after it.
+```bash
+auval -v aufx Ep3p Lprc
+```
+
+### Running the test suite
+
+Each circuit stage has a standalone validation executable checked against an analytic transfer
+function, an independent implicit solve, or a known-answer probe derived from the circuit itself.
+They're registered with CTest, so the whole suite runs as one pass/fail gate — this is also what
+CI runs on every push/PR:
+
+```bash
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+### Performance
+
+CPU usage (% of realtime, stereo, 4 s render) and algorithmic latency at each oversampling factor,
+measured by `PerfBenchmark` (`tests/PerfBenchmark.cpp`) on an Apple Silicon Mac, Release build.
+MODE has negligible effect on CPU; figures will vary by machine. ADAA is measured but shipped off
+(see Features above).
+
+| OS factor | CPU % of realtime | Latency (samples) | Latency (ms @ 48 kHz) |
+|-----------|-------------------:|-------------------:|-----------------------:|
+| 1×        | ~0.4%              | 0                   | 0.00                   |
+| 2×        | ~1.3%              | 49                  | 1.02                   |
+| 4×        | ~2.0%              | 60                  | 1.25                   |
+| 8×        | ~3.5%              | 64                  | 1.33                   |
+
+Bypass is a flat **~0.10%** at every factor (the DSP chain, including the oversampler, is skipped
+rather than run and crossfaded).
+
+## License
+
+Echo Pre 3 is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPLv3).
+
+## Credits
+
+Built by Leigh Pierce, using:
+
+- [JUCE](https://juce.com/) — plugin framework and UI toolkit
+- [chowdsp_wdf](https://github.com/Chowdhury-DSP/chowdsp_wdf) — Wave Digital Filter modelling
+  library
+- [xsimd](https://github.com/xtensor-stack/xsimd) — SIMD acceleration for the circuit's matrix
+  math
+
+See also [Tommy](https://github.com/tehguitarist/Tommy), an overdrive plugin built the same way.
