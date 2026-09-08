@@ -186,12 +186,104 @@ int main()
     std::printf("\n\n  Worst mode-to-mode spread in the 1x droop: %.2f dB.\n", worstSpread);
     std::printf("  A single fixed-shape restore shelf can only ever be right to within this figure.\n");
 
+    // --- 4. RESAMPLER DISPERSION -- the guard on useIntegerLatency ------------------------------
+    // Oversampling can only ever make the top octave MORE faithful, so the phase error against the
+    // highest factor must fall as the factor rises. It once did the opposite: JUCE's
+    // useIntegerLatency=true appends a fractional-delay allpass, and at 4x -- the shipped default --
+    // that cost +52 deg at 18 kHz against 8x, worse than 1x. Magnitude stayed within 0.03 dB
+    // throughout, so no magnitude check could see it, and the non-monotonicity was the only tell.
+    // This asserts the ORDERING rather than an absolute figure, so it stays a guard and not a
+    // tautology; the excess DELAY is removed first, since that is what a sub-sample null aligns out.
+    std::printf("\n  Resampler dispersion vs 8x (excess delay removed) -- must FALL as the factor rises\n");
+    std::printf("  %-10s%10s%10s\n", "factor", "12 kHz", "18 kHz");
+
+    // Phase must be UNWRAPPED before any slope is fitted: std::arg wraps to (-pi, pi], and at
+    // 18 kHz a single sample of delay is already 135 deg, so a wrapped reading silently folds a
+    // large error into a small one (it did -- the first version of this check reported 557 deg).
+    const double kLadder[] = {1000.0, 2000.0, 4000.0, 6000.0, 8000.0, 10000.0,
+                              12000.0, 14000.0, 16000.0, 18000.0};
+    constexpr int kNumLadder = (int)(sizeof(kLadder) / sizeof(kLadder[0]));
+
+    auto dispersion = [&](int osIndex, double* out12, double* out18) {
+        Setup s;
+        s.osIndex = osIndex;
+        Setup ref8;
+        ref8.osIndex = 3;
+
+        // The BULK latency difference between the two factors has to come off before unwrapping:
+        // 1x has no resampler at all, so it leads 8x by the oversampler's whole ~65 samples, which
+        // is 8775 deg at 18 kHz. That is reported latency, not dispersion, and it swamps any ladder.
+        configure(proc, s);
+        const double lat = (double) proc.getLatencySamples();
+        configure(proc, ref8);
+        const double lat8 = (double) proc.getLatencySamples();
+        const double dLat = lat - lat8;
+
+        double ph[kNumLadder];
+        double acc = 0.0, prevRaw = 0.0;
+        for (int i = 0; i < kNumLadder; ++i)
+        {
+            const double raw =
+                std::arg(responseAt(proc, s, kLadder[i], kSmall) / responseAt(proc, ref8, kLadder[i], kSmall))
+                + 2.0 * M_PI * kLadder[i] * dLat / kFs;
+            if (i > 0)
+            {
+                double d = raw - prevRaw;
+                while (d > M_PI) d -= 2.0 * M_PI;
+                while (d < -M_PI) d += 2.0 * M_PI;
+                acc += d;
+            }
+            else
+            {
+                acc = raw;
+            }
+            prevRaw = raw;
+            ph[i] = acc;
+        }
+
+        // Fit the pure-delay term over 1-8 kHz, where every factor is flat, then report what is
+        // left at the top -- that residual is dispersion, which no sub-sample null can align out.
+        double sxx = 0.0, sxy = 0.0;
+        for (int i = 0; i < kNumLadder && kLadder[i] <= 8000.0; ++i)
+        {
+            sxx += kLadder[i] * kLadder[i];
+            sxy += kLadder[i] * ph[i];
+        }
+        const double slope = sxy / sxx;
+        const double toDeg = 180.0 / M_PI;
+        *out12 = std::abs((ph[6] - slope * kLadder[6]) * toDeg);
+        *out18 = std::abs((ph[9] - slope * kLadder[9]) * toDeg);
+    };
+
+    // 1x is excluded, and not for convenience: it has no resampler, so the quantity this check is
+    // about does not exist there, and its bulk delay against 8x is the oversampler's whole latency
+    // (~65 samples = 8775 deg at 18 kHz). getLatencySamples() cannot remove it here either, because
+    // a factor change is applied at the START of the next block, so the value read straight after
+    // configure() still describes the previous factor.
+    // Only the 18 kHz column gates: it is where the allpass's dispersion is largest and where the
+    // ordering broke. 12 kHz is printed alongside it so a partial regression is still visible.
+    double prev18 = -1.0;
+    for (int i = 1; i <= 2; ++i)
+    {
+        double d12 = 0.0, d18 = 0.0;
+        dispersion(i, &d12, &d18);
+        std::printf("  %2dx%18.2f%10.2f\n", kOsFactors[i], d12, d18);
+        if (prev18 >= 0.0 && d18 > prev18 + 1.0)
+        {
+            std::printf("      <-- FAIL: %dx disperses MORE than the factor below it. Check that the\n"
+                        "          Oversampling constructor still passes useIntegerLatency = false.\n",
+                        kOsFactors[i]);
+            ok = false;
+        }
+        prev18 = d18;
+    }
+
     if (! finite)
     {
         std::printf("\n  <-- FAIL: non-finite sample in a render\n");
         ok = false;
     }
-    std::printf(ok ? "\nPASS: OSFidelity (finite; wanted distortion is factor-independent)\n"
+    std::printf(ok ? "\nPASS: OSFidelity (finite; wanted distortion factor-independent; dispersion falls with factor)\n"
                    : "\nFAILED: OSFidelity\n");
     return ok ? 0 : 1;
 }

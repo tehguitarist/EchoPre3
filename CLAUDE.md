@@ -691,6 +691,64 @@ high, execute routine work cheap) is what should persist.
 >    P3's level, not P1's** — this is the single choice that decides whether the shaper becomes fittable.
 > 5. Both switch positions, and the null/no-plugin render (still missing — M0 has never run).
 
+> ### ⭐⭐ A REAL BUG FIXED 2026-09-08: `useIntegerLatency = true` WAS DEFEATING THE LINEAR-PHASE FIR
+>
+> `src/PluginProcessor.cpp` (constructor comment carries the numbers), guarded by a new section 4 in
+> `tests/OSFidelity.cpp`. Eleven tests pass.
+>
+> **The chain was built with `juce::dsp::Oversampling(..., filterHalfBandFIREquiripple, true, true)`.
+> The last argument is `useIntegerLatency`, and JUCE implements it by appending a FRACTIONAL-DELAY
+> filter — which is not linear phase.** So the code was paying for a linear-phase FIR, with a comment
+> three lines above explaining that step 9's sub-sample null depends on it, and then adding an allpass
+> after it. Measured against the same chain at 8×, best-fit delay removed (i.e. dispersion, not latency):
+>
+> | factor | 18 kHz error, `true` | `false` |
+> |---|---|---|
+> | 1× | +7.2° | −10.0° |
+> | 2× | +14.3° | −2.8° |
+> | **4× (SHIPPED DEFAULT)** | **+52.2°** | **−0.6°** |
+>
+> ⭐ **The tell was NON-MONOTONICITY, and it is the reusable lesson.** Oversampling can only make the
+> top octave more faithful, so error must FALL as the factor rises. It rose: 4× was 7× worse than 1×.
+> Magnitude matched to **0.03 dB** at the same time — and a 0.03 dB magnitude difference cannot produce
+> 52° in a minimum-phase filter, so the phase had to be coming from an allpass. **No magnitude test
+> could ever have found this**, which puts it alongside the input-network inversion and the 16.4 dB
+> distortion bug as the third defect on this project that only phase testing could see.
+>
+> **Against the real P1 capture at the 4× default**, the 15 kHz residual moves +18.7 → −5.1° (Bright)
+> and +18.3 → −5.5° (Dark). Whole-band RMS residual **5.5–7.2° → 3.1–4.4°**.
+>
+> **What it costs:** `getLatencyInSamples()` is fractional again, so `setLatencySamples()` rounds and
+> the host is misaligned by up to half a sample. That is a CONSTANT, frequency-independent offset —
+> strictly better here than frequency-dependent dispersion, since step 9 nulls sub-sample anyway.
+>
+> ⚠ **`OSFidelity` section 4 guards it, and two things in that guard are worth not re-deriving:**
+> (a) **phase must be UNWRAPPED before fitting a delay** — `std::arg` wraps to (−π, π] and one sample
+> at 18 kHz is already 135°, so the first version reported 557° of "dispersion" that was really a
+> wrap; (b) **1× is excluded on purpose** — it has no resampler, so the quantity does not exist there,
+> and its bulk delay vs 8× is the oversampler's whole ~65 samples. `getLatencySamples()` cannot remove
+> that inside the test either, because a factor change is applied at the START of the next block, so
+> the value read right after `configure()` still describes the previous factor.
+> **Verified the guard actually fails** when the flag is flipped back, rather than assuming it would.
+>
+> ### 📌 WHERE THE 1 dB / 5° TARGETS NOW STAND (owner's goals, 2026-09-08)
+> - ✅ **Phase, 200 Hz–12 kHz: MET.** P1 reads within **2.4°** (Bright/Dark) and 6.2° (Mid) at the 4×
+>   default. Whole-band RMS 3.1–4.4°, against a 5° target.
+> - ⛔ **Phase below 200 Hz: BLOCKED, not a model error.** −6° at 200 Hz growing to −35° at 50 Hz.
+> - ⛔ **Magnitude within 1 dB: BLOCKED for the same reason and by the same feature.** P1 is already
+>   within ~1 dB from 40 Hz up; the miss is +2.4 dB at 40 Hz and +2.9 at 32 Hz.
+> - ⭐⭐ **Both LF misses are ONE missing high-pass pole, and magnitude and phase independently agree on
+>   its corner** — a genuinely new cross-check this session, since phase did not exist before:
+>   | capture | fc from magnitude | fc from phase | joint fit residual |
+>   |---|---|---|---|
+>   | P1 | 28.7 / 26.5 / 28.8 Hz | 25.4 / 26.5 / 26.0 Hz | 0.09–0.20 dB, 5.1–5.5° |
+>   | P2 | 19.1–20.0 Hz | 16.8–17.1 Hz | 0.07–0.10 dB, 3.1° |
+>   | P3 | 18.2 Hz | 12.0 Hz | 0.20 dB, 2.2° |
+>   ⛔ **But the three units give 27 / 18 / 13.5 Hz, so it CANNOT be fitted** — that is note #7's M4
+>   confound reappearing on a second axis. Adding a 27 Hz high-pass would fit P1's rig. ➡ It needs the
+>   bypassed capture and the VOLUME sweep, which is now the *only* thing standing between the model and
+>   both stated targets. Everything else in the audio band is already inside them.
+
 ## Project-specific carry-forwards
 
 ### Reference data: seven NAM models (see `docs/build-plan.md`)
