@@ -129,3 +129,32 @@ if __name__ == "__main__":
     print(f"{len(caps)} captures in {CAPTURE_DIR}/")
     for path, d in caps:
         print(f"  {os.path.basename(path)}  ->  {d}")
+
+# --- The plugin's own input calibration, read from the SOURCE ------------------------------------
+_PROCESSOR_HEADER = "src/PluginProcessor.h"
+_KINPUTREF_RE = re.compile(r"kInputRef\s*=\s*([0-9.eE+-]+)")
+
+
+def plugin_vfs():
+    """kInputRef in volts per full-scale sample, PARSED FROM THE C++ HEADER.
+
+    ⚠⚠ This is a function rather than a constant on purpose. Three analysis scripts each carried
+    their own `PLUGIN_VFS = 0.87` copy, and when the plugin's calibration moved to 4.4626 all three
+    kept computing matched-drive offsets that were silently 14.2 dB wrong -- every harmonic and
+    compression comparison in the project with them. A duplicated calibration constant is not a
+    style problem, it is a measurement that reports the wrong answer without failing.
+
+    Reading the header means the two cannot drift: if the constant is renamed or removed this raises
+    instead of returning a stale number, which is the behaviour that matters.
+    """
+    with open(_PROCESSOR_HEADER) as fh:
+        m = _KINPUTREF_RE.search(fh.read())
+    if not m:
+        raise RuntimeError(f"kInputRef not found in {_PROCESSOR_HEADER} -- the analysis scripts "
+                           "derive every matched-drive offset from it and must not guess")
+    return float(m.group(1))
+
+
+def drive_offset_db(capture_vfs):
+    """dB to feed the plugin so its gate volts match a capture rig delivering `capture_vfs` V/FS."""
+    return 20.0 * np.log10(capture_vfs / plugin_vfs())

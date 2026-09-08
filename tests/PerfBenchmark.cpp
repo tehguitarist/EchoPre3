@@ -25,7 +25,7 @@ int main()
     std::printf("Echo Pre 3 -- CPU as %% of realtime, stereo, %g s render at %g Hz, %d-sample blocks\n", kSeconds, kFs,
                 kBlock);
     std::printf("Timed through processBlock, so trims, metering and the bypass crossfade are all in it.\n\n");
-    std::printf("  %-8s %-10s %10s %10s %10s %12s\n", "factor", "mode", "shipped", "2 iters", "20 iters",
+    std::printf("  %-8s %-10s %10s %10s %10s %12s\n", "factor", "mode", "shipped", "iter-8", "iter-20",
                 "latency smp");
 
     for (int osIdx = 0; osIdx < 4; ++osIdx)
@@ -35,16 +35,19 @@ int main()
             s.osIndex = osIdx;
             s.modeIndex = m;
 
-            // The two extra columns used to be ADAA off/on. ADAA went with the device-model
-            // rewrite (PluginProcessor.h has why), and what replaced it as the CPU lever is the
-            // solve's iteration count -- so these bracket the shipped count instead.
-            s.solveIters = 0; // shipped kSolveIters
+            // The two extra columns bracket what the CLOSED-FORM solve replaced: the safeguarded
+            // Newton at its shipped count and at a fully-converged one. The closed form is exact, so
+            // this is a pure CPU comparison with no accuracy axis to trade against.
+            s.closedForm = true;
+            s.solveIters = 0;
             const double shipped = cpuPercent(proc, s, kSeconds, &finite);
             const int latency = proc.getLatencySamples();
-            s.solveIters = 2;
+            s.closedForm = false;
+            s.solveIters = 8;
             const double off = cpuPercent(proc, s, kSeconds, &finite);
             s.solveIters = 20;
             const double on = cpuPercent(proc, s, kSeconds, &finite);
+            s.closedForm = true;
 
             std::printf("  %6dx %-10s %9.2f%% %9.2f%% %9.2f%% %12d\n", kOsFactors[osIdx], kModeNames[m], shipped, off,
                         on, latency);

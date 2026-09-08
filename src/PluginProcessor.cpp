@@ -200,6 +200,12 @@ void PedalAudioProcessor::setSolveIters(int n)
         d.setSolveIters(n);
 }
 
+void PedalAudioProcessor::setUseClosedForm(bool b)
+{
+    for (auto& d : dsp)
+        d.setUseClosedForm(b);
+}
+
 bool PedalAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
     const auto& out = layouts.getMainOutputChannelSet();

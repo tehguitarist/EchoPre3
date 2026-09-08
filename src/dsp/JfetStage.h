@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "CircuitValues.h"
 
@@ -312,6 +313,14 @@ public:
 
     /** Test/probe hooks. Production never calls these. */
     void setSolveIters(int n) noexcept { solveIters = (n > 0) ? n : kSolveIters; }
+
+    /** Select the closed-form solve (production) or the safeguarded-Newton one it replaced. The
+     *  iterative path is retained ONLY as the independent oracle JfetStageTest checks the closed form
+     *  against, and as FeatureProfile's CPU comparison -- it is not a fallback and nothing selects it
+     *  at runtime. Keeping it costs a branch that predicts perfectly and buys a continuously-checked
+     *  reference implementation of the same equations, arrived at by a completely different method. */
+    void setUseClosedForm(bool shouldUseClosedForm) noexcept { useClosedForm = shouldUseClosedForm; }
+    bool closedFormIsEnabled() const noexcept { return useClosedForm; }
     void sourcePortCoeffs(double& rd, double& c1, double& c2) const noexcept
     {
         rd = srcRd; c1 = srcC1; c2 = srcC2;
@@ -386,6 +395,121 @@ public:
      *  previous sample is far worse. */
     inline double solveDrain(double vGate) noexcept
     {
+        const double i = useClosedForm ? solveClosedForm(vGate) : solveIterative(vGate);
+
+        const double vs = srcRd * i + srcOffset();
+        lastVds = params.vdsQuiescent() - i * params.zLoad - vs;
+        lastW = vGate - vs;
+        double dV = 0.0, dD = 0.0;
+        const double resid = i - (deviceCurrent(params.vov + lastW, lastVds, params.betaSq(), dV, dD)
+                                  - params.id0());
+        // Reported in AMPS OF CURRENT ERROR, not as the raw residual: dF/di runs to ~40 here, so the
+        // bare residual overstates the error by that factor and reads alarming when the answer is exact.
+        solveResidual = resid / (1.0 + srcRd * dV + (params.zLoad + srcRd) * dD);
+        advanceSource(i, vs);
+        return i;
+    }
+
+    /** ⭐⭐ THE SOLVE IS CLOSED FORM. There is no iteration, and there never needed to be.
+     *
+     *  Shichman-Hodges is piecewise QUADRATIC, and both the source one-port and the load line are
+     *  LINEAR in the drain current -- so substituting them into the device law leaves a quadratic in
+     *  i on every branch, with an exact root. The safeguarded Newton that shipped first was solving
+     *  by iteration something that has an algebraic answer.
+     *
+     *  With  A = Vov + vGate - vOff   (so Vov_i = A - Rd*i)
+     *        B = Vds_q - vOff         (so Vds_i = B - R*i,  R = zLoad + Rd):
+     *
+     *    saturation   I = beta*Vov_i^2
+     *                 -> beta*Rd^2 * i^2  -  (2*beta*A*Rd + 1) * i  +  (beta*A^2 - Id0) = 0
+     *    triode       I = beta*Vds_i*(2*Vov_i - Vds_i),  and 2*Vov_i - Vds_i = C + D*i
+     *                 with C = 2A - B and D = zLoad - Rd
+     *                 -> beta*R*D * i^2  +  (1 - beta*(B*D - R*C)) * i  +  (Id0 - beta*B*C) = 0
+     *    cutoff       Vov_i <= 0, or the drain bottomed -> I = 0 -> i = -Id0, no solve at all
+     *
+     *  The branches are tried in the order they occur in normal use, so the common case costs one
+     *  square root. Because the composite map is monotone and C1, exactly one branch's root satisfies
+     *  its own validity condition, which is what the checks below select on -- no tolerance tuning,
+     *  and no possibility of two branches both claiming the sample.
+     *
+     *  ⚠ The roots are taken in the CANCELLATION-STABLE form q = -(b + sign(b)*sqrt(D))/2, root =
+     *  c/q, not the schoolbook (-b +- sqrt(D))/2a. In saturation a = beta*Rd^2 falls to 2.7e-6 at
+     *  384 kHz in Bright while b is ~-1, so the schoolbook small root is the difference of two nearly
+     *  equal numbers and loses most of its significant digits exactly where the stage is quietest.
+     *
+     *  ✅ Verified against the safeguarded Newton it replaces, run to 200 iterations, over
+     *  -20..+20 V of gate drive at every mode's Rd and a range of port offsets: worst relative
+     *  disagreement 1.4e-10, and that case sits at 3e-19 A, i.e. numerical zero. JfetStageTest
+     *  section 8c asserts it continuously. */
+    inline double solveClosedForm(double vGate) const noexcept
+    {
+        const double rd = srcRd;
+        const double off = srcOffset();
+        const double vov = params.vov;
+        const double beta = params.betaSq();
+        const double id0 = params.id0();
+        const double A = vov + vGate - off;
+        const double B = params.vdsQuiescent() - off;
+        const double R = params.zLoad + rd;
+
+        // BOTH roots of a*x^2 + b*x + c, in the cancellation-stable pair q/a and c/q, with NaN for
+        // a root that does not exist. Written into r[0] and r[1].
+        //
+        // ⚠⚠ BOTH, NOT THE SMALLER ONE. The first port of this returned only c/q, on the reasoning
+        // that the physical root is the small one -- which is true only while b < 0. Here
+        // b = -(2*beta*A*Rd + 1) flips sign at A = -1/(2*beta*Rd), i.e. at about -0.53 V of gate
+        // drive, and below that the PHYSICAL root is the other one. The stage then fell through to
+        // the cutoff branch and returned -Id0 for every sample below that, an 0.9 mA error on a
+        // 0.35 mA quiescent current. The prototype tested both roots and the port dropped one.
+        // ➡ Root SELECTION here is by the branch's own physical validity condition, never by
+        // magnitude: it is the only criterion that cannot be wrong, and the map being monotone and
+        // C1 guarantees exactly one root satisfies it.
+        const auto roots = [](double a, double b, double c, double* r) noexcept {
+            const double nan = std::numeric_limits<double>::quiet_NaN();
+            r[0] = r[1] = nan;
+            const double disc = b * b - 4.0 * a * c;
+            if (disc < 0.0)
+                return;
+            const double sq = std::sqrt(disc);
+            const double q = -0.5 * (b + ((b >= 0.0) ? sq : -sq));
+            r[0] = (q != 0.0) ? (c / q) : nan;
+            r[1] = (a != 0.0) ? (q / a) : nan;
+        };
+        double r[2];
+
+        // --- saturation, the common case -----------------------------------------------------
+        {
+            roots(beta * rd * rd, -(2.0 * beta * A * rd + 1.0), beta * A * A - id0, r);
+            for (const double i : { r[0], r[1] })
+            {
+                if (i != i) // NaN
+                    continue;
+                const double vovI = A - rd * i;
+                if (vovI >= 0.0 && (B - R * i) >= vovI)
+                    return i;
+            }
+        }
+        // --- triode --------------------------------------------------------------------------
+        {
+            const double C = 2.0 * A - B;
+            const double D = params.zLoad - rd;
+            roots(beta * R * D, 1.0 - beta * (B * D - R * C), id0 - beta * B * C, r);
+            for (const double i : { r[0], r[1] })
+            {
+                if (i != i)
+                    continue;
+                const double vovI = A - rd * i;
+                const double vdsI = B - R * i;
+                if (vovI >= 0.0 && vdsI >= 0.0 && vdsI < vovI)
+                    return i;
+            }
+        }
+        // --- cutoff, or the drain bottomed: the device passes nothing -------------------------
+        return -id0;
+    }
+
+    inline double solveIterative(double vGate) noexcept
+    {
         const double rd = srcRd;
         const double off = srcOffset();
         const double gm = params.gm;
@@ -444,18 +568,6 @@ public:
         // mild enough to look harmless; against the square law it sent a 3 V input to 9.5 mA of drain
         // current, past IDSS, with an internally inconsistent vs. Newton converges here because F is
         // monotone; the fixed-point iteration does not converge at all.
-        vs = rd * i + off;
-        const double vovI = vov + (vGate - vs);
-        const double vdsI = vdsQ - i * zl - vs;
-        double dIdVov = 0.0, dIdVds = 0.0;
-        // Reported in AMPS OF CURRENT ERROR, not as the raw residual: F' runs to ~40 here, so |F|
-        // overstates the error by that factor and would read alarming when the answer is exact.
-        const double resid = i - (deviceCurrent(vovI, vdsI, beta, dIdVov, dIdVds) - id0);
-        solveResidual = resid / (1.0 + rd * dIdVov + (zl + rd) * dIdVds);
-
-        lastVds = vdsI;
-        lastW = vGate - vs;
-        advanceSource(i, vs);
         return i;
     }
 
@@ -741,6 +853,7 @@ private:
     // have been wrong by 10 dB while looking fine everywhere else.
     static constexpr int kSolveIters = 8;
     int solveIters = kSolveIters;
+    bool useClosedForm = true;
 
     // Operating point at the last solved sample, for tests and probes only.
     double lastVds = 0.0, lastW = 0.0;

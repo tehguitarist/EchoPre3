@@ -29,6 +29,9 @@ public:
      *  JfetStage::kSolveIters; FeatureProfile A/Bs it. */
     void setSolveIters(int n);
 
+    /** Test hook: closed-form solve vs the iterative reference. Production is always closed form. */
+    void setUseClosedForm(bool b);
+
     bool isBusesLayoutSupported(const BusesLayout&) const override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 

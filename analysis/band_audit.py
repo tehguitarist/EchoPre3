@@ -44,7 +44,8 @@ import captures as C
 import gen_test_signal as G
 
 OUTPUT_JSON = "analysis/reports/band_audit.json"
-PLUGIN_VFS = 0.87
+# kInputRef is read from src/PluginProcessor.h -- see captures.plugin_vfs().
+PLUGIN_VFS = C.plugin_vfs()
 DBU_REF_V = 0.7746
 # Bands strictly below the LOWEST mode shelf zero (1.86 kHz), where the circuit forces all three
 # MODE positions to Zs = R5 and therefore to IDENTICAL distortion and identical compression. Whatever

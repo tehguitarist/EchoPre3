@@ -44,7 +44,8 @@ struct Setup
     double volume = 0.5;
     double inputTrimDb = 0.0;
     bool bypass = false;
-    int solveIters = 0; // 0 = the shipped JfetStage::kSolveIters (restored, not inherited)
+    int solveIters = 0;        // 0 = the shipped JfetStage::kSolveIters (restored, not inherited)
+    bool closedForm = true;    // false selects the iterative reference solve
 };
 
 inline void configure(PedalAudioProcessor& proc, const Setup& s)
@@ -73,6 +74,7 @@ inline void configure(PedalAudioProcessor& proc, const Setup& s)
     proc.prepareToPlay(kFs, kBlock);
     // ALWAYS set it, never conditionally: 0 means "the shipped count" and the processor restores it.
     proc.setSolveIters(s.solveIters);
+    proc.setUseClosedForm(s.closedForm);
 }
 
 /** Run `n` samples of `gen` through the processor in blocks after discarding `discard` samples of

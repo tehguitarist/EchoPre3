@@ -59,6 +59,9 @@ public:
      *  CPU-versus-accuracy lever this chain still has now ADAA is gone. */
     void setSolveIters(int n) noexcept { jfet.setSolveIters(n); }
 
+    /** Closed-form solve (production) vs the safeguarded-Newton reference. Test/probe only. */
+    void setUseClosedForm(bool b) noexcept { jfet.setUseClosedForm(b); }
+
     /** Antiderivative anti-aliasing on the JFET shaper. Policy lives in the processor (it is a
      *  function of the oversampling factor); this only carries the decision down. */
     /** AC impedance at the drain node, which sets the load line's slope inside the JFET stage.

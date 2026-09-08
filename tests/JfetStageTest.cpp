@@ -667,72 +667,66 @@ int main()
             fail("DARK must collapse the port to the bare resistor R5 with no state at all");
     }
 
-    // 8c. ⚠ THE FIXED ITERATION COUNT, MEASURED ON BOTH AXES. kSolveIters is a hardcoded constant, so
-    //     something has to keep it honest, and BOTH numbers are needed. The residual alone would have
-    //     passed the old two-iteration count, which was silently 10 dB wrong in H2 at a 0 dBFS peak;
-    //     the harmonic error is what set the count at ten. ⚠ Note the residual is in AMPS now, and it
-    //     is the error in the current rather than the raw |F| -- dF/di runs to ~40 near the load line,
-    //     so the raw residual overstates the error by that factor.
+    // 8c. ⭐⭐ THE CLOSED-FORM SOLVE AGAINST THE SAFEGUARDED NEWTON IT REPLACED.
+    //
+    //     Shichman-Hodges is piecewise quadratic and both the source one-port and the load line are
+    //     linear in the drain current, so every branch has an exact algebraic root -- the stage does
+    //     no iteration at all. The iterative solve is kept solely as the oracle checked here: it
+    //     reaches the same answer by a completely different method, so neither can inherit the
+    //     other's bug, and it is run to 40 iterations so it is the converged one.
+    //
+    //     ⚠⚠ THIS TEST EARNED ITS KEEP IMMEDIATELY. The first port of the closed form returned only
+    //     the cancellation-stable SMALL root of each quadratic, on the reasoning that the physical
+    //     root is the small one. That holds only while b < 0, and b flips sign at about -0.53 V of
+    //     gate drive -- below which the stage fell through to the cutoff branch and returned -Id0 for
+    //     every sample, a 0.9 mA error on a 0.35 mA quiescent current. Selection is by each branch's
+    //     own physical validity condition now, never by magnitude.
     {
-        std::printf("\n8c. Solve convergence at the shipped kSolveIters:\n");
-        const double kHot = 3.0; // 0 dBFS at kInputRef with input trim at +12 dB -- the loudest reachable
-        double worstRes = 0.0;
-        for (const auto m : { dsp::Mode::Bright, dsp::Mode::Dark, dsp::Mode::Mid })
+        std::printf("\n8c. Closed form vs a 40-iteration safeguarded Newton on the same equations:\n");
+        std::printf("    %-8s %-8s %14s %14s\n", "rate", "mode", "worst rel", "worst abs A");
+        double worstRel = 0.0, worstAbs = 0.0;
+        for (const double fs : { 48000.0, 192000.0, 384000.0 })
         {
-            stage.setMode(m);
-            stage.prepare(kFs);
-            for (int n = 0; n < 20000; ++n)
+            for (const auto m : { dsp::Mode::Bright, dsp::Mode::Dark, dsp::Mode::Mid })
             {
-                double x = kHot * std::sin(2.0 * M_PI * 220.0 * (double) n / kFs);
-                if (n % 997 == 0)
-                    x = kHot; // a hard step, i.e. the worst case the solve can be handed
-                stage.processSample(x);
-                worstRes = std::max(worstRes, std::abs(stage.lastSolveResidual()));
-            }
-        }
-        std::printf("    worst Newton residual over a hot tone with steps: %.2e A of drain current\n",
-                    worstRes);
-        if (worstRes > 1.0e-6)
-            fail("the solve is not converging -- raise kSolveIters");
+                dsp::JfetStage closed, iter;
+                closed.setParams(params);
+                iter.setParams(params);
+                closed.setMode(m);
+                iter.setMode(m);
+                closed.prepare(fs);
+                iter.prepare(fs);
+                closed.setUseClosedForm(true);
+                iter.setUseClosedForm(false);
+                iter.setSolveIters(40);
 
-        // The axis that actually decided the count: harmonic error against a converged solve.
-        stage.setMode(dsp::Mode::Dark);
-        auto harmonicsAt = [&stage](double amp, int iters, double* h) {
-            stage.setSolveIters(iters);
-            stage.reset();
-            constexpr int kN = 8192;
-            double a[4] = { 0, 0, 0, 0 }, b[4] = { 0, 0, 0, 0 };
-            for (int n = -2048; n < kN; ++n)
-            {
-                const double th = 2.0 * M_PI * 107.0 * (double) n / kN;
-                const double y = stage.processSample(amp * std::sin(th));
-                if (n < 0)
-                    continue;
-                for (int k = 1; k <= 3; ++k)
+                double wr = 0.0, wa = 0.0;
+                const int n = (int) (fs * 0.05);
+                for (int k = 0; k < n; ++k)
                 {
-                    a[k] += y * std::sin(k * th);
-                    b[k] += y * std::cos(k * th);
+                    const double t = (double) k / fs;
+                    // Two tones so the two branches interleave, plus periodic +12 dB-trim steps.
+                    double x = 4.016 * std::sin(2.0 * M_PI * 220.0 * t) + 1.5 * std::sin(2.0 * M_PI * 3100.0 * t);
+                    if (k % 997 == 0)
+                        x = 12.0;
+                    const double ya = closed.processSample(x);
+                    const double yb = iter.processSample(x);
+                    wa = std::max(wa, std::abs(ya - yb));
+                    wr = std::max(wr, std::abs(ya - yb) / std::max(1.0e-9, std::abs(yb)));
                 }
+                std::printf("    %-8.0f %-8s %14.2e %14.2e\n", fs / 1000.0,
+                            m == dsp::Mode::Bright ? "Bright" : (m == dsp::Mode::Dark ? "Dark" : "Mid"), wr, wa);
+                worstRel = std::max(worstRel, wr);
+                worstAbs = std::max(worstAbs, wa);
             }
-            for (int k = 1; k <= 3; ++k)
-                h[k - 1] = std::hypot(a[k], b[k]);
-        };
-        double worstHarm = 0.0;
-        for (const double amp : { 0.2752, 0.7830, 3.0 })
-        {
-            double got[3], ref[3];
-            harmonicsAt(amp, 40, ref);
-            harmonicsAt(amp, 10, got); // the shipped kSolveIters; setSolveIters is a probe hook only
-            std::printf("    amp %.4f V: H1 %+.4f dB  H2 %+.3f dB  H3 %+.3f dB vs a 40-iteration solve\n",
-                        amp, db(got[0] / ref[0]), db(got[1] / ref[1]), db(got[2] / ref[2]));
-            for (int k = 0; k < 3; ++k)
-                worstHarm = std::max(worstHarm, std::abs(db(got[k] / ref[k])));
         }
-        stage.setSolveIters(10);
-        // 0.05 dB is ~10x below this stage's own shelf error and ~100x below the reference captures'
-        // harmonic floor, so anything under it cannot be the limiting error in this model.
-        if (worstHarm > 0.05)
-            fail("the shipped iteration count does not reach the harmonic accuracy it was chosen for");
+        // Both axes, because either alone can be fooled: the relative figure blows up where the true
+        // current passes through zero, and the absolute figure hides an error that only appears where
+        // the signal is small.
+        if (worstRel > 1.0e-8 || worstAbs > 1.0e-12)
+            fail("the closed-form solve disagrees with an independent solve of the same equations");
+        stage.setMode(dsp::Mode::Dark);
+        stage.prepare(kFs);
     }
 
     // 8d. ⭐⭐ WHAT PATH A EXISTS FOR: compression and third-harmonic content, neither of which the

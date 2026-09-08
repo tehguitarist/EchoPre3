@@ -46,7 +46,8 @@ import gen_test_signal as G
 OUTPUT_JSON = "analysis/reports/harmonic_audit.json"
 ORDERS = (2, 3, 4, 5)
 # kInputRef the renders were made with (src/PluginProcessor.h). Volts per full scale.
-PLUGIN_VFS = 0.87
+# kInputRef is read from src/PluginProcessor.h -- see captures.plugin_vfs().
+PLUGIN_VFS = C.plugin_vfs()
 # 0 dBu in volts RMS, for turning a NAM input_level_dbu into volts per full scale.
 DBU_REF_V = 0.7746
 

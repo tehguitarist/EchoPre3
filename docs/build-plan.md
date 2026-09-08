@@ -1361,3 +1361,76 @@ It was already off at every shipped factor, and FeatureProfile's last run under 
 1× + ADAA as beaten outright by plain 2×. If it is ever wanted back, the saturation branch alone is
 1-D in `w` with the trivial antiderivative `beta·(Vov + w)³/3`; triode would fall back to plain
 evaluation, which makes the behaviour signal-dependent, so let the profile decide first.
+
+
+---
+
+## 17. The optimisation pass (2026-09-09): the solve had an algebraic answer all along
+
+Prompted by "5 % seems high for such a simple circuit", with a suggestion of a fast `tanh`.
+📌 **There is no `tanh` left to speed up** — the device-model rewrite (§16) removed the fitted
+shaper, and what replaced it is pure polynomial with no transcendentals at all. The 5 % was the eight
+Newton iterations, and the instinct that it was too much was right.
+
+### 17.1 ⭐⭐ Shichman-Hodges is piecewise QUADRATIC, so every branch has an exact root
+
+Both networks around the device are LINEAR in the drain current: the source one-port is
+`vs = Rd·i + vOff` and the load line is `Vds_i = Vds_q − i·zLoad − vs`. Substituting them into a
+quadratic device law leaves a quadratic in `i`. With `A = Vov + vGate − vOff` and
+`B = Vds_q − vOff`, `R = zLoad + Rd`:
+
+| branch | equation in `i` |
+|---|---|
+| saturation | `β·Rd²·i² − (2βA·Rd + 1)·i + (βA² − Id0) = 0` |
+| triode | `β·R·D·i² + (1 − β(B·D − R·C))·i + (Id0 − β·B·C) = 0`, `C = 2A − B`, `D = zLoad − Rd` |
+| cutoff / drain bottomed | `i = −Id0`, no solve at all |
+
+Branches are tried in the order they occur in normal use, so the common case costs **one square
+root**. Because the composite map is monotone and C1, exactly one branch's root satisfies its own
+validity condition — that is the selection criterion, with no tolerance to tune.
+
+### 17.2 ⚠⚠ The port dropped a root the prototype had, and it was worth 0.9 mA
+
+The prototype tested **both** roots of each quadratic against the branch conditions. The first C++
+port kept only the cancellation-stable *small* root, `c/q`, on the reasoning that the physical root is
+the small one. That is true only while `b < 0`, and `b = −(2βA·Rd + 1)` flips sign at
+`A = −1/(2β·Rd)`, i.e. at about **−0.53 V of gate drive**. Below that the stage fell through to the
+cutoff branch and returned `−Id0` for every sample — **a 0.9 mA error on a 0.35 mA quiescent
+current**, on roughly half of every waveform.
+
+➡ **Root selection is by each branch's own physical validity condition, never by magnitude.** Both
+roots are computed, in the stable pair `q/a` and `c/q`, and each is offered to the branch test.
+⚠ The stable pair still matters: in saturation `a = β·Rd²` falls to 2.7e-6 at 384 kHz in Bright while
+`b ≈ −1`, so the schoolbook small root is a difference of nearly equal numbers exactly where the
+stage is quietest.
+
+### 17.3 What it costs, and what it does not change
+
+CPU as a percentage of realtime, stereo, per solve strategy:
+
+| factor | closed form | iterative ×8 | iterative ×20 |
+|---|---|---|---|
+| 1× | **0.48 %** | 1.34 % | 2.80 % |
+| 2× | **1.40 %** | 3.13 % | 6.07 % |
+| **4× (default)** | **2.24 %** | 5.74 % | 11.64 % |
+| 8× | **3.91 %** | 11.05 % | 22.84 % |
+
+⭐ **The full device model with its load line now costs LESS than the fitted-shaper approximation it
+replaced** (4.78 % at the 4× default) and is level with the original truncated model (2.07 %). The
+accuracy columns are identical to 0.000 dB on both axes, because the closed form is not an
+approximation of the iterative solve — it is the same equations solved algebraically.
+
+The iterative solve is **retained**, not deleted: it is the independent oracle `JfetStageTest` 8c
+checks the closed form against on every run, reaching the same answer by a completely different
+method so neither can inherit the other's bug. Agreement is **1e-17 A absolute** across three modes ×
+three rates on a two-tone signal with periodic +12 dB-trim steps. `FeatureProfile` A/Bs the two and
+fails if their outputs ever differ.
+
+### 17.4 ⚠ And a calibration bug the same pass had to fix first
+
+Three analysis scripts each carried their own `PLUGIN_VFS = 0.87`. When `kInputRef` moved to 4.4626
+all three kept computing matched-drive offsets that were **silently 14.2 dB wrong** — every harmonic
+and compression comparison made with them since. `captures.plugin_vfs()` now PARSES the constant out
+of `src/PluginProcessor.h`, so the two cannot drift and a rename raises instead of returning a stale
+number. ➡ **A duplicated calibration constant is not a style problem. It is a measurement that
+reports the wrong answer without failing.**
