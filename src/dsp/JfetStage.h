@@ -259,6 +259,23 @@ struct JfetParams
     // so the load line is NOT modelled. It is reachable: +0.370 V of g needs w = +0.281 V, which is
     // a 1.85 V gate swing, about +6.6 dB of input trim. Recorded as a known deferred limit, with the
     // numbers, rather than left as an unexamined "extreme settings only".
+    //
+    // ⚠⚠ "+6.6 dB of input trim" IS A STATEMENT ABOUT kInputRef, NOT ABOUT THE CIRCUIT, and it stops
+    // being reassuring the moment kInputRef moves. The gate swing that reaches the load line is
+    // ~1.6-1.85 V; where that sits in dBFS is entirely the calibration's doing:
+    //
+    //     kInputRef 0.8700 (shipped) -> gate 0.783 V at 0 dBFS -> load line at +7.5 dBFS  (a corner case)
+    //     kInputRef 4.4626           -> gate 4.016 V at 0 dBFS -> load line at -6.7 dBFS  (every peak)
+    //
+    // 4.4626 V/FS is what a well-recorded guitar metering -12 dBFS RMS at ~0.78 V implies, and the
+    // owner reports that as normal practice. ⛔ So if kInputRef is ever raised toward it, the load
+    // line MUST be implemented in the same change: at that calibration this stage would return a
+    // smooth ~2 dB of compression exactly where the real drain slams into triode. That is the same
+    // coupling as the Volterra truncation and Vov -- see docs/build-plan.md §15.6.
+    //
+    // ⚠ And do NOT re-derive this by comparing an input swing to |Vp|: the source follows, so the
+    // effective vgs is the gate swing over k, and 4.0 V at the gate is only 0.49 V across the
+    // junction against a 1.70 V pinch-off. That comparison was made and was wrong.
     double limitPos = 1.8482823; // V -- 1.5*L + a*s^2/2 = 3.00 = (IDSS - Id0)/gm, the channel ceiling.
     double limitNeg = 0.34264635; // V -- see the monotonicity note below.
 

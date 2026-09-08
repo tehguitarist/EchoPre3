@@ -1207,33 +1207,53 @@ P1's measured H2, over the datasheet-admissible `Vov` range, gives **V/FS ∈ [0
 with −12 dBu. It is a wide bracket and does not pin −12 against −5, but it moves note #10's blocker
 (1) from "rests entirely on a recollection" to "corroborated in magnitude by measurement".
 
-### 15.6 What this says about `kInputRef`, and why 4.46 V/FS is ruled out by the circuit
+### 15.6 `kInputRef`: the owner's level is correct, and it makes the LOAD LINE the main event
 
-`kInputRef` answers one question: **what voltage at the pedal's input does a full-scale sample in the
-user's session represent?** Running the shipped stage at each candidate:
+⚠⚠ **A CLAIM IN THE FIRST DRAFT OF THIS SECTION WAS WRONG AND IS CORRECTED HERE.** It said 4.46 V/FS
+was "forbidden by the device" because a 0 dBFS peak puts 4.0 V on the gate, "2.4× past pinch-off".
+**That comparison ignores the degeneration, which is the entire job of R5.** The source follows, so
+the effective gate-source drive is the gate swing divided by `k`, and at low frequency `k = K0 = 6.59`:
 
-| `kInputRef` | gate at −12 dBFS | gate at 0 dBFS | H2 | H3 | compression |
-|---|---|---|---|---|---|
-| 0.2752, P1's capture rig | 0.062 V | 0.248 V | −50.0 dBc | −77.8 | −0.003 dB |
-| **0.8700, shipped** | **0.197 V** | **0.783 V** | **−39.5 dBc** | **−57.6** | **−0.032 dB** |
-| 1.5000 | 0.339 V | 1.350 V | −33.0 dBc | −44.5 | −0.128 dB |
-| 4.4626, interface at unity | 1.009 V | 4.016 V | −14.4 dBc | −23.5 | −2.035 dB |
+| gate volts | effective vgs `w` | w / Vov | source vs |
+|---|---|---|---|
+| 0.783 | 0.108 V | 0.24 | 0.675 V |
+| 1.009 | 0.137 V | 0.31 | 0.873 V |
+| 2.000 | 0.254 V | 0.57 | 1.747 V |
+| 4.016 | 0.489 V | 1.09 | 3.527 V |
 
-⛔ **4.46 V/FS is not a taste call, it is forbidden by the device.** With `gm` measured, the one-
-parameter self-bias family caps pinch-off at **|Vp| = 1.696 V**, and the drain enters triode at a
-1.85 V gate swing. A 0 dBFS peak at 4.46 V/FS puts **4.0 V on the gate** — 2.4× past pinch-off. The
-real pedal could not be clean either. So a DI track that genuinely delivered that would need the
-input trim at its −12 dB stop.
+4 V at the gate is **0.49 V across the junction**, against a pinch-off of 1.696 V. Not close. The
+model handles it and returns about 2 dB of compression. ➡ **Comparing an input swing to |Vp| on a
+degenerated stage is a category error.** It is the same trap `circuit.md` stage 2 warns about from the
+other direction, and it slipped through here.
 
-📌 **The resolution is that a DI track's level is set by the preamp gain knob, not by the interface's
-unity spec.** Reaching −12 dBFS average implies gain is being added, so the guitar's own voltage is
-below the 0.79 V RMS that unity-gain arithmetic implies. ✅ The shipped 0.87 V/FS says a −12 dBFS
-average track is **0.155 V RMS at the pedal, peaking at 0.78 V on the gate** — a normal-to-hot
-guitar, landing where the pedal's reputation puts it: clean with a trace of grit, and **6.6 dB of
-headroom left above 0 dBFS before the unmodelled load line bites**, which is exactly the margin
-`JfetStage.h` records.
+**The owner's level is right.** A well-recorded guitar metering −12 dBFS RMS does measure about
+0.78 V, which fixes `kInputRef ≈ 4.46 V/FS`. It is a statement about guitars and recording practice,
+not about this circuit, and nothing in the circuit contradicts it.
 
-⭐ **The measurement that would settle it costs one extra pass during the capture session:** record a
+⭐⭐ **What it does change is which unmodelled mechanism matters.** The real limit is the LOAD LINE,
+not pinch-off: `Vds = VA − Id·(R6 + R5)` falls to the instantaneous overdrive at `w = 0.245 V`, a
+**1.62 V gate swing** (`JfetStage.h` records 1.85 V on a slightly stricter criterion). Where that
+lands depends entirely on `kInputRef`:
+
+| `kInputRef` | gate at 0 dBFS | load line reached at | verdict |
+|---|---|---|---|
+| **0.8700, shipped** | 0.783 V | **+7.5 dBFS** | unreachable without input trim — a corner case |
+| 1.5000 | 1.350 V | +2.7 dBFS | reachable on peaks |
+| **4.4626, the owner's calibration** | 4.016 V | **−6.7 dBFS** | **the top 6.7 dB of every normally-tracked take** |
+
+➡ **At 0.87 the load line is a documented corner case reachable only at +6.6 dB of trim. At 4.46 it
+is the pedal's character on every pick attack.** `JfetStage.h` currently does not model it at all, so
+at the owner's calibration the stage would return smooth 2 dB compression exactly where the real
+circuit slams its drain into triode.
+
+⚠ **So this is the THIRD instance of the same coupling pattern on this project** (truncation with
+`Vov`, `Vov` with the load line, now `kInputRef` with the load line): **applying `kInputRef` alone
+would ship a stage that is quantitatively wrong precisely where users play.** Do the two together.
+📌 Note `kInputRef` cancels out of the linear gain staging — `processBlock` multiplies by it going in
+and divides by it coming out — so changing it is a pure "how hard is the circuit driven" control with
+no level side effect, and it does not invalidate any existing fit, since every capture comparison is
+made at matched DRIVE computed from the ratio.
+
+⭐ **The measurement that would confirm it costs one extra pass during the capture session:** record a
 DI of the guitar through the same interface input at a noted gain setting. The DI's peak dBFS, with
-the interface calibration already known, gives the guitar's actual peak volts — which IS `kInputRef`,
-directly, with no inference.
+the interface calibration known, gives the guitar's actual peak volts, which IS `kInputRef` directly.
