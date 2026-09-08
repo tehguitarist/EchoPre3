@@ -686,19 +686,28 @@ high, execute routine work cheap) is what should persist.
 > 3. ⭐ **A VOLUME sweep, everything else fixed.** Still the only within-rig measurement that can settle
 >    the taper (p ≈ 2.0), the 3.9 dB vs 1–2 dB fall-back, and the C10 corner — all three are currently
 >    blocked on exactly this and nothing else.
-> 4. ⭐⭐ **SET NAM's INPUT CALIBRATION TO −2 dBu. Not "hot", not "near P3" — exactly −2 dBu.**
->    `V/FS = 0.7746 × 10^(−2/20) × √2 = 0.8701`, which **IS `kInputRef` = 0.87 to three decimals.** At
->    that setting the capture's digital levels map 1:1 onto the plugin's, so matched-drive A/B becomes
->    matched-LEVEL A/B, the whole drive-offset axis disappears, and the aEven-versus-reamp-level
->    degeneracy cannot recur for this unit. −3 dBu is within 1 dB and −4 dBu within 2 dB if the rig
->    cannot hit it exactly; **−12 dBu, P1's setting, is 10 dB too quiet and is why P1's entire
->    nonlinear dataset is floor.**
+> 4. ⭐⭐ **SET NAM's INPUT CALIBRATION TO +12.2 dBu — i.e. reamp at UNITY, no attenuation.**
+>    ⚠ SUPERSEDES an earlier "−2 dBu" in this file, which was correct only while `kInputRef` was
+>    0.87. The rule is `input_level_dbu = 20·log10(kInputRef / 1.0955)`, and `kInputRef` is moving to
+>    **4.4626 V/FS** — the value a well-recorded guitar metering −12 dBFS RMS at ~0.78 V implies, and
+>    the owner's own tracking calibration. `20·log10(4.4626/1.0955) = +12.20 dBu`, which is exactly
+>    the interface's output at full scale, so **the reamp box should pass unity rather than attenuate.**
+>    ✅ This puts the capture's digital levels 1:1 onto the plugin's, and the existing test signal then
+>    spans 0.022 V to 3.98 V at the pedal — from clean right through the load line, which is precisely
+>    the range no existing capture covers.
+>    (Historic, for the arithmetic: `V/FS = 0.7746 × 10^(dBu/20) × √2`. At
+>    −12 dBu, P1's setting, V/FS is 0.2752 — 24.2 dB below the interface, i.e. an ordinary reamp
+>    attenuation, and why P1's entire nonlinear dataset is floor.)
+>    ⚠ If the rig cannot hit +12.2 exactly, note the actual figure and the offset is arithmetic.
+>    ⛔ Do NOT attenuate "to be safe": the whole point is to reach the loud end.
 >    ⚠ **This is also what fixes the COVERAGE hole, which is bigger than the floor problem.** At
->    −12 dBu even the signal's hottest cell (−1 dBFS) puts only 0.22 V on the gate, which is what a
->    user playing at **−11 dBFS** produces. Everything above that is extrapolation. Rhythm guitar
->    tracked at −12 dBFS average with a ~12 dB crest factor peaks at 0 dBFS = **0.78 V on the gate**,
->    which P1's rig would need +10 dBFS to reach — 11 dB off the top of the capture set. At −2 dBu the
->    existing signal covers the whole range with nothing left over.
+>    P1's −12 dBu even the signal's hottest cell (−1 dBFS) puts only 0.22 V on the gate. Under the new
+>    calibration that is what a user playing at **−25 dBFS** produces, so the ENTIRE existing dataset
+>    describes quiet playing and nothing else. Rhythm guitar at −12 dBFS average with a ~12 dB crest
+>    peaks at 0 dBFS = **4.0 V at the gate**, and the drain enters triode at a ~1.6 V gate swing, i.e.
+>    at **−6.7 dBFS** — so the top 6.7 dB of every normal take is in the load-line region that no
+>    existing capture reaches and that the model did not implement. Capturing at +12.2 dBu is what
+>    puts that region on the record.
 > 5. Both switch positions, and the null/no-plugin render (still missing — M0 has never run).
 > 6. ⭐ **A DI of the guitar through the same interface input, at a noted gain setting.** One extra
 >    pass while the gear is already set up, and it is the ONLY thing that pins `kInputRef` without
