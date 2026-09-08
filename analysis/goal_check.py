@@ -17,6 +17,19 @@ magnitude under the instrument. Only the +12.2 dBu capture session can move that
 The frequency-response target IS measurable, and against P1 only: circuit.md note #9 disqualifies P2
 (cable pole, inverted polarity) and P3 (shelf-blind fit) for absolute response.
 
+⚠⚠ BUT READ THE FR MISSES WITH circuit.md NOTE #17 BESIDE THEM -- NEITHER CLUSTER IS A MODEL DEFECT.
+The core-band cells this table reports as over target fall into two groups and both are the
+reference's, not the plugin's:
+  * 80-127 Hz, +0.6 to +1.06 dB -- the missing LF high-pass pole, confounded 27 / 18 / 13.5 Hz
+    across three units (note #7's M4, note #9d). Blocked on the within-rig VOLUME sweep.
+  * 4064-8127 Hz, -0.5 to -0.67 dB -- P1's own HF error. Note #17: the plugin's input pole is
+    confirmed at 7.3 kHz by P2 (0.02 dB residual, all three modes) and accommodated by P3, while P1
+    cannot be described by ANY pole cascade containing one, and its best fit still leaves a
+    structured +0.3 dB hump at 3-5 kHz -- the same size as the miss. P1 is BRIGHTER there than the
+    circuit as drawn can be, and an extra pole can only darken.
+⛔ So do not move an input-network constant to close either cluster. P1 is the only capture that can
+carry an absolute anchor and it is also the noisiest model in the set; those are both true at once.
+
 ⚠ Level is not shape. kOutputMakeup is still exactly 1.0 and unanchored, so every comparison here is
 normalised over the midband and reads SHAPE. An absolute-level target needs `output_level_dbu`.
 
