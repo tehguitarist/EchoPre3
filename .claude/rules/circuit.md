@@ -907,7 +907,21 @@ un-confounds it. ⛔ Still needs the within-rig VOLUME sweep.
 ### 10. ⭐⭐ P1's input calibration is known (−12 dBu) — the level degeneracy is broken for one unit
 
 Owner-reported 2026-09-08; **not** recorded in any `.nam` file (none of the seven carries
-`input_level_dbu`/`output_level_dbu` — checked). Full reasoning in `src/dsp/JfetStage.h`; the
+`input_level_dbu`/`output_level_dbu` — checked).
+
+⚠⚠ **SAY WHERE IN THE CHAIN A LEVEL IS MEASURED — this ambiguity was worth 24 dB.** The same rig is
+also described as **+12.2 dBu = 3.156 V RMS = 4.46 V peak at 0 dBFS**, and both figures are correct:
++12.2 dBu is the **interface's output at full scale**, while NAM's `input_level_dbu` is measured **at
+the gear's input jack, after the reamp box**. The 24.2 dB between them is an ordinary reamp
+attenuation, and `4.4626 / 10^(24.2/20) = 0.2752 V`, which is the −12 dBu figure exactly.
+
+⭐ **The circuit brackets the pedal-side value independently, and rules the interface-side one out.**
+Solving `H2/H1 = A_gate/(4·Vov·k²)` for the rig's V/FS from P1's measured H2, across the datasheet's
+admissible `Vov` range, gives **V/FS ∈ [0.103, 0.999] V = [−20.6, −0.8] dBu**. That is wide — it does
+not pin −12 dBu against, say, −5 — but it fixes the order of magnitude from measurement alone, and it
+excludes 4.46 V/FS by 13 dB. ➡ Note #10's blocker (1), "nothing in the data can re-derive it", is
+therefore **partly discharged**: the recollection is now corroborated in magnitude rather than taken
+on trust. Full reasoning in `src/dsp/JfetStage.h`; the
 per-order data is `analysis/reports/harmonic_audit.json`.
 
 `V/FS = 0.7746 × 10^(−12/20) × √2 = 0.2752 V` per full scale. ✅ Inside the ≤ 0.41 V/FS bound that

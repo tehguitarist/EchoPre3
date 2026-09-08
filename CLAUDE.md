@@ -700,6 +700,13 @@ high, execute routine work cheap) is what should persist.
 >    which P1's rig would need +10 dBFS to reach — 11 dB off the top of the capture set. At −2 dBu the
 >    existing signal covers the whole range with nothing left over.
 > 5. Both switch positions, and the null/no-plugin render (still missing — M0 has never run).
+> 6. ⭐ **A DI of the guitar through the same interface input, at a noted gain setting.** One extra
+>    pass while the gear is already set up, and it is the ONLY thing that pins `kInputRef` without
+>    inference: the DI's peak dBFS plus the interface's known calibration gives the guitar's actual
+>    peak volts, which IS `kInputRef`.
+>    ⚠⚠ **And write down WHERE each level is measured.** The interface's +12.2 dBu at 0 dBFS and the
+>    pedal jack's −12 dBu are the SAME rig with a 24.2 dB reamp box between them. Both are correct;
+>    confusing them is a 24 dB error that would invert every harmonic conclusion on record.
 
 > ### ⭐⭐ A REAL BUG FIXED 2026-09-08: `useIntegerLatency = true` WAS DEFEATING THE LINEAR-PHASE FIR
 >

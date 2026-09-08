@@ -1185,3 +1185,55 @@ declared calibration rather than pinning the calibration; the bypassed capture i
 📌 **Not a defect, though it reads like one:** the 20 Hz tone cell is 29.5 cycles long and perfectly
 well formed. The reference models' 132 ms receptive field sees only **2.6 periods** of it, which is
 why that band is floor (§13.1). No change to the signal can fix that.
+
+### 15.5 ⚠⚠ dBu versus dBFS, and where in the chain a level is measured (worth 24 dB)
+
+Raised because the same rig is described both as **−12 dBu** and as **+12.2 dBu = 3.156 V RMS =
+4.46 V peak at 0 dBFS**. **Both are correct**, and they describe different points:
+
+| point in the chain | level | V per full scale |
+|---|---|---|
+| interface output at 0 dBFS | +12.2 dBu | 4.4626 V peak |
+| reamp box attenuation | −24.2 dB | — |
+| **pedal input jack — this is what NAM's `input_level_dbu` means** | **−12 dBu** | **0.2752 V peak** |
+
+`4.4626 / 10^(24.2/20) = 0.2752`, so the two are the same rig with an ordinary reamp box between
+them. ➡ **Always state where a level is measured.** Taken at the wrong point this is a 24.2 dB error,
+which would have inverted every harmonic conclusion in §13 and §14.
+
+**The circuit settles it independently.** Solving `H2/H1 = A_gate/(4·Vov·k²)` for the rig's V/FS from
+P1's measured H2, over the datasheet-admissible `Vov` range, gives **V/FS ∈ [0.103, 0.999] V**, i.e.
+**−20.6 to −0.8 dBu at the jack**. That excludes the interface-side figure by 13 dB and is consistent
+with −12 dBu. It is a wide bracket and does not pin −12 against −5, but it moves note #10's blocker
+(1) from "rests entirely on a recollection" to "corroborated in magnitude by measurement".
+
+### 15.6 What this says about `kInputRef`, and why 4.46 V/FS is ruled out by the circuit
+
+`kInputRef` answers one question: **what voltage at the pedal's input does a full-scale sample in the
+user's session represent?** Running the shipped stage at each candidate:
+
+| `kInputRef` | gate at −12 dBFS | gate at 0 dBFS | H2 | H3 | compression |
+|---|---|---|---|---|---|
+| 0.2752, P1's capture rig | 0.062 V | 0.248 V | −50.0 dBc | −77.8 | −0.003 dB |
+| **0.8700, shipped** | **0.197 V** | **0.783 V** | **−39.5 dBc** | **−57.6** | **−0.032 dB** |
+| 1.5000 | 0.339 V | 1.350 V | −33.0 dBc | −44.5 | −0.128 dB |
+| 4.4626, interface at unity | 1.009 V | 4.016 V | −14.4 dBc | −23.5 | −2.035 dB |
+
+⛔ **4.46 V/FS is not a taste call, it is forbidden by the device.** With `gm` measured, the one-
+parameter self-bias family caps pinch-off at **|Vp| = 1.696 V**, and the drain enters triode at a
+1.85 V gate swing. A 0 dBFS peak at 4.46 V/FS puts **4.0 V on the gate** — 2.4× past pinch-off. The
+real pedal could not be clean either. So a DI track that genuinely delivered that would need the
+input trim at its −12 dB stop.
+
+📌 **The resolution is that a DI track's level is set by the preamp gain knob, not by the interface's
+unity spec.** Reaching −12 dBFS average implies gain is being added, so the guitar's own voltage is
+below the 0.79 V RMS that unity-gain arithmetic implies. ✅ The shipped 0.87 V/FS says a −12 dBFS
+average track is **0.155 V RMS at the pedal, peaking at 0.78 V on the gate** — a normal-to-hot
+guitar, landing where the pedal's reputation puts it: clean with a trace of grit, and **6.6 dB of
+headroom left above 0 dBFS before the unmodelled load line bites**, which is exactly the margin
+`JfetStage.h` records.
+
+⭐ **The measurement that would settle it costs one extra pass during the capture session:** record a
+DI of the guitar through the same interface input at a noted gain setting. The DI's peak dBFS, with
+the interface calibration already known, gives the guitar's actual peak volts — which IS `kInputRef`,
+directly, with no inference.

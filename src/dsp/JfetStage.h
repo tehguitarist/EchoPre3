@@ -163,8 +163,22 @@ struct JfetParams
     //
     // ⛔ NOT APPLIED, and here is the honest reason rather than caution for its own sake:
     //   1. The -12 dBu figure is the owner's recollection. It is NOT in the .nam metadata -- none of
-    //      the seven files carries input_level_dbu or output_level_dbu (checked). Nothing in the
-    //      data can re-derive it, so the whole result rests on that one external fact.
+    //      the seven files carries input_level_dbu or output_level_dbu (checked).
+    //      ⭐ PARTLY DISCHARGED 2026-09-08: the circuit now brackets it independently. Solving
+    //      H2/H1 = A_gate/(4*Vov*k^2) for the rig's V/FS at P1's measured H2, over the datasheet's
+    //      admissible Vov range, gives V/FS in [0.103, 0.999] V = [-20.6, -0.8] dBu. That is a wide
+    //      bracket -- it does NOT pin -12 dBu specifically, and is equally consistent with -5 -- but
+    //      it fixes the ORDER OF MAGNITUDE from measurement alone, which is the part that was
+    //      resting purely on memory.
+    //      ⚠⚠ AND IT SETTLED A REAL AMBIGUITY THAT WAS WORTH 24 dB. The owner separately quotes
+    //      +12.2 dBu = 3.156 V RMS = 4.46 V peak at 0 dBFS. Both numbers are correct and they
+    //      describe DIFFERENT POINTS IN THE CHAIN: +12.2 dBu is the INTERFACE's output at full
+    //      scale, while NAM's input_level_dbu is measured AT THE GEAR'S INPUT JACK, i.e. after the
+    //      reamp box. The difference is 24.2 dB, an entirely ordinary reamp attenuation, and
+    //      4.4626 V / 10^(24.2/20) = 0.2752 V, which is the -12 dBu figure exactly. The bracket
+    //      above independently rules the interface-side number out by 13 dB: 4.46 V/FS at the
+    //      pedal would need Vov far outside the datasheet.
+    //      ➡ Whenever a level is written down here, say WHERE in the chain it is measured.
     //   2. The sd of 2.98 dB is not the fit's precision, it is the CAPTURE's floor. A known-answer
     //      probe (below the shelf zero every mode has Zs = R5, so H2 in dBc must be IDENTICAL across
     //      modes) reads 1.5-21.3 dB of spread on P1, typically 4-9. So Vov is pinned to about a
