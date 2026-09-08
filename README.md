@@ -14,7 +14,7 @@ rather than curve-fit.
 > Echo Pre 3 is an independent circuit emulation built from schematic analysis and is not
 > affiliated with or endorsed by Echoplex, Oberheim, or Chase Tone.
 
-<img src="docs/images/screenshot.png" width=50% />
+<img src="docs/images/screenshot.png"/>
 
 ## Status
 
