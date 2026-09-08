@@ -32,6 +32,10 @@ public:
     /** Test hook: closed-form solve vs the iterative reference. Production is always closed form. */
     void setUseClosedForm(bool b);
 
+    /** Measurement hook: the JFET stage's one amplitude parameter, Vov. Sweeping it is how it gets
+     *  fitted against a calibrated capture; production leaves it at JfetParams' shipped value. */
+    void setVov(double v);
+
     bool isBusesLayoutSupported(const BusesLayout&) const override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 

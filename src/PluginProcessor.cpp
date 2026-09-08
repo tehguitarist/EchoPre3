@@ -206,6 +206,12 @@ void PedalAudioProcessor::setUseClosedForm(bool b)
         d.setUseClosedForm(b);
 }
 
+void PedalAudioProcessor::setVov(double v)
+{
+    for (auto& d : dsp)
+        d.setVov(v);
+}
+
 bool PedalAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
     const auto& out = layouts.getMainOutputChannelSet();

@@ -62,6 +62,17 @@ public:
     /** Closed-form solve (production) vs the safeguarded-Newton reference. Test/probe only. */
     void setUseClosedForm(bool b) noexcept { jfet.setUseClosedForm(b); }
 
+    /** Overdrive at the quiescent point -- the stage's ONE amplitude parameter. Measurement hook:
+     *  fitting it means sweeping it and comparing harmonics against a calibrated capture, and every
+     *  other quantity in the device model is derived from it, so it cannot be swept from outside.
+     *  Production never calls this; JfetParams::vov is the shipped value. */
+    void setVov(double v)
+    {
+        auto p = jfet.getParams();
+        p.vov = v;
+        setParams(p);
+    }
+
     /** Antiderivative anti-aliasing on the JFET shaper. Policy lives in the processor (it is a
      *  function of the oversampling factor); this only carries the decision down. */
     /** AC impedance at the drain node, which sets the load line's slope inside the JFET stage.

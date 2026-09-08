@@ -3,6 +3,7 @@
 //   ./build/OfflineRender_artefacts/Release/OfflineRender <in.wav> <out.wav> \
 //         [--os 1|2|4|8] [--volume 0..1] [--mode bright|dark|mid] \
 //         [--input-trim dB] [--output-trim dB] [--input-scale dB] [--bypass 0|1] [--block N]
+//         [--vov V]
 //
 // The CLI contract is fixed by the callers already in the tree: comprehensive_report.py,
 // farina_validate.py, hf_thd_flatness_check.py, knob_tolerant_null.py and
@@ -78,6 +79,7 @@ int main(int argc, char* argv[])
     StringArray positional;
     int osFactor = 8;
     double volume = 0.5, inputTrim = 0.0, outputTrim = 0.0, inputScaleDb = 0.0;
+    double vov = 0.0; // 0 = leave the shipped JfetParams::vov alone
     int modeIndex = 1; // Dark -- the APVTS default
     bool bypass = false;
     int blockSize = 512;
@@ -103,6 +105,8 @@ int main(int argc, char* argv[])
             inputTrim = v.getDoubleValue();
         else if (a == "--input-scale")
             inputScaleDb = v.getDoubleValue();
+        else if (a == "--vov")
+            vov = v.getDoubleValue();
         else if (a == "--output-trim")
             outputTrim = v.getDoubleValue();
         else if (a == "--bypass")
@@ -185,6 +189,14 @@ int main(int argc, char* argv[])
         p->setValueNotifyingHost(p->convertTo0to1((float)osIndex));
     if (auto* p = dynamic_cast<AudioParameterChoice*>(proc.apvts.getParameter("render_oversampling")))
         p->setValueNotifyingHost(p->convertTo0to1((float)osIndex));
+
+    // --vov overrides the JFET stage's one amplitude parameter. It is a MEASUREMENT flag, not a
+    // plugin control: fitting Vov means sweeping it against a calibrated capture, and every other
+    // quantity in the device model (Id0, beta, |Vp|, IDSS, the quiescent drain voltage) is derived
+    // from it, so it cannot be swept from outside the stage. Set before prepareToPlay so the
+    // derived operating point is in place when the first block runs.
+    if (vov > 0.0)
+        proc.setVov(vov);
 
     proc.setNonRealtime(true);
     proc.setPlayConfigDetails(2, 2, sampleRate, blockSize);
