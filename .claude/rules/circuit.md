@@ -959,6 +959,16 @@ the exact solve compresses −0.032 dB at the shipped `Vov` but **−1.05 dB at 
 vs −24.5 dBc. Lowering the curvature alone would leave the stage quantitatively wrong in its own
 normal operating range.
 
+📌 **RECONCILED 2026-09-08, and the discrepancy is itself a measurement.** Note #12 replaced the
+truncation, and the shipped stage now reads **−0.0324 dB** at the shipped `Vov`, matching this
+oracle's −0.032 to three decimals. At `Vov` = 0.150 it reads **−0.808 dB**, not −1.05. The two are
+not in conflict: **this oracle used a PURE parabola, and the shipped shaper uses the `tanh²` even
+bump**, which saturates where the true parabola does not. That gap is 23 % of the compression at
+`Vov` = 0.150 and only 4.5 % at the shipped value, because truncation error and shaper error both
+grow with curvature. ➡ **The `tanh²` bump is now the largest remaining shaper approximation**, and it
+is the thing to replace alongside `Vov` — `JfetStage.h` already flags it as a known 0.4 dB of H2 at
+0 dBFS, deferred at the time because the truncation was larger. It no longer is.
+
 
 ### 12. ⭐⭐ Path A (2026-09-08) — the loop is SOLVED now, not expanded. Compression and H3 are real.
 
@@ -1049,3 +1059,38 @@ it is the **fixed Newton iteration count leaving a mode-dependent bias**, becaus
 ~30× between Dark and Bright so two iterations converge to different depths per mode. Converging the
 solve collapses it to 0.00005 dB. It is 85× below the capture floor and changes nothing — but it is
 exactly the residue that would later be mistaken for a real mode asymmetry.
+
+### 15. ⭐⭐ The reference is NOISE-FREE — so every "floor" in this file is systematic, not noise
+
+`analysis/imd_and_floors.py`, raw `analysis/reports/imd_and_floors.json`, write-up
+`docs/build-plan.md` §14. Two helpers had sat uncalled in `analyze.py` since the harness was built.
+
+Measured across all seven captures: **noise floor −99 to −132 dBFS**, and **repeatability −114 to
+−135 dB** (the residual between a cell and a byte-identical duplicate placed elsewhere in the
+signal). These models are deterministic to well below anything else here.
+
+➡ **The 4–9 dB harmonic floor, the 0.145–0.210 dB compression floor and the 1.9–20.2 dB per-band THD
+floor are all SYSTEMATIC MODEL ERROR, not measurement noise.** Three consequences:
+
+1. ⛔ **None of them will average down.** More cells, longer dwells, repeated measurement: no gain.
+2. They are fixed functions of the signal, not random variables, so a ± on them is misleading.
+3. ⚠ The mode-spread probe measures a **difference of two systematic errors**, which can partially
+   cancel — a second way it under-reports, on top of the common-mode blindness in note #13.
+
+**Also settled, from the same run:** the reference models put **nothing off the 220 Hz harmonic
+grid** in the twin-tone segment, to −136.6 dBc, which is the files' own quantisation floor. Their
+error is wrong amplitudes on the right bins, not spurious junk, and there is no evidence of memory
+effects or aliasing artefacts in the references.
+
+⚠⚠ **And the twin-tone segment cannot measure intermodulation at all:** it is 220 + 660 Hz and
+660 = 3 × 220 exactly, so every product lands on the 220 Hz harmonic grid and neither input tone is a
+clean amplitude reference. Fixing it needs a NEW segment with an inharmonic pair, since the signal is
+append-only. Worth doing at the next signal revision; not worth a re-capture on its own.
+
+📌 **A third route reaches note #10's split, independently.** Level slopes of the twin-tone products
+put P1's at 0.1–0.9 dB/dB where 1.0 and 2.0 are required, i.e. flat and therefore floor, while
+P2-bright reaches 1.64 dB/dB on a third-order product and P3 returns 1.00/1.03/1.02 on the
+second-order ones. ⭐ The PLUGIN returns 1.00/1.00/1.00/2.00/2.00 exactly, which is the known-answer
+check that the instrument works before any capture is read. **The calibrated unit's nonlinear data is
+floor and the units with real nonlinear data are uncalibrated — confirmed now by three separate
+signals. Asking the P2/P3 trainers for `input_level_dbu` is still the highest-value one-message ask.**

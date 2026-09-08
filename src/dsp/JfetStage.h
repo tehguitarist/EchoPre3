@@ -188,10 +188,20 @@ struct JfetParams
     // which is where aEven = 1/Vov comes from: it is not a fitted knob, it is the square law. A tanh
     // structurally cannot produce an even-dominant stage (nonlinear doc section 2 finding (a)), hence
     // the linear-core-plus-even-bump form, whose bump is exactly even and adds no odd content.
-    // ⚠ Known deviation, measured: tanh^2 saturates where the true parabola does not, so at a 0 dBFS
-    // input (w ~ 0.118 V) the bump is 4.5% (0.4 dB of H2) below the exact parabola, growing with
-    // drive. An exact parabola with a cutoff clamp is the refinement; it is not the dominant error
-    // (the Volterra truncation below is larger), so both are deferred together.
+    // ⚠⚠ Known deviation, measured -- AND IT IS NOW THE LARGEST SHAPER APPROXIMATION LEFT. tanh^2
+    // saturates where the true parabola does not, so at a 0 dBFS input (w ~ 0.118 V) the bump is
+    // 4.5% (0.4 dB of H2) below the exact parabola, growing with drive. That was deferred because
+    // the Volterra truncation was bigger; Path A removed the truncation, so it no longer is.
+    // Quantified against the pure-parabola oracle (circuit.md note #11) now that the two are
+    // directly comparable: at the shipped Vov the shipped stage and that oracle agree to three
+    // decimals (-0.0324 vs -0.032 dB of compression), but at Vov = 0.150 the shipped shaper gives
+    // -0.808 dB against the parabola's -1.05 -- 23% of the compression, lost to the bump's
+    // saturation. Both errors grow with curvature, which is why lowering Vov makes this one matter.
+    // ➡ Replace it with the exact parabola plus its cutoff clamp AT THE SAME TIME AS Vov, not
+    // separately. Two notes for whoever does: the parabola's antiderivative is easier than tanh^2's
+    // (which is the only reason tanh^2 was chosen), and the clamp is REQUIRED -- a bare parabola
+    // turns over at w = -Vov, which would break both ADAA and solveDevice()'s monotone-Newton
+    // guarantee.
     double aEven = 2.2374867; // 1/V -- = 1/Vov. THE square-law parameter, now derived from measured gm.
     double bumpScale = 0.44693002; // V -- even-bump scale = Vov. Then a*s = 1 and the bump saturates
                                    //      at a*s^2/2 = Vov/2 = Id0/gm, i.e. exactly the cutoff

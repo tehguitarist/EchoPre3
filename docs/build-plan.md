@@ -1034,3 +1034,90 @@ range. Path A across the admissible bracket, DARK, all derived parameters moved 
 about a factor of 1.4; and it moves the drain 14.4 → 19.4 V, which **invalidates the load-line
 arithmetic in `JfetStage.h`**. The fourth reason (the truncation) is now discharged. ➡ Apply it
 together with a re-derived load line, or wait for a calibrated capture.
+
+---
+
+## 14. The three unread measurements (2026-09-08): floors, and the twin-tone segment
+
+`analysis/imd_and_floors.py`, raw `analysis/reports/imd_and_floors.json`. No new captures. Run
+because two helpers had been sitting in `analyze.py` uncalled since the harness was written and no
+script had ever touched an `imd_guitar_*` segment.
+
+### 14.1 ⭐⭐ The reference captures have no noise and perfect repeatability — so "floor" has meant the wrong thing
+
+| capture | noise floor | repeatability |
+|---|---|---|
+| P1 bright / dark / mid | −117.7 / −112.1 / −131.7 dBFS | −122.0 / −123.7 / −122.6 dB |
+| P2 bright / dark / mid | −107.6 / −124.0 / −112.7 dBFS | −135.1 / −114.9 / −114.3 dB |
+| P3 mid | −99.2 dBFS | −115.5 dB |
+
+The repeatability figure is the residual between a cell and a byte-identical duplicate of it placed
+elsewhere in the signal. At −114 to −135 dB these models are, for practical purposes, **deterministic
+and memoryless-repeatable**. ➡ **The 4–9 dB harmonic "floor" this project quotes is therefore NOT
+NOISE. It is the models' systematic error.** Three consequences that change how every floor number
+here should be read:
+
+1. ⛔ **It will not average down.** More cells, longer dwells and repeat measurements buy nothing.
+   Any plan that assumed a noise floor could be beaten by more integration is void.
+2. **It is a fixed function of the signal, not a random variable.** Quoting it with a ± implies a
+   spread it does not have.
+3. ⚠ **The mode-spread probe measures a DIFFERENCE of two systematic errors**, which can partially
+   cancel. That is a second reason it under-reports, on top of the common-mode blindness §13.1
+   already recorded.
+
+### 14.2 ⚠⚠ The twin-tone segment cannot measure intermodulation, by arithmetic
+
+It is 220 Hz + 660 Hz, and **660 = 3 × 220 exactly**. Every product of a memoryless nonlinearity is
+`m·f1 + n·f2 = (m + 3n)·220`, so all of them land on the 220 Hz harmonic grid:
+
+| product | lands on | collides with |
+|---|---|---|
+| f2 − f1 = 440 | 2·f1 | H2 of f1 |
+| f2 + f1 = 880 | 4·f1 | H4 of f1 |
+| 3·f1 = 660 | f2 | **the second input tone** |
+| 2·f1 − f2 = −220 | f1 | **the first input tone** |
+
+So no product is separable from harmonic distortion, and **neither input tone is a clean amplitude
+reference**, each being contaminated by a third-order product of the other. The contaminations are
+third order and this stage is even-dominant, so the reference error is small but not zero, and no
+"use the other tone" workaround escapes it. ➡ The test signal is append-only, so fixing this means a
+NEW segment with an **inharmonic** pair, 220 Hz with 1234 Hz say, where the products separate
+completely. Worth adding whenever the signal is next revised; not worth a re-capture on its own.
+
+### 14.3 ⭐ What it can still do: an off-grid known-answer probe, and the answer is clean
+
+A memoryless polynomial driven by these two tones can place energy ONLY on the 220 Hz grid. Every
+capture reads **−136.5 to −136.8 dBc at half-integer multiples**, identically at all three levels,
+which is the files' own quantisation floor rather than a measurement of anything. ➡ **The reference
+models put essentially nothing off the harmonic grid.** Their error is wrong AMPLITUDES on the
+correct bins, not spurious junk, and there is no evidence in this segment of memory effects or
+aliasing artefacts in the references.
+
+### 14.4 The instrument validates on the plugin, and then splits the captures the same way §13 did
+
+Level slope of each product, in dBc. A second-order product must rise 1.0 dB/dB, a third-order 2.0.
+
+| | 2f1 = f2−f1 | f1+f2 | 2f2 | 2f2−f1 | f1+2f2 |
+|---|---|---|---|---|---|
+| **required** | 1.0 | 1.0 | 1.0 | 2.0 | 2.0 |
+| **plugin** | **1.00** | **1.00** | **1.00** | **2.00** | **2.00** |
+| P1 dark | 0.94 | 0.10 | −0.46 | 0.20 | 0.13 |
+| P1 mid | −0.05 | 0.77 | 0.77 | 0.21 | −0.27 |
+| P2 bright | 0.72 | 1.10 | 1.05 | 1.64 | 0.95 |
+| P3 mid | 1.00 | 1.03 | 1.02 | 0.63 | 2.08 |
+
+⭐ The plugin returns the textbook slopes exactly, which is the known-answer check that says the
+instrument works. ⭐⭐ **The captures then reproduce circuit.md note #10's split from a completely
+different signal and different bins: P1's twin-tone products are level-independent and therefore
+floor, while P2-bright and P3 clear theirs.** P1's third-order bin reads −60.6, −58.5, −59.0 dBc
+across 16 dB of input, i.e. flat. P2-bright's climbs −87.3 → −77.6 → −61.0, a real 1.64 dB/dB.
+
+**What the comparison says where it is valid.** P1's second-order products are short by 6 to 15 dB,
+which is the same deficit the single-tone H2 grid reports, on a two-tone signal at a higher crest
+factor and in different bins. That is independent corroboration of the `Vov` story rather than a new
+lever. The third-order products are 40 dB short, but P1's are floor and P2/P3 have no known drive.
+
+➡ **Net: no new fitting leverage, and the same conclusion by a third route.** The cruel split is
+confirmed, not broken: the calibrated unit's nonlinear data is floor, and the units whose nonlinear
+data is real are uncalibrated. **Asking the P2 and P3 trainers for their `input_level_dbu` remains
+the single highest-value action available, and it is one message.**

@@ -837,6 +837,46 @@ high, execute routine work cheap) is what should persist.
 > - **Unchanged and still blocking:** `kOutputMakeup` = 1.0 with no anchor; the two-way pedal's VOLUME
 >   sweep; the missing no-plugin null render (M0 has never run).
 
+> ### ⭐⭐ THE THREE UNREAD MEASUREMENTS (2026-09-08). No new captures. `analysis/imd_and_floors.py`.
+>
+> Write-up `docs/build-plan.md` §14, circuit consequences `.claude/rules/circuit.md` note #15. Two
+> helpers had sat uncalled in `analyze.py` since the harness was built, and no script had ever
+> touched an `imd_guitar_*` segment.
+>
+> ⭐⭐ **THE REFERENCE IS NOISE-FREE, SO EVERY "FLOOR" IN THIS PROJECT IS SYSTEMATIC ERROR.** Noise
+> floor **−99 to −132 dBFS**; repeatability **−114 to −135 dB**, measured against a byte-identical
+> duplicate cell. So the 4–9 dB harmonic floor, the 0.145–0.210 dB compression floor and the
+> 1.9–20.2 dB per-band THD floor are the NAM models' deterministic error, not noise. ⛔ **None of it
+> will average down** — more cells or longer dwells buy nothing. And the mode-spread probe measures a
+> **difference of two systematic errors**, which can partially cancel, so it under-reports for a
+> second reason on top of its common-mode blindness.
+>
+> ⚠⚠ **The twin-tone segment cannot measure IMD: 660 = 3 × 220 exactly**, so every product lands on
+> the 220 Hz harmonic grid and neither input tone is a clean amplitude reference. Fixing it needs a
+> NEW segment with an inharmonic pair, the signal being append-only. Not worth a re-capture alone.
+>
+> ⭐ **What it could still do — an off-grid known-answer probe — came back clean.** A memoryless
+> circuit can put energy only on that grid; every capture reads **−136.6 dBc** off it, which is the
+> files' own quantisation floor. The references' error is wrong AMPLITUDES on the right bins, not
+> spurious junk, and there is no sign of memory effects or aliasing in them.
+>
+> ⭐ **The instrument validates on the plugin first**: product level slopes come back
+> **1.00 / 1.00 / 1.00 / 2.00 / 2.00**, exactly what second- and third-order products must do.
+> Then the captures split the same way circuit.md note #10 did, from a different signal and different
+> bins: **P1's slopes are 0.1–0.9 where 1.0/2.0 are required, so P1's twin-tone data is floor**, while
+> P2-bright reaches 1.64 on a third-order product and P3 returns 1.00/1.03/1.02 on second-order ones.
+> P1's second-order deficit of 6–15 dB matches the single-tone H2 deficit, so this corroborates the
+> `Vov` story rather than adding leverage.
+>
+> ➡ **Net: no new fitting leverage; the cruel split is confirmed by a third route.** Asking the P2/P3
+> trainers for their `input_level_dbu` remains the highest-value action, and it is one message.
+>
+> 📌 Also reconciled this session: circuit.md note #11's −1.05 dB and Path A's −0.808 dB at
+> `Vov` = 0.150 are not in conflict. That oracle used a PURE parabola; the shipped shaper uses the
+> `tanh²` bump, which saturates where the parabola does not. **That makes `tanh²` the largest
+> remaining shaper approximation now the truncation is gone** — 23 % of the compression at the low
+> `Vov`, 4.5 % at the shipped one. Replace it AT THE SAME TIME as `Vov`, not separately.
+
 ## Project-specific carry-forwards
 
 ### Reference data: seven NAM models (see `docs/build-plan.md`)
