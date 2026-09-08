@@ -193,17 +193,17 @@ void PedalAudioProcessorEditor::paint(Graphics& g)
 void PedalAudioProcessorEditor::refreshFonts(float sc)
 {
     auto bold = [](float sz) { return Font(FontOptions(sz, Font::bold)); };
-    inputSectionLabel.setFont(bold(8.0f * sc).withExtraKerningFactor(0.20f));
-    outputSectionLabel.setFont(bold(8.0f * sc).withExtraKerningFactor(0.20f));
-    inputTrimSub.setFont(bold(7.5f * sc).withExtraKerningFactor(0.15f));
-    outputTrimSub.setFont(bold(7.5f * sc).withExtraKerningFactor(0.15f));
-    inputTrimValue.setFont(bold(8.5f * sc));
-    outputTrimValue.setFont(bold(8.5f * sc));
-    osLabel.setFont(bold(8.0f * sc));
-    osLiveLabel.setFont(bold(7.0f * sc).withExtraKerningFactor(0.10f));
-    osRenderLabel.setFont(bold(7.0f * sc).withExtraKerningFactor(0.10f));
-    osSizeLabel.setFont(bold(7.0f * sc).withExtraKerningFactor(0.10f));
-    versionLabel.setFont(Font(FontOptions(7.0f * sc, Font::plain)).withExtraKerningFactor(0.10f));
+    inputSectionLabel.setFont(bold(12.0f * sc).withExtraKerningFactor(0.20f));
+    outputSectionLabel.setFont(bold(12.0f * sc).withExtraKerningFactor(0.20f));
+    inputTrimSub.setFont(bold(11.3f * sc).withExtraKerningFactor(0.15f));
+    outputTrimSub.setFont(bold(11.3f * sc).withExtraKerningFactor(0.15f));
+    inputTrimValue.setFont(bold(12.8f * sc));
+    outputTrimValue.setFont(bold(12.8f * sc));
+    osLabel.setFont(bold(12.0f * sc));
+    osLiveLabel.setFont(bold(10.5f * sc).withExtraKerningFactor(0.10f));
+    osRenderLabel.setFont(bold(10.5f * sc).withExtraKerningFactor(0.10f));
+    osSizeLabel.setFont(bold(10.5f * sc).withExtraKerningFactor(0.10f));
+    versionLabel.setFont(Font(FontOptions(10.5f * sc, Font::plain)).withExtraKerningFactor(0.10f));
 }
 
 void PedalAudioProcessorEditor::resized()
@@ -214,11 +214,11 @@ void PedalAudioProcessorEditor::resized()
     refreshFonts(sc);
 
     const int W = getWidth(), H = getHeight();
-    const int margin = i(10);
-    const int panelW = i(120);  // wide enough that panelW*2+colGap*2+pedalW+margin*2 clears the OS strip's own fixed-content minimum, with slack for 0.5x's font-floor squeeze -- see kBaseW comment
-    const int osH    = i(24);
-    const int faceGap = i(10);
-    const int colGap  = i(8);
+    const int margin = i(15);
+    const int panelW = i(160);  // wide enough that panelW*2+colGap*2+pedalW+margin*2 clears the OS strip's own fixed-content minimum -- see kBaseW comment
+    const int osH    = i(36);
+    const int faceGap = i(15);
+    const int colGap  = i(12);
 
     const int topY = margin;
     const int topH = H - margin - osH - faceGap - margin;
@@ -243,49 +243,49 @@ void PedalAudioProcessorEditor::resized()
     // the halo knob + VU can't spill past the column edge at any scale (ui.md Layout contract).
     auto layoutPanel = [&](Rectangle<int> panel, Label& sec, Slider& knob, Label& sub, Label& val, VUMeter& vu) {
         auto r = panel;
-        sec.setBounds(r.removeFromTop(i(14)));
-        r.removeFromTop(i(2));
-        const int knobD = jmin(i(70), r.getWidth());
+        sec.setBounds(r.removeFromTop(i(21)));
+        r.removeFromTop(i(3));
+        const int knobD = jmin(i(105), r.getWidth());
         auto knobRow = r.removeFromTop(knobD);
         knob.setBounds(knobRow.withSizeKeepingCentre(knobD, knobD));
-        sub.setBounds(r.removeFromTop(i(12)));
-        val.setBounds(r.removeFromTop(i(12)));
-        r.removeFromTop(i(2));
-        const int vuW = jmin(i(34), r.getWidth());
+        sub.setBounds(r.removeFromTop(i(18)));
+        val.setBounds(r.removeFromTop(i(18)));
+        r.removeFromTop(i(3));
+        const int vuW = jmin(i(51), r.getWidth());
         vu.setBounds(r.withSizeKeepingCentre(vuW, r.getHeight()));
     };
     layoutPanel(inPanel, inputSectionLabel, inputTrim, inputTrimSub, inputTrimValue, inputVU);
     layoutPanel(outPanel, outputSectionLabel, outputTrim, outputTrimSub, outputTrimValue, outputVU);
 
     // ---- Oversampling strip content (inset from the bg) ----------------------------------------
-    auto os = osStripArea.reduced(i(6), 0);
-    const int boxVPad = i(2);
+    auto os = osStripArea.reduced(i(9), 0);
+    const int boxVPad = i(3);
 
     // Left group: OS | LIVE [box] | RENDER [box] | HQ? | TRIM LINK?
-    osLabel.setBounds(os.removeFromLeft(i(20)));
-    os.removeFromLeft(i(8));
-    osLiveLabel.setBounds(os.removeFromLeft(i(26)));
-    os.removeFromLeft(i(5));
-    osRealtimeBox.setBounds(os.removeFromLeft(i(36)).reduced(0, boxVPad));
+    osLabel.setBounds(os.removeFromLeft(i(30)));
     os.removeFromLeft(i(12));
-    osRenderLabel.setBounds(os.removeFromLeft(i(40)));
-    os.removeFromLeft(i(5));
-    osRenderBox.setBounds(os.removeFromLeft(i(36)).reduced(0, boxVPad));
+    osLiveLabel.setBounds(os.removeFromLeft(i(39)));
+    os.removeFromLeft(i(8));
+    osRealtimeBox.setBounds(os.removeFromLeft(i(54)).reduced(0, boxVPad));
+    os.removeFromLeft(i(18));
+    osRenderLabel.setBounds(os.removeFromLeft(i(60)));
+    os.removeFromLeft(i(8));
+    osRenderBox.setBounds(os.removeFromLeft(i(54)).reduced(0, boxVPad));
     if (hqButton.isVisible())
     {
-        os.removeFromLeft(i(10));
-        hqButton.setBounds(os.removeFromLeft(i(26)).reduced(0, boxVPad));
+        os.removeFromLeft(i(15));
+        hqButton.setBounds(os.removeFromLeft(i(39)).reduced(0, boxVPad));
     }
     if (trimLinkButton.isVisible())
     {
-        os.removeFromLeft(i(8));
-        trimLinkButton.setBounds(os.removeFromLeft(i(62)).reduced(0, boxVPad));
+        os.removeFromLeft(i(12));
+        trimLinkButton.setBounds(os.removeFromLeft(i(93)).reduced(0, boxVPad));
     }
 
     // Right group: UI SIZE [scale] — laid out from the right.
-    scaleBtn.setBounds(os.removeFromRight(i(48)).reduced(0, boxVPad));
-    os.removeFromRight(i(5));
-    osSizeLabel.setBounds(os.removeFromRight(i(42)));
+    scaleBtn.setBounds(os.removeFromRight(i(72)).reduced(0, boxVPad));
+    os.removeFromRight(i(8));
+    osSizeLabel.setBounds(os.removeFromRight(i(63)));
 
     // Version fills whatever is left between the two groups (centred).
     versionLabel.setBounds(os);

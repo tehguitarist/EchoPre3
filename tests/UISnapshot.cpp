@@ -25,7 +25,7 @@ static bool renderAt(float scale, const File& out)
         return false;
 
     // The editor derives its scale from width / kBaseW; drive it by sizing the window.
-    editor->setSize(roundToInt(455 * scale), roundToInt(360 * scale)); // kBaseW/kBaseH
+    editor->setSize(roundToInt(642 * scale), roundToInt(540 * scale)); // kBaseW/kBaseH
 
     Image img(Image::ARGB, editor->getWidth(), editor->getHeight(), true);
     {
