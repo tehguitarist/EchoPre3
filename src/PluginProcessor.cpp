@@ -123,7 +123,7 @@ void PedalAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
         // measurement the whole phase-testing pass exists to protect. Revisit only if PerfBenchmark
         // shows the FIR is a real cost (build step 6).
         oversamplers[i] = std::make_unique<dsp::Oversampling<double>>(
-            2, (size_t) i, dsp::Oversampling<double>::filterHalfBandFIREquiripple, true, true);
+            2, (size_t) i, dsp::Oversampling<double>::filterHalfBandFIREquiripple, true, false); // [PROBE]
         oversamplers[i]->initProcessing((size_t) samplesPerBlock);
         oversamplers[i]->reset();
     }

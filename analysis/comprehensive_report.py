@@ -42,8 +42,13 @@ DEFAULT_BIN = C.RENDER_BIN
 OUTPUT_JSON = "analysis/reports/comprehensive_data.json"
 CACHE_DIR = "analysis/.cache/pedal_features"
 CACHE_VERSION = 1  # bump to invalidate every cache entry after a change to the analysis below
-DRIVEN_SWEEPS = ("sweep_drv_-18", "sweep_drv_-12", "sweep_drv_-6")
-ALL_SWEEP_LEVELS = ("sweep_clean",) + DRIVEN_SWEEPS
+# Sweep segment names come from analyze.sweep_segments(), which reads gen_test_signal's own level
+# list -- NEVER hand-typed here. They were hand-typed once ("sweep_drv_-18" etc., the pre-Echo-Pre-3
+# template names) and silently stopped matching when the test signal was redesigned in phase 0a, so
+# every capture failed with a bare KeyError and the report wrote 0/7 analysed.
+_SWEEPS_BY_LEVEL = A.sweep_segments()          # {input_dBFS: segment_name}, ascending
+ALL_SWEEP_LEVELS = tuple(_SWEEPS_BY_LEVEL.values())
+DRIVEN_SWEEPS = tuple(n for n in ALL_SWEEP_LEVELS if n != "sweep_clean")
 FARINA_CEILING_HZ = A.thd_max_measurable_hz(max_order=2)
 THD_ANCHORS = (100, 200, 400)
 HARMONIC_ORDERS = tuple(range(2, 8))
@@ -229,13 +234,25 @@ def harmonics_at_anchors(cap_al, ren_al, orig, sweep_name, pedal_features):
 
 
 def short_id(parsed):
-    """Compact capture label, e.g. 'V1 D0.50'."""
-    rev = parsed.get("rev", "?")
-    d = parsed.get("drive", 0)
-    parts = [f"{rev} D{d:.2f}"]
+    """Compact capture label, e.g. 'p1 10:30 bright' (or 'V1 D0.50' on a pedal that has a drive).
+
+    Built from whichever axes the pedal's parser actually returns. Echo Pre 3 has no drive control,
+    so the template's unconditional "D{drive:.2f}" labelled all seven captures "D0.00" and the
+    dashboard could not tell them apart.
+    """
+    parts = [str(parsed.get("rev", "?"))]
+    clock = parsed.get("volume_clock")
+    if clock is not None:
+        parts.append(f"{int(clock) // 100}:{int(clock) % 100:02d}")
+    d = parsed.get("drive")
+    if d is not None:
+        parts.append(f"D{d:.2f}")
     bl = parsed.get("blend")
     if bl is not None:
         parts.append(f"BL{bl:.2f}")
+    mode = parsed.get("mode")
+    if mode is not None:
+        parts.append(str(mode))
     return " ".join(parts)
 
 
@@ -264,12 +281,21 @@ def analyse_one(path, parsed, orig, binpath, os_factor, keep_dir, bands, band_so
         ren = A.load(out_path)
         ren_al, _ = A.align(ren, orig)
 
+        # `settings` feeds the numeric axes of the dashboard/audit scripts, so only NUMERIC entries
+        # belong in it. The template coerced every non-excluded key with float(), which assumed a
+        # parser whose only string keys were "rev"/"sw"/"mode"; this pedal's parser also returns
+        # "unit", and float("p1") took the whole capture down with a bare ValueError.
         settings = {}
         for k, v in parsed.items():
-            if k in ("rev", "sw", "mode"):
+            if k in ("rev", "sw", "mode") or v is None:
                 continue
-            if v is not None:
-                settings[k] = float(v) if not isinstance(v, (int, float)) else v
+            if isinstance(v, (int, float)):
+                settings[k] = v
+                continue
+            try:
+                settings[k] = float(v)
+            except (TypeError, ValueError):
+                continue   # a non-numeric label (unit id, mode name) -- not a plottable axis
 
         result = {
             "id": short_id(parsed),

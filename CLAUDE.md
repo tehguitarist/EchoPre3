@@ -308,13 +308,17 @@ high, execute routine work cheap) is what should persist.
 > above as the two measurement traps this project has actually been bitten by.
 >
 > ### The other four, and what NOT to act on
-> - ✅ **M3 input LP confirmed at ~7 kHz by two units, and the third turned out to be measuring its
->   own cable.** P1 fits 6.7 kHz and P3 7.2 kHz against the drawn 7.3 kHz. P2 fits 1.4 kHz. Cascading
->   the pedal's own 7.3 kHz input pole with ONE free extra pole localises it: P1 and P3 need 30–40 kHz
->   (39–52 pF, i.e. nothing), P2 needs **3.2 kHz at 0.05 dB residual — 542 pF, an ordinary five-metre
->   cable.** build-plan §4's "anchor absolute response to P2/danielnguyen" is reversed: **anchor to
->   P1, corroborate with P3, use P2 for the differential only** (a post-JFET pole cancels in the mode
->   ratio, so P2 is still the *best* differential capture in the set).
+> - ⚠ **M3 input LP: confirmed by ONE unit, not two. ~~P3 corroborates~~ — REFUTED 2026-09-08, see
+>   note #9.** P1 fits 6.7 kHz against the drawn 7.3 kHz. P2 fits 1.4 kHz. Cascading the pedal's own
+>   7.3 kHz input pole with ONE free extra pole localises P2's: it needs **3.2 kHz at 0.05 dB
+>   residual — 542 pF, an ordinary five-metre cable**, where P1 needs 30 kHz (52 pF, i.e. nothing).
+>   ⛔ **P3's apparent 7.2 kHz is an ARTEFACT and must not be cited as corroboration**: P3 has only a
+>   MID capture, and M3's estimator has no mode-shelf term, so it cannot recover the pole from a
+>   bypassed mode at all (proved against the plugin, whose pole is 7300 Hz by construction: DARK
+>   recovers 7295 Hz at 0.01 dB, MID returns 9e12 Hz at 1.14 dB). build-plan §4's "anchor absolute
+>   response to P2/danielnguyen" is still reversed, but to: **anchor to P1 ALONE, use P2 and P3 for
+>   the differential only** (a post-JFET pole cancels in the mode ratio, so P2 is still the *best*
+>   differential capture in the set).
 > - ⭐⭐ **That finding is really about the PEDAL, not about P2: its output impedance is 92–139 kΩ and
 >   barely moves with VOLUME.** The wiper is grounded and R9 (110 kΩ) bridges to the jack, so the pot
 >   cannot pull it down the way a normal divider would. **`docs/calibration-and-gain-staging.md` §4
@@ -509,6 +513,183 @@ high, execute routine work cheap) is what should persist.
 >   ⚠ A/B the harmonics at matched DRIVE, not matched digital level (§10.1's ≥ 6.6 dB bound).
 > - **The two-way pedal's VOLUME sweep** (§7) is the only measurement that can settle the taper, the
 >   3.9 dB vs 1–2 dB fall-back discrepancy, and `kInputRef`. Load-bearing, not contingent.
+
+> ### FULL EVALUATION SWEEP RUN 2026-09-08 (FR + THD + PHASE, all seven captures, no new data).
+>
+> Report artifact: https://claude.ai/code/artifact/90256712-20e2-426e-96c1-d9bd20750bb8
+> Raw: `analysis/reports/{comprehensive_data.json, phase_sweep.json, executive_summary.txt, dashboard.html}`.
+> New script `analysis/phase_sweep.py` (phase was the one axis no report covered).
+>
+> **Headline: against P1 the model is close on every axis; against P2/P3 the CAPTURES are the outlier.**
+> FR shape error vs P1 is **0.66–0.78 dB RMS with ZERO bands over 1.5 dB** above 40 Hz, in all three
+> modes. Midband phase vs P1 is **within 1.4° from 200 Hz to 8 kHz**. Against P2/P3 the plugin runs
+> +11 to +13 dB brighter at 16 kHz — but **the captures differ from EACH OTHER by the same amount in
+> the same mode** (P3−P1 = −10.9 dB, P2−P1 = −13.1 dB at 16 kHz), and the plugin sits on P1's side.
+>
+> ⭐⭐ **A RECORDED CONCLUSION WAS REFUTED: P3 never corroborated the input pole.** circuit.md note #9
+> has the proof. The M3 estimator was run on the PLUGIN, whose input corner is 7300 Hz by
+> construction: in DARK it recovers 7295 Hz at 0.01 dB residual; in MID it returns 9e12 Hz at 1.14 dB,
+> because the mode shelf's lift cancels the pole's rolloff and the fit runs away. P3 has only a MID
+> capture, so its 7.2 kHz was its rig's HF loss coincidentally cancelling the MID shelf. **P1 (fitted
+> in DARK) is the ONLY absolute anchor this dataset contains.** The general lesson is the project's
+> own, one level up: *run every capture-side estimator on the plugin first, where the answer is known
+> by construction* — that is what exposed a fit which had looked like independent confirmation.
+>
+> ⭐⭐ **ALL THREE P2 CAPTURES ARE POLARITY-INVERTED** relative to P1, P3 and the plugin. Midband phase
+> reads +13.6 / −2.7 / +1.7° for P2 against ~−178° for everything else, and the fitted constant lands
+> at ~−170° on all three. A single common-source stage MUST invert, so P1/P3/plugin are right and
+> P2's chain flipped. It cancels in the mode differential, which is why phase-1 never saw it. **Third
+> independent axis disqualifying P2's rig**, after the cable pole and the absolute response.
+> ⚠ `null_depth()` gain-matches with a SIGNED least-squares scalar and reports |g|, so **P2's flip is
+> invisible in its null number** — check `polarity()` first, always.
+>
+> ⭐ **The mode shelf is confirmed in PHASE, not just magnitude.** Mode-vs-dark differential phase
+> residuals are 0.2–2.6° across 30 Hz–15 kHz, against a MEASURED instrument floor of 1.0–5.3° (below
+> the shelf zero every mode sees Zs = R5, so the differential must read 0° — the phase twin of note
+> #7's free known-answer probe). Three of the four differentials are AT or BELOW their own floor
+> across the whole band. Only P1's mid above 12 kHz exceeds it (−4.1 to −7.0° vs a 2.75° floor).
+>
+> ⚠ **THD is not arbitrable from this dataset, and the sweep compares it the WRONG WAY.** Three units,
+> one measurement (mid, 806 Hz, −6 dBFS): P1 0.58 %, P2 0.35 %, P3 2.89 %, plugin 0.54 % — an **8×
+> spread between captures**, with the plugin inside it. P3's THD is flat with frequency, which the
+> circuit forbids (distortion moves as k²), so it is floor. AND every figure is at matched DIGITAL
+> LEVEL, which §10.1 says is exactly wrong for harmonics. Nothing here can fit the shaper.
+>
+> ⚠ **The one real gap against P1 is at the BOTTOM, not the top:** +2.4 dB @ 40 Hz, +2.9 dB @ 32 Hz,
+> and −35° of phase at 50 Hz — same sign and size as note #7's C10-corner discrepancy, which was
+> already ruled confounded. ⛔ Do NOT act on it; it needs the within-rig VOLUME sweep.
+>
+> 📌 **Null depth is −5.7 to −11.8 dB, and that is level, not shape.** The match gain is 9.6–17.6 dB
+> (kOutputMakeup is still exactly 1.0), and an ESS weights the low octaves — where the plugin really
+> does differ — equally with everything above. Linear-removed null is −28 to −32 dB.
+>
+> ⚠⚠ **FOUR HARNESS DEFECTS had to be fixed before the sweep would run, none of them in the model.**
+> All four were template assumptions invalidated by phase 0a's test-signal redesign, and all four
+> failed LOUDLY (0/7 captures analysed) rather than silently: (a) `comprehensive_report.py` hand-typed
+> the sweep segment names (`sweep_drv_-18`…) instead of reading `A.sweep_segments()`; (b) it coerced
+> every parsed setting with `float()`, which `unit`="p1" is not; (c) `short_id()` labelled all seven
+> captures "D0.00" from a drive control this pedal does not have; (d) `report_audit.py` hard-coded
+> `sweep_drv_-18` and described twin-T/bridged-T notches belonging to a different pedal. **The
+> harness had never been run end-to-end on this pedal's signal.** Fixed, all deriving from the
+> generator now. ⚠ **`python3` on this machine (3.14) has a broken numpy — use `.venv/bin/python`.**
+>
+> 📌 **STILL MISSING: the no-plugin null render (phase 0c).** The M0 loop-unity check has never run,
+> so everything downstream inherits whatever error it would have caught. One bounce.
+
+> ### ⭐⭐ P1's NAM INPUT CALIBRATION IS KNOWN (−12 dBu, owner-reported 2026-09-08). L2 IS PARTLY LIFTED.
+>
+> Analysis `analysis/harmonic_audit.py`, raw `analysis/reports/harmonic_audit.json`, reasoning in
+> `src/dsp/JfetStage.h`. **No DSP constant was changed** — see the ⛔ list below for why.
+>
+> **The number.** NAM calibrates by playing a 1 kHz sine at 0 dBFS and measuring RMS volts at the jack
+> into the gear, so −12 dBu fixes the trainer's level outright:
+> `V/FS = 0.7746 × 10^(−12/20) × √2 = 0.2752 V per full scale` (the √2 converts the measured RMS of a
+> full-scale SINE into the volts a sample of 1.0 represents). ✅ **It lands INSIDE the ≤ 0.41 V/FS
+> bound §10.1 derived independently from H2** — two unrelated routes agreeing. It is **10.00 dB below
+> `kInputRef` = 0.87**, so matched-drive A/B means feeding the plugin −10.00 dB.
+> ⚠ It is NOT in the file metadata — **none of the seven `.nam` files carries `input_level_dbu` or
+> `output_level_dbu`** (checked). The result rests entirely on that one external fact.
+> 📌 This anchors the INPUT only. `kOutputMakeup` still has no anchor — that needs `output_level_dbu`.
+>
+> ⚠⚠ **AT THE CALIBRATED DRIVE THE MODEL'S H2 IS ~10 dB SHORT.** Over P1's 24 usable cells the deficit
+> is **mean −9.47 dB, median −9.65, sd 2.98**. Since `H2/H1 = A/(4·Vov·k²)` is exactly inverse in Vov,
+> that implies **Vov ≈ 0.150 V against the shipped 0.447 V** — near the bottom of `JfetStage.h`'s own
+> admissible [0.131, 0.447] bracket. ⭐ **Verified end-to-end, not just algebraically:** a throwaway
+> probe build at Vov = 0.1502 moved the same 24 cells to **mean −0.17 dB, median −0.44, sd 2.92**.
+> Implied operating point: |Vp| = 0.570 V, Id = 117 µA, IDSS = 1.68 mA, **Vd = 19.4 V (was 14.4)**.
+> Both endpoints are datasheet-admissible.
+>
+> ⛔ **NOT APPLIED, for four reasons that are all in `JfetStage.h`:** (1) the −12 dBu is a recollection
+> and nothing in the data can re-derive it; (2) the sd of 2.98 dB is the CAPTURE's floor, not the
+> fit's precision, so Vov is pinned only to ~a factor of 1.4; (3) it moves the drain 14.4 → 19.4 V,
+> only 2.6 V under the rail, which **invalidates the load-line arithmetic** in that file; (4) the
+> implied part is LOW-IDSS/LOW-pinchoff, contradicting the "cherry picked" reading that justified the
+> IDSS = 5 mA end. ➡ Apply together with a re-derived load line, or wait for a second calibrated capture.
+>
+> ⭐ **A HARMONIC-DOMAIN KNOWN-ANSWER PROBE, free and reusable.** Below the shelf zero every MODE has
+> `Zs = R5`, so **H2 in dBc must be IDENTICAL across modes** — the harmonic twin of note #7's 0.00 dB
+> magnitude probe. Measured spread: **1.5–21.3 dB (typically 4–9)**. That is the harmonic error floor
+> of these NAM models, obtained with no reference capture. **Any plugin-vs-capture H2 delta under
+> ~6 dB is inside the measurement's own noise** — which is why the ~10 dB deficit is believable and
+> why Vov cannot be pinned tighter than a factor of 1.4.
+>
+> ⚠⚠ **M5's "everything above H2 is the models' error floor" IS TOO STRONG — it was a blanket claim
+> where the truth is per-capture.** Re-measured: **P1's H3 IS floor** (rises 0.75–1.81 dB/dB where a
+> cubic needs 3.0; H4 ≥ H3 in 1–3 of every 4 cells). But **P2-bright and P3 are NOT floor**:
+> P2-bright's H3 rises **2.65–2.74 dB/dB absolute (1.97 dB/dB in dBc, against the 2.0 a cubic
+> requires) over 25 dB of level, with 0–1 inversions**, reaching −36.7 dBc; P3 reaches −41.2 dBc.
+> **That is real third-harmonic content, and the model produces essentially NONE** (−115 to −150 dBc,
+> which is just what a pure quadratic makes via its own feedback loop, `beta` = 0).
+> ⛔ Still not fittable — P2's and P3's reamp levels are unknown, so `beta` inherits the same
+> degeneracy `aEven` just escaped. **The cruel split: P1 is calibrated but its H3 is floor; P2/P3's H3
+> clears its floor but they are not calibrated.** ➡ **Ask the P2/P3 trainers for their input_level_dbu
+> — that is now the single highest-value question, and it is one message.**
+> 📌 P2-bright's top cell has **H3 ABOVE H2**, which a square-law device cannot do — that cell is a
+> harder nonlinearity than this shaper has, not a bigger cubic. Do not fit `beta` to it.
+>
+> 📌 **Answering "is the THD fine?": THD is fine and it is not the question.** THD is an RSS over
+> H2..H7, so it is dominated by whichever order is largest and hides the per-order picture completely.
+> The per-order audit is `analysis/harmonic_audit.py`; run it, not the THD table, when judging the shaper.
+
+> ### ⭐⭐ COMPRESSION AUDIT 2026-09-08 — the model has EXACTLY NONE, and that is a truncation bug
+>
+> `analysis/compression_audit.py`, raw `analysis/reports/compression_audit.json`. Asked because
+> compression is the cubic's SIGN; it turned into the most useful nonlinear instrument in the set.
+>
+> ⭐ **COMPRESSION IS THE BEST-CONDITIONED NONLINEAR MEASUREMENT THIS DATASET HAS.** Its known-answer
+> floor (same probe as always: below the shelf zero all three modes have Zs = R5 and must compress
+> identically) is **0.145 dB (P1) / 0.210 dB (P2)** — against **4–9 dB** for the harmonics. Reason is
+> structural and worth reusing: **it is measured on the FUNDAMENTAL, not on a harmonic 40–60 dB down.**
+> P3's compression signal is 2–3× its floor, so P3 is measurable where every harmonic was not.
+>
+> ⚠⚠ **THE PLUGIN'S COMPRESSION IS EXACTLY 0.000 dB AT EVERY BAND AND EVERY LEVEL.** The captures are
+> not: P3 reads −0.42 dB (794 Hz) and −0.61 dB (3.1 kHz) at the top cell, P2-bright −0.18/−0.35, and
+> **Bright compresses more than Dark**, which is the physically right sign. P1 sits under its own floor.
+>
+> ⭐⭐ **IT IS NOT A MISSING CUBIC — IT IS THE VOLTERRA TRUNCATION.** An independent exact solve of
+> `id = gm·g(vg − id·R5)` with `g` a PURE square law plus its cutoff clamp (no `beta` at all) DOES
+> produce compression and H3; the shipped shelf-on-the-excess approximation drops both. So `beta`
+> should stay 0 — fitting one would be fitting a residual smaller than the floor. ⚠ The bare parabola
+> turns over at `w = −Vov`, so any oracle written for this MUST carry the cutoff clamp; without it the
+> solve goes non-monotone above ~0.4 V of gate swing and returns garbage (it did, first attempt).
+>
+> ⭐ **A SELF-CONSISTENCY CHAIN THAT ACTUALLY CLOSES, at Vov = 0.150 with nothing fitted:**
+> | Route | Predicts | Measured | Error |
+> |---|---|---|---|
+> | P1's **known** −12 dBu drive → H2 | −41.0 dBc | −44.1 | **+3.1 dB** |
+> | P1's known drive → compression | −0.022 dB | under its 0.145 floor | consistent |
+> | P3's **compression** → drive → H2 | −25.1 dBc | −26.8 | **+1.7 dB** |
+> | P3's compression → drive → H3 | −31.6 dBc | −41.2 | +9.6 dB |
+> Two independent anchors (a calibration and a compression curve) agree on H2 inside the floor. The
+> inferred rig levels are −3 to −5 dBu for P2/P3, i.e. 7–9 dB hotter than P1 — ordinary reamp levels,
+> and exactly why their nonlinear data clears the floor and P1's does not.
+> ⚠ P2-mid's compression (−0.137 dB) is BELOW P2's own 0.210 dB floor, so its inferred drive is not
+> trustworthy — that is the row that misses by 12.6 dB. Do not read it as a model error.
+>
+> ⚠⚠ **THE TWO FIXES ARE COUPLED — DO NOT APPLY Vov ALONE.** Truncation error grows fast with
+> curvature, so lowering Vov makes the missing compression much worse. At a 0 dBFS input (A_gate =
+> 0.783 V) the exact solve compresses **−0.032 dB at the shipped Vov = 0.447 but −1.05 dB at Vov =
+> 0.150**, with H3 at −57.8 vs **−24.5 dBc**. The model says 0.000 dB and −135 dBc in both cases.
+> ➡ **Lowering Vov without replacing the truncation would ship a stage that is quantitatively wrong
+> in its own normal operating range** — and note that range is exactly where users sit, since
+> kInputRef = 0.87 is 10 dB above the trainers' level.
+>
+> ### ⚠ WHAT TO ASK FOR WHILE CAPTURING THE TWO-SETTING PEDAL (owner has it available, 2026-09-08)
+> This capture can close nearly every open item, but only if these are recorded AT capture time:
+> 1. ⭐⭐ **Both NAM calibration figures, written down: `input_level_dbu` AND `output_level_dbu`.**
+>    The input one broke the aEven/level degeneracy for P1; **the output one is the only thing that can
+>    ever anchor `kOutputMakeup`**, which is still exactly 1.0 and cannot be derived from anything we
+>    hold. Note NONE of the seven existing `.nam` files carries either field — do not assume the file
+>    will record it.
+> 2. ⭐ **A BYPASSED capture through the identical rig.** This is build-plan §5 measurement #4 and the
+>    dataset's oldest hole (limit L2). It pins `kInputRef` directly instead of by inference.
+> 3. ⭐ **A VOLUME sweep, everything else fixed.** Still the only within-rig measurement that can settle
+>    the taper (p ≈ 2.0), the 3.9 dB vs 1–2 dB fall-back, and the C10 corner — all three are currently
+>    blocked on exactly this and nothing else.
+> 4. ⚠ **Drive it HOT enough that compression clears ~0.2 dB.** P1's whole nonlinear dataset is unusable
+>    because −12 dBu put the pedal below the models' floor. P3 at ≈ −3 dBu is 2–3× above it. **Aim near
+>    P3's level, not P1's** — this is the single choice that decides whether the shaper becomes fittable.
+> 5. Both switch positions, and the null/no-plugin render (still missing — M0 has never run).
 
 ## Project-specific carry-forwards
 

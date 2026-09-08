@@ -1,0 +1,92 @@
+COMPREHENSIVE EXECUTIVE SUMMARY
+==============================================================================
+source: analysis/reports/comprehensive_data.json  generated 2026-09-08T00:53:13.687166+00:00  OS=8x
+captures: 7  bands: 30
+generator: analysis/report_audit.py --write   (do NOT hand-edit; do NOT regenerate inline)
+
+==============================================================================
+1. FR vs TARGET  (shape metric, median offset removed — L-005)
+   target: |delta| <= 1.5 dB in 60 Hz-12 kHz, <= 3.0 dB outside, over 20 Hz-18 kHz
+==============================================================================
+capture                      rmsFULL rmsTRUST  n>1.5   n>3            worst band
+p1 10:30 bright                 1.41     0.78      0     0           40Hz +2.4dB
+p1 10:30 dark                   1.28     0.66      0     0           40Hz +1.9dB
+p1 10:30 mid                    1.38     0.66      0     0           40Hz +2.1dB
+p2 14:30 bright                 4.20     4.39      8     7       16255Hz +13.2dB
+p2 14:30 dark                   4.30     4.50      8     7       16255Hz +13.4dB
+p2 14:30 mid                    4.22     4.42      8     7       16255Hz +13.3dB
+p3 10:00 mid                    3.12     3.26      7     6       16255Hz +11.5dB
+
+rev    med rmsFULL med rmsTRUST  med n>tol  (of 54 trusted bands)
+p1            1.38         0.66          0
+p2            4.22         4.42          8
+p3            3.12         3.26          7
+
+FR shape error by band, median |delta| across all 7 captures:
+     band   med|d|   max|d|   trusted? 
+       20     2.39     4.89  <- N-004 untrusted
+       25     1.50     3.73  <- N-004 untrusted
+     4064     1.89     3.28
+     5120     3.10     4.66
+     6451     4.21     6.09
+     8128     5.04     7.82
+    10240     5.91     9.60
+    12902     7.63    11.49
+    16255    11.55    13.36
+
+==============================================================================
+2. THD COVERAGE — can we even measure 'THD 20 Hz-18 kHz'?
+==============================================================================
+  farina  : 28 bands (20 Hz - 10240 Hz)
+  NO DATA :  2 bands -> 12902, 16255
+
+
+==============================================================================
+3. THD vs LEVEL at 101 Hz — is the error clip-ONSET (level-dep) or static (level-flat)?
+==============================================================================
+capture                                sweep_-26           sweep_-16            sweep_-6
+                                  pedal / plugin      pedal / plugin      pedal / plugin
+p1 10:30 bright                      0.6 /   0.1         0.5 /   0.2         0.8 /   0.5
+p1 10:30 dark                        0.5 /   0.1         0.4 /   0.2         0.7 /   0.5
+p1 10:30 mid                         0.3 /   0.1         0.5 /   0.2         0.9 /   0.5
+p2 14:30 bright                      0.0 /   0.1         0.1 /   0.2         0.2 /   0.5
+p2 14:30 dark                        0.1 /   0.1         0.3 /   0.2         0.4 /   0.5
+p2 14:30 mid                         0.1 /   0.1         0.3 /   0.2         0.5 /   0.5
+p3 10:00 mid                         0.2 /   0.1         0.8 /   0.2         2.7 /   0.5
+
+  Read: pedal THD should RISE with level (clip onset). A plugin column that barely
+  moves is a static/level-independent nonlinearity in the wrong place.
+
+==============================================================================
+4. HARMONIC MAGNITUDES (not just THD) — delta = plugin - pedal, dB, sweep_-6
+==============================================================================
+  anchors marked (*) are NOTCH-CONFOUNDED on pedals with a twin-T/bridged-T in the path.
+  Echo Pre 3 has NO notch (single JFET stage, circuit.md), so nothing here is confounded;
+  the medians below still exclude them for comparability with the template's tables.
+  they attenuate the FUNDAMENTAL that every ratio divides by, so they are shown but
+  EXCLUDED from the medians below (Gap G). 100/200 Hz are the trustworthy anchors.
+
+capture                  order     100     200    400*   med|d|
+p1 10:30 bright             H2    -2.5    -3.8   +11.0      3.1
+p1 10:30 bright             H3   -49.5   -34.4   -35.5     41.9
+p1 10:30 dark               H2    -1.1    +0.8    +8.1      1.0
+p1 10:30 dark               H3   -43.3   -42.3   -45.4     42.8
+p1 10:30 mid                H2    -3.9    -2.4    -2.4      3.2
+p1 10:30 mid                H3   -52.7   -47.9   -43.2     50.3
+p2 14:30 bright             H2   +10.7    +7.5    +8.1      9.1
+p2 14:30 bright             H3   -32.9   -32.2   -31.6     32.6
+p2 14:30 dark               H2    +3.4    +3.9    +5.6      3.6
+p2 14:30 dark               H3   -30.3   -17.7   -33.8     24.0
+p2 14:30 mid                H2    -0.0    +3.9    +4.2      1.9
+p2 14:30 mid                H3   -30.8   -37.8   -38.8     34.3
+p3 10:00 mid                H2   -14.1   -14.8   -14.4     14.4
+p3 10:00 mid                H3   -59.4   -59.4   -59.2     59.4
+
+rev   median |H-delta| over H2..H7, CLEAN anchors only  
+p1        47.3 dB
+p2        34.3 dB
+p3        59.9 dB
+
+  A correct THD with wrong per-harmonic magnitudes = right total energy, wrong timbre —
+  THD is the rss of these, so it can be right while every term in it is wrong. This is
+  the 'harmonic volume, not just placement' check, and no report produced it before.

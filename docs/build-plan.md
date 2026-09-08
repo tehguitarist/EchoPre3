@@ -211,7 +211,11 @@ Ship one pedal, not an average of three.
   off at −8.6 to −10.7 dB/octave above 6 kHz, which no single RC can do, so its top three octaves are
   its rig, not the pedal (`circuit.md` note #7). P1 and P3 independently fit first-order low-passes
   at 6.7 kHz and 7.2 kHz against the drawn 7.3 kHz, so **P1 is the unit whose absolute response is
-  usable**, with P3 corroborating it.
+  usable**. ⛔ **"with P3 corroborating it" is STRUCK — REFUTED 2026-09-08, `circuit.md` note #9.**
+  P3 has only a MID capture and M3's estimator has no mode-shelf term, so it cannot recover the pole
+  from a bypassed mode at all (on the plugin, whose pole is 7300 Hz by construction: DARK recovers
+  7295 Hz at 0.01 dB, MID returns 9e12 Hz at 1.14 dB). **P1 alone is the absolute anchor**; P3 joins
+  P2 as differential-only.
 - **Hold P2 (`danielnguyen`, 2:30) back as validation, and cross-check it on the MODE DIFFERENTIAL
   only.** Its differential is the cleanest in the set (0.03–0.08 dB shelf-fit residuals, versus
   0.24–0.25 dB for P1) because the ratio cancels the rig that ruins its absolute response. Do not

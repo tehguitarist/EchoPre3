@@ -42,6 +42,7 @@ EXTREME_LO, EXTREME_HI = 60.0, 12000.0  # inside this = "within 1.5 dB"; outside
 # Gap G / standing traps: the twin-T (~800 Hz, all revs) and V1's bridged-T (~430 Hz) notch the
 # FUNDAMENTAL. THD and every per-order ratio divide BY that fundamental, so both anchors inflate for
 # reasons unrelated to any nonlinearity. They are printed but excluded from headline medians.
+# Echo Pre 3 has no notch network -- kept only so the table layout matches the template's.
 CONFOUNDED_ANCHORS = (400, 800)
 
 _sink = []
@@ -97,7 +98,7 @@ def fr_audit(d):
 
     # where does the error live?
     out()
-    out("FR shape error by band, median |delta| across all 11 captures:")
+    out(f"FR shape error by band, median |delta| across all {len(d['captures'])} captures:")
     out(f"{'band':>9}{'med|d|':>9}{'max|d|':>9}   {'trusted?':<9}")
     allshape = np.array([shape(c["fr"]["sweep_clean"]["plugin_db"], c["fr"]["sweep_clean"]["pedal_db"]) for c in d["captures"]])
     for j, b in enumerate(bands):
@@ -165,15 +166,28 @@ def thd_vs_level(d):
     out("  moves is a static/level-independent nonlinearity in the wrong place.")
 
 
+
+def _harm_sweep(d):
+    """The driven sweep to report harmonics at: the report's own list, highest level last."""
+    names = d.get("meta", {}).get("driven_sweeps")
+    if not names:
+        names = sorted({k for c in d["captures"] for k in c.get("harmonics", {})})
+    return names[-1] if names else None
+
 def harmonic_audit(d):
     anchors = d["meta"]["thd_anchors"]
     orders = d["meta"]["harmonic_orders"]
     out()
     out("=" * 78)
-    out("4. HARMONIC MAGNITUDES (not just THD) — delta = plugin - pedal, dB, sweep_drv_-18")
+    # The sweep to read harmonics from comes from the report's own metadata, never hand-typed:
+    # the template's literal "sweep_drv_-18" stopped existing when the test signal was redesigned.
+    harm_sweep = _harm_sweep(d)
+    out(f"4. HARMONIC MAGNITUDES (not just THD) — delta = plugin - pedal, dB, {harm_sweep}")
     out("=" * 78)
     keep = [i for i, a in enumerate(anchors) if a not in CONFOUNDED_ANCHORS]
-    out("  anchors marked (*) are NOTCH-CONFOUNDED (twin-T ~800 Hz all revs; V1 bridged-T ~430 Hz):")
+    out("  anchors marked (*) are NOTCH-CONFOUNDED on pedals with a twin-T/bridged-T in the path.")
+    out("  Echo Pre 3 has NO notch (single JFET stage, circuit.md), so nothing here is confounded;")
+    out("  the medians below still exclude them for comparability with the template's tables.")
     out("  they attenuate the FUNDAMENTAL that every ratio divides by, so they are shown but")
     out("  EXCLUDED from the medians below (Gap G). 100/200 Hz are the trustworthy anchors.")
     out()
@@ -181,7 +195,7 @@ def harmonic_audit(d):
     out(f"{'capture':<24}{'order':>6}" + hdr + f"{'  med|d|':>9}")
     rev_acc = {}
     for c in d["captures"]:
-        h = c["harmonics"]["sweep_drv_-18"]
+        h = c["harmonics"][harm_sweep]
         for o in orders:
             key = f"H{o}"
             pl = np.array(h[key]["plugin_db"], dtype=float)

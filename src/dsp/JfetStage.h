@@ -126,19 +126,56 @@ struct JfetParams
     // not the ~11 V mid-rail circuit.md estimated from a nominal part -- high gm at this Id needs a
     // small Vov, which needs a small Id.
     //
-    // !! THE DEGENERACY, stated so it is not "re-fitted" later. The reference renders' H2 pins only
-    // the PRODUCT aEven x (the trainers' reamp level in V/FS), because both enter the harmonic
-    // amplitude linearly and this dataset has no absolute level anchor (build-plan.md L1/L2). At the
-    // shipped Vov the P2 ladder's top three cells imply the trainers reamped at 0.41-0.64 V/FS,
-    // which is ordinary reamp territory; at the other end of the family (Vov = 0.131) they imply
-    // 0.12-0.19 V/FS, which is also plausible. Nothing in the dataset chooses between them.
-    // What the datasheet cap DOES buy is a one-sided bound worth carrying to step 9:
+    // !! THE DEGENERACY -- ⭐ BROKEN 2026-09-08 FOR P1, BY AN EXTERNAL CALIBRATION FACT. Read this
+    // whole block before touching aEven; the constant below has NOT been changed yet.
     //
-    //     the reference renders were driven at <= 0.41 V/FS, i.e. >= 6.6 dB below kInputRef = 0.87.
+    // The degeneracy, as it stood: the reference renders' H2 pins only the PRODUCT aEven x (the
+    // trainers' reamp level in V/FS), because both enter the harmonic amplitude linearly and the
+    // dataset has no absolute level anchor (build-plan.md L1/L2). At the shipped Vov the P2 ladder's
+    // top three cells imply the trainers reamped at 0.41-0.64 V/FS; at the other end of the family
+    // (Vov = 0.131) they imply 0.12-0.19 V/FS. Nothing IN THE DATASET chooses between them, and the
+    // datasheet cap bought only a one-sided bound: the renders were driven at <= 0.41 V/FS, i.e.
+    // >= 6.6 dB below kInputRef = 0.87, so an A/B at matched DIGITAL level compares the plugin's
+    // distortion at a drive the reference never saw. Match the DRIVE, then null.
     //
-    // So an A/B against those renders at matched DIGITAL level compares the plugin's distortion at
-    // a drive the reference never saw. Match the DRIVE (trim the plugin's input down, or set
-    // kInputRef to the fitted trainer level for the comparison), then null.
+    // ⭐ WHAT CHANGED: the owner reports P1 (thelamehorse) was captured with NAM's input calibrated
+    // to -12 dBu. NAM calibrates by playing a 1 kHz sine at 0 dBFS and measuring RMS volts at the
+    // jack into the gear, so that fixes the trainer's level outright:
+    //
+    //     V/FS = 0.7746 * 10^(-12/20) * sqrt(2) = 0.2752 V per full scale
+    //
+    // (the sqrt(2) is because the calibration measures the RMS of a full-scale SINE, while V/FS is
+    // the volts a sample of 1.0 represents). ✅ That is INSIDE the <= 0.41 V/FS bound this block
+    // derived independently from H2 -- two unrelated routes agreeing, which is why it is believed.
+    // It is 10.00 dB below kInputRef = 0.87, so matched-drive A/B against P1 means feeding the
+    // plugin -10.00 dB (analysis/harmonic_audit.py --dbu-capture -12 does exactly this).
+    //
+    // ⚠⚠ AND THE MODEL IS ~10 dB SHORT OF H2 AT THAT DRIVE. Over P1's 24 usable cells (125-800 Hz,
+    // top two levels, all three modes) the deficit is mean -9.47 dB, median -9.65, sd 2.98. Since
+    // H2/H1 = A/(4*Vov*k^2) is exactly inverse in Vov, that implies
+    //
+    //     Vov ~= 0.150 V   (|Vp| = 0.570 V, Id = 117 uA, IDSS = 1.68 mA, Vd = 19.4 V, Vds = 19.0 V)
+    //
+    // against the shipped 0.447 V. VERIFIED end-to-end, not just algebraically: a throwaway probe
+    // build at Vov = 0.1502 moved the same 24 cells to mean -0.17 dB, median -0.44, sd 2.92.
+    // Both endpoints are datasheet-admissible (IDSS 1.68 mA in 1-5 mA, |Vp| 0.570 V just inside the
+    // 0.5 V floor), and 0.150 sits near the bottom of this block's own [0.131, 0.447] bracket.
+    //
+    // ⛔ NOT APPLIED, and here is the honest reason rather than caution for its own sake:
+    //   1. The -12 dBu figure is the owner's recollection. It is NOT in the .nam metadata -- none of
+    //      the seven files carries input_level_dbu or output_level_dbu (checked). Nothing in the
+    //      data can re-derive it, so the whole result rests on that one external fact.
+    //   2. The sd of 2.98 dB is not the fit's precision, it is the CAPTURE's floor. A known-answer
+    //      probe (below the shelf zero every mode has Zs = R5, so H2 in dBc must be IDENTICAL across
+    //      modes) reads 1.5-21.3 dB of spread on P1, typically 4-9. So Vov is pinned to about a
+    //      factor of 1.4, i.e. roughly [0.11, 0.21], whose low half the datasheet forbids.
+    //   3. It moves the OPERATING POINT a long way: the drain goes 14.4 -> 19.4 V, only 2.6 V under
+    //      the rail, which changes the clipping asymmetry and invalidates the load-line arithmetic
+    //      below (that "g = +0.370 V" figure is computed at Vds = 13.1 V).
+    //   4. It contradicts the reading of the maker's "cherry picked to cream-of-the-crop specs" that
+    //      justified the IDSS = 5 mA end: the implied part is LOW-IDSS, LOW-pinchoff (1.68 mA,
+    //      0.57 V), not a hot one.
+    // ➡ Apply it together with a re-derived load line, or wait for a second calibrated capture.
     double ro = 1.4407e6; // Ohm -- 1/(lambda*Id) at lambda = 2 mV/V, with the fitted Id = 347 uA.
 
     // Shaper. g(w) = T(w) + (a*s^2/2)*tanh^2(w/s), w = effective vgs in REAL GATE VOLTS, so g'(0) = 1
@@ -165,6 +202,23 @@ struct JfetParams
                             //         do), so the only cubic evidence is 0.09-0.35 dB of top-cell
                             //         compression, which fixes the SIGN (compressive, beta < 0) and
                             //         nothing else. Left at 0 rather than fitted to a floor.
+                            // ⚠ UPDATED 2026-09-08: "H3 is all floor" is TOO STRONG, and it was M5's
+                            //         blanket claim rather than a per-capture one. Re-measured per
+                            //         capture, P1's H3 is indeed floor (rises 0.75-1.81 dB/dB where a
+                            //         cubic needs 3.0, with H4 >= H3 in 1-3 of every 4 cells), but
+                            //         **P2-bright and P3 are NOT**: P2-bright's H3 rises 2.65-2.74
+                            //         dB/dB absolute (1.97 dB/dB in dBc, against the 2.0 a cubic
+                            //         requires) over 25 dB of level with 0-1 inversions, reaching
+                            //         -36.7 dBc; P3 reaches -41.2 dBc. That is real third-harmonic
+                            //         content, and this model produces essentially NONE (-115 to
+                            //         -150 dBc -- what a pure quadratic makes via the feedback loop).
+                            //         ⛔ Still not fittable: both units' reamp levels are unknown, so
+                            //         the same aEven-vs-level degeneracy applies to beta. Note also
+                            //         P2-bright's top cell has H3 ABOVE H2, which a square-law device
+                            //         cannot do -- so that cell is a harder nonlinearity than this
+                            //         shaper has, not a bigger cubic. Needs a calibrated capture on a
+                            //         unit whose H3 clears its floor; P1 is calibrated but its H3
+                            //         does not clear, and P2/P3's H3 clears but they are not.
 
     // Per-side limits of the odd core, giving the stage its asymmetry. These are the DEVICE's own
     // bounds, in the current domain: cutoff (Id -> 0) on the negative swing, the channel ceiling
