@@ -2,6 +2,7 @@
 
 #include "InputNetwork.h"
 #include "JfetStage.h"
+#include "OsDroopRestore.h"
 #include "OutputNetwork.h"
 
 namespace pedal::dsp
@@ -9,7 +10,7 @@ namespace pedal::dsp
 /**
  * One channel's full circuit chain. Split across the oversampling boundary:
  *
- *   [ oversampled ]  input network -> JFET stage -> drain Norton CURRENT
+ *   [ oversampled ]  input network -> droop restore -> JFET stage -> drain Norton CURRENT
  *   [  base rate  ]  output / VOLUME network -> output volts
  *
  * The value crossing the boundary is a CURRENT, not a voltage, and that is the whole point: the
@@ -32,6 +33,7 @@ public:
         jfet.prepare(osRate);
         outputNet.prepare(baseRate);
         outputNet.setDrainImpedance(jfet.outputImpedance());
+        droopRestore.prepare(baseRate, osRate, osRate);
     }
 
     void reset()
@@ -39,6 +41,7 @@ public:
         inputNet.reset();
         jfet.reset();
         outputNet.reset();
+        droopRestore.reset();
     }
 
     void setParams(const JfetParams& p)
@@ -54,10 +57,17 @@ public:
     void setAdaa(bool shouldUseAdaa) noexcept { jfet.setAdaa(shouldUseAdaa); }
     void setVolume(double x) { outputNet.setVolume(x); }
 
-    /** Runs at the OVERSAMPLED rate. Volts at the input jack -> drain Norton current in amps. */
+    /** Runs at the OVERSAMPLED rate. Volts at the input jack -> drain Norton current in amps.
+     *
+     *  The droop restore sits BETWEEN the input network and the JFET, undoing the input network's own
+     *  discretisation error before the shaper ever sees it. That position was chosen by measurement,
+     *  not by reading dsp.md's "one biquad at base rate" literally: correcting after the chain fixes
+     *  the linear path equally well but also boosts the HARMONICS, which never carried the droop --
+     *  worth 0.6 dB of wanted H2 and 1.5 dB of alias floor at 1x. See OsDroopRestore.h. It
+     *  self-disables when there is nothing left to correct. */
     inline double processOversampled(double volts) noexcept
     {
-        return jfet.processSample(inputNet.processSample(volts));
+        return jfet.processSample(droopRestore.processSample(inputNet.processSample(volts)));
     }
 
     /** Runs at the BASE rate. Drain Norton current -> volts at the output jack. */
@@ -67,5 +77,6 @@ private:
     InputNetwork inputNet;
     JfetStage jfet;
     OutputNetwork outputNet;
+    OsDroopRestore droopRestore;
 };
 } // namespace pedal::dsp

@@ -23,19 +23,12 @@ constexpr double kOsRate = 192000.0;
 constexpr double kBaseRate = 48000.0;
 using cplx = std::complex<double>;
 
-// V_G / V_IN for  IN -[R3]- A -[C4]- G, with C3 shunting A and R4 shunting G.
-cplx analyticResponse(double freq)
-{
-    using namespace pedal::circuit;
-    const cplx s { 0.0, 2.0 * M_PI * freq };
-    const cplx zC3 = 1.0 / (s * kC3);
-    const cplx zC4 = 1.0 / (s * kC4);
-
-    const cplx zGateLeg = zC4 + kR4;          // A -> GND through the gate leg
-    const cplx zA = (zC3 * zGateLeg) / (zC3 + zGateLeg);
-    const cplx vA = zA / (kR3 + zA);          // IN -> A
-    return vA * (cplx(kR4) / zGateLeg);       // A -> G
-}
+// V_G / V_IN for  IN -[R3]- A -[C4]- G, with C3 shunting A and R4 shunting G. Lives in InputNetwork.h
+// now rather than here, because OsDroopRestore derives the base-rate droop from it and two copies of
+// a transfer function is exactly the kind of duplication that goes stale silently. The checks below
+// are unchanged and still bidirectional: the WDF tree against this closed form, and this closed form
+// against the corners circuit.md derives independently.
+cplx analyticResponse(double freq) { return pedal::dsp::InputNetwork::analyticResponse(freq); }
 
 std::complex<double> measureResponseAt(pedal::dsp::InputNetwork& net, double freq, double fs)
 {

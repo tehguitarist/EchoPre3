@@ -459,17 +459,56 @@ high, execute routine work cheap) is what should persist.
 >   under test are below it and the comparison is asymmetric — the bilinear column is closed-form, the
 >   shipped column is measured.
 >
+> ### THE LOW-OS DROOP RESTORE IS IN (2026-09-08), derived rather than fitted — build-plan §12.
+>
+> `src/dsp/OsDroopRestore.h`, guarded by `tests/DroopRestoreTest.cpp`. Eleven tests pass.
+>
+> ⭐ **It is a DERIVATION.** The residual droop is entirely the input network's trapezoidal caps, and a
+> trapezoidal-cap WDF *is* the bilinear transform of its own prototype — so the error is the network's
+> analytic transfer function at the warped frequency over the same function at the real one, in closed
+> form, predicting `OSFidelity`'s measured droop **to 0.01 dB in every cell**. The coefficients fall
+> out of that at whatever (base rate, oversampled rate) the host supplies, so it self-scales to every
+> sample rate and bypasses itself when the whole droop is under 0.005 dB. 📌 The analytic transfer
+> function moved from `InputNetworkTest` into `InputNetwork.h` so there is ONE definition;
+> `DroopRestoreTest` §1 asserts it still describes the real WDF tree (0.0000 dB). **That is the check
+> that could rot silently** — without it the restore would correct a network that had changed and
+> every other assertion would still pass.
+>
+> ⚠ **It sits BEFORE the JFET, at the oversampled rate — decided by measurement, not by reading
+> `dsp.md`'s "one biquad at base rate" literally.** Post-chain placement corrects the linear path just
+> as well but also boosts the HARMONICS, which never carried the droop. At 1×/48 kHz: post-chain moves
+> the wanted H2 by **+0.63 dB** and costs **1.53 dB** of alias floor; pre-compensation costs 0.09 dB
+> and 0.08 dB for the same response. Post-chain would have made the OS selector a voicing control,
+> which is the one thing `OSFidelity` exists to prevent.
+>
+> ⚠⚠ **The design is deliberately BOUNDED, and the better-looking design was rejected.** The droop
+> runs to −∞ at Nyquist, so chasing the top octave means inverting a near-Nyquist zero. That version
+> was built: it tracks to **0.44 dB out to 20 kHz** — with **+29 to +37 dB of gain at Nyquist**,
+> exactly where 1× (no decimation filter at all) puts its alias products. The shipped design pins its
+> plateau to the droop at 19.2 kHz instead, so peak boost is ≤ 6.6 dB. ⛔ And the cap is not laziness:
+> an exact two-point match is **infeasible for a first-order section in 20 of 24 (rate × factor) cells**,
+> needing 15–45 dB where it works at all.
+>
+> Worst error vs the analog input network, 20 Hz–20 kHz at 48 kHz base: 1× **7.94 → 3.27 dB**,
+> 2× **1.09 → 0.60**, 4× **0.245 → 0.141**, 8× **0.060 → 0.035**. At 1×, 12 kHz goes −1.07 → +0.03 dB
+> and 18 kHz −5.03 → −1.62.
+>
+> ⚠ Both design frequencies are CAPPED at their 48 kHz values, because hearing does not scale with the
+> sample rate: uncapped, a 192 kHz session designs the shelf around 48 and 76.8 kHz and then overshoots
+> inside the audible band. `DroopRestoreTest`'s "never worse than doing nothing" check caught it at 8×.
+>
+> 📌 **Twice in one session an asymmetric comparison — closed form against measurement — failed a
+> correct implementation.** Both `JfetStageTest` §1c and `DroopRestoreTest` §2 now MEASURE the
+> correlation instrument's own floor (from a known-exact probe) instead of assuming it.
+>
 > ### NEXT
-> The remaining 1× droop is now mode-independent AND analytically exact: it is entirely the input
-> network's own bilinear discretisation, predicted to **0.01 dB** at every factor and frequency by
-> the network's closed-form transfer function. So a restore can be DERIVED rather than fitted.
-> ⚠ But a restore that chases the top octave has to invert a near-Nyquist zero, which needs
-> **+29 to +37 dB of boost right where 1× puts its alias products** — measured, and the reason a
-> naive "match the target near Nyquist" design must be rejected. A boost-BOUNDED design (unity DC,
-> plateau capped at the droop's value at 0.40·fs, exact match at 0.25·fs) holds the peak boost to
-> ≤ 7.5 dB and lands 1× within 0.33 dB to 12 kHz, 0.80 dB to 16 kHz, and 2× within 0.30 dB
-> everywhere. **Not yet implemented** — it needs the alias floor at 1× measured with it in, since
-> that is the one thing that could make it a net loss.
+> Everything unblocked in the DSP chain is done. What remains is gated on data or on the user:
+> - **Calibration (`kInputRef`, `kOutputMakeup`) is still unanchored** and cannot be fixed from the NAM
+>   set — see §6 and limits L1/L2. `kOutputMakeup` is exactly 1.0.
+> - **Step 9 reference validation** against P1/P3 (never P2 above ~2 kHz — that is its trainer's cable).
+>   ⚠ A/B the harmonics at matched DRIVE, not matched digital level (§10.1's ≥ 6.6 dB bound).
+> - **The two-way pedal's VOLUME sweep** (§7) is the only measurement that can settle the taper, the
+>   3.9 dB vs 1–2 dB fall-back discrepancy, and `kInputRef`. Load-bearing, not contingent.
 
 ## Project-specific carry-forwards
 

@@ -710,3 +710,96 @@ the bilinear column is computed in closed form while the shipped column is measu
 carries that noise. DARK is a pure constant gain with exactly zero phase, so probing it gives the
 floor (0.06°) for free, and the "must beat bilinear" assertion is only applied where bilinear's own
 error clears it by 4×. Without that, a correct filter failed at 384 kHz.
+
+---
+
+## 12. The low-OS droop restore (2026-09-08). Derived, bounded, and it goes BEFORE the JFET.
+
+§11 removed the mode-dependent part of the 1× droop. What was left is mode-independent — which is
+the premise `dsp.md`'s restore was written on — so the restore became buildable. It is now in:
+`src/dsp/OsDroopRestore.h`, guarded by `tests/DroopRestoreTest.cpp`.
+
+### 12.1 It is a derivation, not a fit
+
+The residual droop comes from one place: the input network's trapezoidal caps. A trapezoidal-cap WDF
+**is** the bilinear transform of its own prototype, so the error is the network's analytic transfer
+function evaluated at the warped frequency, divided by the same function at the real one. No filter
+to run, nothing to measure. Checked against `OSFidelity`'s measured droop at 1×, 2× and 4×: it
+predicts **every cell to 0.01 dB**.
+
+That is the whole reason this is worth shipping. `dsp.md` describes "a single fixed-shape high-shelf,
+gain set per OS factor", which leaves open whether the shape is fitted to a residual. It is not — the
+coefficients fall out of `InputNetwork::analyticResponse()` at whatever (base rate, oversampled rate)
+the host supplies, so the restore self-scales to every sample rate and shrinks to nothing as the
+factor rises, and it bypasses itself outright when the whole droop is under 0.005 dB.
+
+📌 The analytic transfer function moved out of `InputNetworkTest` and into `InputNetwork.h` so there
+is one definition rather than two. `DroopRestoreTest` section 1 asserts it still describes the actual
+WDF tree — measured, 0.0000 dB. **That check is the one that could rot silently**: without it the
+restore would go on correcting a network that had changed, and every other assertion would still pass.
+
+### 12.2 ⚠ It goes BEFORE the JFET, and that was decided by measurement
+
+"One biquad at base rate" reads as *after the chain*, and that is what was built first. It corrects
+the linear path perfectly well — and also boosts the **harmonics**, which never carried the droop:
+they are generated downstream of the input network, so nothing attenuated them. Measured at 1×,
+48 kHz base:
+
+| | no restore | after the chain | before the JFET |
+|---|---|---|---|
+| droop @ 18 kHz | −5.03 dB | −1.69 dB | −1.68 dB |
+| wanted H2 vs 8× | +0.07 dB | **+0.63 dB** | +0.16 dB |
+| alias floor | −79.39 dBc | **−77.86 dBc** | −79.31 dBc |
+
+The post-chain placement buys the same response by moving the distortion 0.6 dB and giving up 1.5 dB
+of alias floor — i.e. by making the oversampling selector a voicing control, which is the one thing
+`OSFidelity` exists to prevent. Pre-compensation gets the same response for 0.09 dB and 0.08 dB.
+Its only cost is a little linear accuracy at 2× — measured droop at 18 kHz is −0.37 dB against
+−0.19 dB post-chain — because the shelf's plateau is pinned at its own Nyquist, and that constraint
+weakens as the running rate rises above the base rate.
+
+### 12.3 ⚠⚠ Why it is bounded, and why the "better" design is the wrong one
+
+The droop runs to −∞ at Nyquist — the bilinear zero sits exactly there — so a restore that chases the
+top octave must invert a near-Nyquist zero by putting a pole beside it. That design was built and
+measured first, and on a response plot it is much the better one: matching the target at 0.325·fs and
+0.470·fs tracks the droop to **0.44 dB all the way to 20 kHz**. It does it with **+29 to +37 dB of
+gain at Nyquist**, precisely where 1× — which has no decimation filter at all — puts its alias
+products.
+
+➡ **Rejected.** The shipped design pins its plateau to the droop's value at 19.2 kHz instead: it
+corrects toward the top of the band and stops. Peak boost ≤ 6.6 dB at every rate and factor.
+
+⛔ And the plateau cap is not a compromise forced by laziness — requiring an exact match at two
+frequencies instead is **infeasible for a first-order section in 20 of the 24 (base rate × factor)
+cells tested**, and in the four where it is feasible it needs 15–45 dB of boost. The unbounded design
+does not exist to be chosen.
+
+### 12.4 What it achieves
+
+Worst |error| against the analog input network over 20 Hz – 20 kHz:
+
+| base | 1× | 2× | 4× | 8× |
+|---|---|---|---|---|
+| 48 kHz, uncorrected | 7.941 | 1.088 | 0.245 | 0.060 |
+| 48 kHz, restored | **3.268** | **0.604** | **0.141** | **0.035** |
+
+and inside the band it actually corrects (48 kHz base, 1×, dB vs analog):
+
+| freq | 8k | 12k | 14k | 16k | 18k | 20k |
+|---|---|---|---|---|---|---|
+| uncorrected | −0.10 | −1.07 | −1.94 | −3.20 | −5.03 | −7.95 |
+| restored | +0.33 | +0.03 | −0.30 | −0.80 | −1.62 | −3.21 |
+
+⚠ **The two design frequencies (0.25·fs and 0.40·fs) are CAPPED at their 48 kHz values.** Without the
+cap a 192 kHz session designs the shelf around 48 and 76.8 kHz, entirely above the audible band, and
+then slightly overshoots inside it. `DroopRestoreTest`'s "never worse than doing nothing" check
+caught that at 8×. Hearing does not scale with the sample rate, so above a 48 kHz base the design
+stops following it.
+
+📌 Like `JfetStageTest` section 1c, `DroopRestoreTest` has to **measure the instrument's own floor**:
+the uncorrected column is closed-form while the restored column is measured through the filter, so
+only one carries the correlation instrument's leakage — and on the rows where the restore correctly
+bypasses itself the entire droop is 0.004 dB, an order below that noise. A correctly-bypassed restore
+read as a 0.001 dB regression until the floor was measured. **That is now twice in one session that
+an asymmetric comparison — closed form against measurement — failed a correct implementation.**

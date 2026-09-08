@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(EchoPre3 VERSION 0.3.0)   # bump VERSION to force Logic to rescan the AU after changes
+project(EchoPre3 VERSION 0.4.0)   # bump VERSION to force Logic to rescan the AU after changes
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -105,7 +105,7 @@ add_test(NAME WdfSmokeTest COMMAND WdfSmokeTest)
 # Step 4 (CLAUDE.md): per-stage validation. Each linear stage is checked against the analytic
 # transfer function of its own component values AND against the corners circuit.md derives
 # independently, so a mis-wired tree and a mis-transcribed value fail differently.
-foreach(_stageTest InputNetworkTest OutputNetworkTest JfetStageTest ChainTest)
+foreach(_stageTest InputNetworkTest OutputNetworkTest JfetStageTest ChainTest DroopRestoreTest)
     add_executable(${_stageTest} tests/${_stageTest}.cpp)
     target_include_directories(${_stageTest} PRIVATE src)
     target_link_libraries(${_stageTest} PRIVATE chowdsp::chowdsp_wdf)

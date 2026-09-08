@@ -311,6 +311,21 @@ Two fixes, a real trade-off:
    rather than assuming it's inaudible). Always-on (self-
   disables where there's no droop); makes low-OS "sound close" so high-OS only refines aliasing.
 
+  ⚠ **On THIS pedal three parts of that prescription came out differently — see `docs/build-plan.md`
+  §11–§12 before reusing it.** (a) The droop looked strongly MODE-dependent (3.09 dB of spread), and
+  that turned out to be the mode shelf's own bilinear discretisation, not the caps; fix the shelf's
+  discretisation first, or you will fit a compensator to your own filter design. (b) The remaining
+  droop did NOT need fitting: a trapezoidal-cap WDF *is* the bilinear transform of its prototype, so
+  the error is available in closed form from the network's own transfer function and the shelf can be
+  DERIVED. (c) It went **before the nonlinearity, at the oversampled rate**, not at base rate after
+  the chain: post-chain also boosts the harmonics, which never carried the droop, and that measured
+  +0.63 dB of wanted H2 and −1.5 dB of alias floor at 1×.
+
+  ⛔ And **bound the boost**. The droop is −∞ at Nyquist, so a shelf that tracks it to 20 kHz needs
+  +29 to +37 dB of gain there — straight into 1×'s alias products. Cap the plateau at the droop's
+  value at the top of the correction band and accept that the last octave stays dark, which is what
+  the "can't invert the near-Nyquist zero" line above is really saying.
+
 Independent of supply-voltage / rail features (those scale amplitude headroom; prewarp corrects
 frequency) — the two never interact.
 

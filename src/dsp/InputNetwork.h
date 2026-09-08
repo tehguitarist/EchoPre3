@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cmath>
+#include <complex>
+
 #include <chowdsp_wdf/chowdsp_wdf.h>
 
 #include "CircuitValues.h"
@@ -35,16 +38,66 @@ namespace pedal::dsp
 class InputNetwork
 {
 public:
+    /** The LP corner C3 forms with its surrounding resistance: R3 in parallel with R4, since C4 is
+     *  effectively a short at that frequency. NOT 1/(2*pi*R3*C3) of the cap alone (Prewarp.h). */
+    static double lowPassCornerHz()
+    {
+        constexpr double rShunt = (circuit::kR3 * circuit::kR4) / (circuit::kR3 + circuit::kR4);
+        return 1.0 / (2.0 * M_PI * rShunt * circuit::kC3);
+    }
+
+    /** The prewarped C3 this network is built with when running at `sampleRate`. */
+    static double prewarpedC3(double sampleRate)
+    {
+        return prewarpCapacitance(circuit::kC3, lowPassCornerHz(), sampleRate);
+    }
+
+    /** V_G / V_IN in closed form, for an arbitrary C3 -- the same circuit the WDF tree above realises,
+     *  written out independently. InputNetworkTest checks the tree against it in both directions.
+     *
+     *  It is in the HEADER rather than only in that test because OsDroopRestore.h needs it: the
+     *  base-rate droop this network leaves behind is exactly |H(f)| / |H(bilinear-warped f, prewarped
+     *  C3)|, and deriving the restore from the network's own transfer function is what keeps it a
+     *  derivation rather than a curve fitted to a measurement. If this expression and the tree ever
+     *  disagree, InputNetworkTest fails -- which is the point of keeping one definition, not two. */
+    static std::complex<double> analyticResponse(double freq, double c3Value = circuit::kC3)
+    {
+        using cplx = std::complex<double>;
+        const cplx s { 0.0, 2.0 * M_PI * freq };
+        return analyticResponseS(s, c3Value);
+    }
+
+    /** The same transfer function evaluated at an arbitrary complex `s`. The discrete-time response
+     *  of a trapezoidal-cap WDF is exactly this prototype at s = j*2*fs*tan(pi*f/fs) (the bilinear
+     *  map), which is how the droop below is computed without running the filter. */
+    static std::complex<double> analyticResponseS(std::complex<double> s, double c3Value)
+    {
+        using namespace pedal::circuit;
+        using cplx = std::complex<double>;
+        const cplx zC3 = 1.0 / (s * c3Value);
+        const cplx zC4 = 1.0 / (s * kC4);
+
+        const cplx zGateLeg = zC4 + kR4;          // A -> GND through the gate leg
+        const cplx zA = (zC3 * zGateLeg) / (zC3 + zGateLeg);
+        const cplx vA = zA / (kR3 + zA);          // IN -> A
+        return vA * (cplx(kR4) / zGateLeg);       // A -> G
+    }
+
+    /** How much DARKER than the real circuit this network is at `freq` when discretised at
+     *  `sampleRate`, in linear gain (so 1.0 = exact, below 1.0 = too dark). Prewarp pins the corner
+     *  but cannot invert the bilinear transform's zero at Nyquist, and what is left is this. */
+    static double discretisationGain(double freq, double sampleRate)
+    {
+        const std::complex<double> sWarped { 0.0, 2.0 * sampleRate * std::tan(M_PI * freq / sampleRate) };
+        return std::abs(analyticResponseS(sWarped, prewarpedC3(sampleRate)))
+             / std::abs(analyticResponse(freq));
+    }
+
     void prepare(double sampleRate)
     {
-        // The LP corner C3 forms with its surrounding resistance: R3 in parallel with R4, since C4 is
-        // effectively a short at that frequency. NOT 1/(2*pi*R3*C3) of the cap alone (Prewarp.h).
-        constexpr double rShunt = (circuit::kR3 * circuit::kR4) / (circuit::kR3 + circuit::kR4);
-        const double cornerHz = 1.0 / (2.0 * M_PI * rShunt * circuit::kC3);
-
         c3.prepare(sampleRate);
         c4.prepare(sampleRate);
-        c3.setCapacitanceValue(prewarpCapacitance(circuit::kC3, cornerHz, sampleRate));
+        c3.setCapacitanceValue(prewarpedC3(sampleRate));
     }
 
     void reset()
