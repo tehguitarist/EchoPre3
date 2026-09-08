@@ -109,7 +109,7 @@ def main():
         if not A.is_full_length(cap, orig):
             continue
         cap_al, _ = A.align(cap, orig)
-        extra = ["--input-trim", f"{offset:.4f}"] if offset is not None else None
+        extra = ["--input-scale", f"{offset:.4f}"] if offset is not None else None
         ren_al, _ = A.align(render(args.bin, parsed, args.os, os.path.join(tmpdir, name + ".wav"), extra), orig)
         cap_c[name], ren_c[name] = curves(cap_al), curves(ren_al)
         meta[name] = parsed

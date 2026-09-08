@@ -151,7 +151,7 @@ def main():
         # this changes is irrelevant and no output compensation is needed.
         extra = None
         if drive_offset_db is not None:
-            extra = ["--input-trim", f"{drive_offset_db:.4f}"]
+            extra = ["--input-scale", f"{drive_offset_db:.4f}"]
         ren = render(args.bin, parsed, args.os, os.path.join(tmpdir, name + ".wav"), extra)
         ren_al, _ = A.align(ren, orig)
         ren_cells = collect(ren_al)

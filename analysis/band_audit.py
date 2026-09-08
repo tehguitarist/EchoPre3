@@ -158,7 +158,7 @@ def main():
             print(f"  skip {name}: truncated")
             continue
         cap_al, _ = A.align(cap, orig)
-        extra = ["--input-trim", f"{offset:.4f}"] if offset is not None else None
+        extra = ["--input-scale", f"{offset:.4f}"] if offset is not None else None
         ren_al, _ = A.align(render(args.bin, parsed, args.os,
                                    os.path.join(tmpdir, name + ".wav"), extra), orig)
         cap_tone[name], ren_tone[name] = tone_cells(cap_al), tone_cells(ren_al)

@@ -2,7 +2,7 @@
 //
 //   ./build/OfflineRender_artefacts/Release/OfflineRender <in.wav> <out.wav> \
 //         [--os 1|2|4|8] [--volume 0..1] [--mode bright|dark|mid] \
-//         [--input-trim dB] [--output-trim dB] [--bypass 0|1] [--block N]
+//         [--input-trim dB] [--output-trim dB] [--input-scale dB] [--bypass 0|1] [--block N]
 //
 // The CLI contract is fixed by the callers already in the tree: comprehensive_report.py,
 // farina_validate.py, hf_thd_flatness_check.py, knob_tolerant_null.py and
@@ -77,7 +77,7 @@ int main(int argc, char* argv[])
 
     StringArray positional;
     int osFactor = 8;
-    double volume = 0.5, inputTrim = 0.0, outputTrim = 0.0;
+    double volume = 0.5, inputTrim = 0.0, outputTrim = 0.0, inputScaleDb = 0.0;
     int modeIndex = 1; // Dark -- the APVTS default
     bool bypass = false;
     int blockSize = 512;
@@ -101,6 +101,8 @@ int main(int argc, char* argv[])
             volume = v.getDoubleValue();
         else if (a == "--input-trim")
             inputTrim = v.getDoubleValue();
+        else if (a == "--input-scale")
+            inputScaleDb = v.getDoubleValue();
         else if (a == "--output-trim")
             outputTrim = v.getDoubleValue();
         else if (a == "--bypass")
@@ -158,8 +160,19 @@ int main(int argc, char* argv[])
     // first block carries no ramp artefact (architecture.md prepareToPlay responsibilities).
     setParam(proc.apvts, "trim_link", 0.0f); // never let the link nudge a trim we just set
     setParam(proc.apvts, "volume", (float)jlimit(0.0, 1.0, volume));
-    setParam(proc.apvts, "input_trim", (float)jlimit(-12.0, 12.0, inputTrim));
-    setParam(proc.apvts, "output_trim", (float)jlimit(-12.0, 12.0, outputTrim));
+    // ⚠⚠ FAIL, DO NOT CLAMP. These used to be jlimit()ed, and it cost a whole set of reports: the
+    // matched-drive offset for P1 is -24.2 dB once kInputRef is 4.4626, which silently became -12
+    // and drove every audit 12.2 dB too hot. A trim is a PLUGIN CONTROL with a real range; drive
+    // matching is a MEASUREMENT scaling and belongs in --input-scale, which has no range at all.
+    if (inputTrim < -12.0 || inputTrim > 12.0)
+        return fail("--input-trim " + String(inputTrim) + " dB is outside the parameter's [-12, +12] "
+                    "range. Use --input-scale for drive matching -- it scales the SIGNAL and is not "
+                    "a plugin control, so it has no range limit.");
+    if (outputTrim < -12.0 || outputTrim > 12.0)
+        return fail("--output-trim " + String(outputTrim) + " dB is outside the parameter's "
+                    "[-12, +12] range.");
+    setParam(proc.apvts, "input_trim", (float)inputTrim);
+    setParam(proc.apvts, "output_trim", (float)outputTrim);
     setParam(proc.apvts, "bypass", bypass ? 1.0f : 0.0f);
 
     if (auto* modeParam = dynamic_cast<AudioParameterChoice*>(proc.apvts.getParameter("mode")))
@@ -186,6 +199,12 @@ int main(int argc, char* argv[])
     work.clear();
     for (int ch = 0; ch < 2; ++ch)
         work.copyFrom(ch, 0, buffer, ch, 0, numSamples);
+
+    // --input-scale is applied to the SIGNAL, ahead of the processor, so it is not a plugin control
+    // and carries no range limit. This is how a matched-DRIVE comparison is made when the capture
+    // rig's volts-per-full-scale differs from kInputRef by more than a trim can express.
+    if (inputScaleDb != 0.0)
+        work.applyGain(Decibels::decibelsToGain(inputScaleDb));
 
     MidiBuffer midi;
     for (int start = 0; start < work.getNumSamples(); start += blockSize)

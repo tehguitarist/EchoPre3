@@ -104,7 +104,7 @@ def main():
         out[name] = {"unit": parsed["unit"], "mode": parsed["mode"],
                      "noise_floor_dbfs": nf, "repeat_residual_db": rr, "levels": {}}
 
-        extra = ["--input-trim", f"{offset:.4f}"] if offset else None
+        extra = ["--input-scale", f"{offset:.4f}"] if offset else None
         ren, _ = A.align(render(args.bin, parsed, args.os,
                                 os.path.join(tmp, name + ".wav"), extra), orig)
         for db in G.IMD_LEVELS_DB:
