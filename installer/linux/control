@@ -1,9 +1,9 @@
-Package: <pedal>
+Package: echopre3
 Version: __VERSION__
 Section: sound
 Priority: optional
 Architecture: amd64
-Maintainer: <You> <<you>@example.com>
-Description: <Pedal> plugin (VST3)
- Replace this description with one line about your plugin, plus optional indented
- continuation lines (each must start with a single space).
+Maintainer: Leigh Pierce <leighpierce@me.com>
+Description: Echo Pre 3 plugin (VST3)
+ Circuit-level emulation of the Echoplex EP-3 preamp (Chase Tone Secret Preamp schematic),
+ built with JUCE and chowdsp_wdf WDF circuit modelling.
