@@ -122,8 +122,30 @@ void PedalAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
         // indistinguishable from phase the circuit model got wrong, so it would corrupt the very
         // measurement the whole phase-testing pass exists to protect. Revisit only if PerfBenchmark
         // shows the FIR is a real cost (build step 6).
+        // ⚠⚠ THE LAST ARGUMENT IS useIntegerLatency, AND IT MUST STAY false. It was `true`, and that
+        // silently defeated the linear-phase choice argued for directly above -- JUCE implements an
+        // integer latency by appending a FRACTIONAL-DELAY filter, which is not linear phase, and the
+        // fraction it has to make up differs per factor. Measured against the same chain at 8x, with
+        // the best-fit pure delay removed (so this is dispersion, not latency):
+        //
+        //                     18 kHz phase error vs 8x        4x is the SHIPPED DEFAULT
+        //     factor       useIntegerLatency=true   false
+        //       1x                   +7.2 deg       -10.0
+        //       2x                  +14.3 deg        -2.8
+        //       4x                  +52.2 deg        -0.6      <-- 87x better
+        //
+        // The tell was that the error was NON-MONOTONE in the factor: 4x was far worse than 1x,
+        // which no discretisation effect can be, and the magnitude matched to 0.03 dB throughout --
+        // a 0.03 dB magnitude difference cannot produce 52 degrees in a minimum-phase filter, so the
+        // extra phase had to be coming from an allpass. Against the real P1 capture at 4x this moves
+        // the 15 kHz residual from +18.7 to -5.1 deg (Bright) and +18.3 to -5.5 (Dark).
+        //
+        // What it costs: getLatencyInSamples() is now fractional, so setLatencySamples() rounds and
+        // the host is misaligned by up to half a sample. That is a CONSTANT, frequency-independent
+        // offset -- strictly preferable here to frequency-dependent dispersion, because step 9
+        // validates this model with a sub-sample null and the harness aligns sub-sample anyway.
         oversamplers[i] = std::make_unique<dsp::Oversampling<double>>(
-            2, (size_t) i, dsp::Oversampling<double>::filterHalfBandFIREquiripple, true, false); // [PROBE]
+            2, (size_t) i, dsp::Oversampling<double>::filterHalfBandFIREquiripple, true, false);
         oversamplers[i]->initProcessing((size_t) samplesPerBlock);
         oversamplers[i]->reset();
     }
