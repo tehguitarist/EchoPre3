@@ -903,6 +903,79 @@ high, execute routine work cheap) is what should persist.
 > remaining shaper approximation now the truncation is gone** — 23 % of the compression at the low
 > `Vov`, 4.5 % at the shipped one. Replace it AT THE SAME TIME as `Vov`, not separately.
 
+> ### ⭐⭐ THE DEVICE MODEL (2026-09-09): kInputRef, the load line, and the shaper that had to go
+>
+> `src/dsp/JfetStage.h` + `OutputNetwork.h` + `EchoPreDsp.h`; guarded by `JfetStageTest` section 8.
+> Write-up `docs/build-plan.md` §16. **All 11 tests pass, warning-free; `auval` passes.**
+>
+> **`kInputRef` 0.87 → 4.4626 V/FS** — a well-recorded guitar metering −12 dBFS RMS measures ~0.78 V
+> RMS, and a full-scale sine at that calibration is 3.156 V RMS = 4.4626 V peak. Owner's own tracking
+> calibration, and the one the capture session will use.
+>
+> ⭐⭐ **The calibration did not cost anything; it changed WHAT HAD TO BE MODELLED.** The drain enters
+> triode at a **1.691 V gate swing** — a property of the rail, R6 and the bias point, unchanged by any
+> of this. At the old calibration that was **+7.5 dBFS** (unreachable without trim, correctly
+> deferred); at the new one it is **−7.5 dBFS**, the top 7.5 dB of every normal take. So the load line
+> had to be built — and building it forced the fitted shaper out, because that shaper's even bump
+> ALONE asymptotes at 347 µA against the load line's ~542 µA ceiling. `JfetStage.h` had recorded that
+> impossibility in advance and was right.
+>
+> **What replaced it: the device's own equations.** Shichman-Hodges with cutoff and triode, solved
+> implicitly against the source one-port AND the drain load. `aEven`, `bumpScale`, `beta`, `limitPos`,
+> `limitNeg` are gone; **`Vov` is the single amplitude parameter.** The stage is finally shaped like a
+> preamp — clean to −12 dBFS (0.06 dB compression, H2 −36.6 dBc), gritting at −6 (0.65 dB, −22.0),
+> into triode from −3 (2.4 dB) and odd-dominant at 0 dBFS (H3 −12.9 above H2 −21.3), which is what a
+> stage clipping against cutoff and triode must do.
+>
+> ⚠⚠ **PLAIN NEWTON DOES NOT WORK ON THE SQUARE LAW.** `F'` runs 1 in cutoff to ~40 in saturation, and
+> it **cycles** — measured, a period-3 orbit stuck near 1e-2 A at any iteration count. A warm start is
+> worse (stuck at 2.7e-2 A). It needs a **safeguarded Newton**, bracket `lo = −Id0` (cutoff) and
+> `hi = (Vds_q − vOff)/(zLoad + Rd)` (drain bottomed), ~980 µA wide.
+> ⚠ **The bracket test must be NON-STRICT** — the root sits exactly ON an end whenever the device
+> cuts off or the drain bottoms, which is what loud half-cycles do; with strict tests a converged
+> iterate is rejected and MORE iterations make it WORSE. Measured.
+> ⚠⚠ **Never "improve" the final iterate with `i = I(...) − Id0`** — that is a fixed-point step and
+> `|dI/di|` reaches 8.8, so it MULTIPLIES the error. The old structure did it harmlessly; against the
+> square law it sent a 3 V input to 9.5 mA, past IDSS.
+>
+> **kSolveIters = 8, chosen on HARMONICS not the residual.** Worst cell (Mid, 48 kHz) H2 error vs a
+> 40-iteration solve: 3 iters −14.52 dB, 4 −6.55, 5 −2.52, 6 −1.04, **8 = 0.00**. ⭐ Ordinary playing
+> (−12 dBFS) is exact at THREE; only the load-line region needs eight. ⛔ A hard input discontinuity is
+> NOT the driver — refuted: bandlimited and stepped tones converge at the same rate.
+>
+> 📌 **CPU 4.78 → 5.74 % at 4×, 8.95 → 10.97 % at 8×. A 20 % rise, not the tripling an intermediate
+> reading showed.** ⚠⚠ That reading was a **stale-parameter bug in my own probe** — exactly what
+> `ProbeHarness`'s `Setup` comment warns about. `setSolveIters` was applied conditionally, so a
+> "shipped" run inherited the previous count: PerfBenchmark's shipped column read 11.71 % against the
+> 20-iteration column's 11.76 %, i.e. it measured 20 twice. `setSolveIters(0)` now RESTORES the
+> shipped count. **Re-measure before believing a CPU regression.**
+>
+> ⚠ **FeatureProfile under-discriminates here and now says so.** Its columns are chain-level and
+> largely blind to convergence — an earlier cut read **2 iterations as "converged, buys nothing"**
+> when a stage-level probe put its H2 14.5 dB out. `JfetStageTest` 8c is the authority; the profile is
+> kept for its CPU column, which is exact.
+>
+> ✅ **Preserved:** small-signal response identical to **1.6e-10 dB / 4.7e-10°** over 3 modes × 4 rates
+> × 5 frequencies; `Zs(z=1) = R5` exactly; compression still matches `compression_audit.py`'s Python
+> oracle (−0.0321 vs −0.032). ⭐ And §14's mode-dependent iteration bias is **gone** (0.000044 dB at
+> the shipped count and fully converged alike).
+>
+> ⛔ **Given up: ADAA.** The map is now 2-D (`I(Vov_i, Vds_i)`), so ADAA1's derivation does not apply
+> and no closed-form antiderivative of the composite exists. It was already off at every factor and
+> measured as beaten by simply raising the factor. Removed from `JfetStage`, `EchoPreDsp`,
+> `PluginProcessor`, `ProbeHarness`, `OSFidelity`, `PerfBenchmark` and `FeatureProfile` rather than
+> left as a no-op. `PluginProcessor.h` records where it could go back if the profile ever asks.
+>
+> 📌 **The drain load is now VOLUME-dependent**, pushed from `OutputNetwork::drainNodeImpedance()`
+> once per block. It runs 9.8–17.9 kΩ across the rotation, which moves the triode onset by ~4 dB — a
+> fixed constant would have put the load line in the wrong place at one end of the knob.
+>
+> ### NEXT
+> - ⭐ **`Vov` is now the only amplitude parameter and every blocker on moving it is discharged** —
+>   the truncation (note #12), the shaper's `tanh²` (gone), and the load line (built). What remains is
+>   that it is degenerate with the trainers' reamp level, which the +12.2 dBu capture is designed to fix.
+> - **Unchanged:** `kOutputMakeup` = 1.0 with no anchor; the VOLUME sweep; the missing M0 null render.
+
 ## Project-specific carry-forwards
 
 ### Reference data: seven NAM models (see `docs/build-plan.md`)

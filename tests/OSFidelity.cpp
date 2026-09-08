@@ -10,7 +10,9 @@
 //   3. WANTED DISTORTION -- the harmonics that belong there. Must NOT change with the factor; if it
 //      does, the oversampling selector has become a voicing control, which it must never be.
 //
-// It also A/Bs ADAA at every factor, which is what decided PedalAudioProcessor::kAdaaMaxOsIndex.
+// ⚠ It used to A/B ADAA at every factor as well. ADAA was removed with the device-model rewrite --
+// the map is now 2-D (overdrive and drain-source voltage), so ADAA1's derivation does not apply. See
+// PluginProcessor.h. What remains is the OS factor's own effect, which is what this test is for.
 //
 // Registered with add_test() as a FINITE-ONLY probe: it asserts no NaN/Inf and that the wanted
 // distortion is factor-independent. It deliberately does NOT gate on an absolute alias or droop
@@ -52,18 +54,15 @@ int main()
     {
         Setup s;
         s.osIndex = 3;
-        s.adaa = Adaa::forceOff;
         for (int i = 0; i < kNumFr; ++i)
             ref8x[i] = relativeResponseDb(proc, s, frs[i], kRefHz, kSmall);
     }
 
     for (int osIdx = 0; osIdx < 4; ++osIdx)
-        for (const bool useAdaa : {false, true})
         {
             Setup s;
             s.osIndex = osIdx;
-            s.adaa = useAdaa ? Adaa::forceOn : Adaa::forceOff;
-            std::printf("  %2dx %-10s", kOsFactors[osIdx], useAdaa ? "ADAA on" : "ADAA off");
+            std::printf("  %2dx %-10s", kOsFactors[osIdx], "");
             for (int i = 0; i < kNumFr; ++i)
             {
                 const double d = relativeResponseDb(proc, s, frs[i], kRefHz, kSmall) - ref8x[i];
@@ -84,25 +83,17 @@ int main()
 
     double wantedRef = 0.0;
     for (int osIdx = 0; osIdx < 4; ++osIdx)
-        for (const bool useAdaa : {false, true})
         {
             Setup s;
             s.osIndex = osIdx;
             s.inputTrimDb = 12.0;
-            s.adaa = useAdaa ? Adaa::forceOn : Adaa::forceOff;
             const auto sp = toneSpectrum(proc, s, 1.0, kToneBin, &finite);
-            std::printf("  %2dx %-10s %10.2f %10.2f %10.2f\n", kOsFactors[osIdx], useAdaa ? "ADAA on" : "ADAA off",
-                        sp.h2Dbc, sp.wantedThdDbc, sp.aliasDbc);
-            if (osIdx == 3 && ! useAdaa)
+            std::printf("  %2dx %-10s %10.2f %10.2f %10.2f\n", kOsFactors[osIdx], "", sp.h2Dbc,
+                        sp.wantedThdDbc, sp.aliasDbc);
+            if (osIdx == 3)
                 wantedRef = sp.wantedThdDbc;
-            if (osIdx == 0 && ! useAdaa)
-            {
-                // Guard the one property that must hold for the ADAA verdict to keep meaning: the
-                // 1x floor has to be the worst one. If a refit ever makes 1x the quietest, the whole
-                // reasoning behind kAdaaMaxOsIndex needs re-running rather than inheriting.
-                if (! std::isfinite(sp.aliasDbc))
-                    finite = false;
-            }
+            if (osIdx == 0 && ! std::isfinite(sp.aliasDbc))
+                finite = false;
         }
 
     for (int osIdx = 0; osIdx < 4; ++osIdx)
@@ -110,7 +101,6 @@ int main()
         Setup s;
         s.osIndex = osIdx;
         s.inputTrimDb = 12.0;
-        s.adaa = Adaa::forceOff;
         const auto sp = toneSpectrum(proc, s, 1.0, kToneBin, &finite);
         if (std::abs(sp.wantedThdDbc - wantedRef) > 1.0)
         {
@@ -125,14 +115,12 @@ int main()
     std::printf("\n========== 3. THE SAME AT A REALISTIC LEVEL (-6 dBFS, 0 dB trim) ==========\n");
     std::printf("  %-14s %10s %10s %10s\n", "factor", "H2 dBc", "wanted dBc", "alias dBc");
     for (int osIdx = 0; osIdx < 4; ++osIdx)
-        for (const bool useAdaa : {false, true})
         {
             Setup s;
             s.osIndex = osIdx;
-            s.adaa = useAdaa ? Adaa::forceOn : Adaa::forceOff;
             const auto sp = toneSpectrum(proc, s, 0.5, kToneBin, &finite);
-            std::printf("  %2dx %-10s %10.2f %10.2f %10.2f\n", kOsFactors[osIdx], useAdaa ? "ADAA on" : "ADAA off",
-                        sp.h2Dbc, sp.wantedThdDbc, sp.aliasDbc);
+            std::printf("  %2dx %-10s %10.2f %10.2f %10.2f\n", kOsFactors[osIdx], "", sp.h2Dbc,
+                        sp.wantedThdDbc, sp.aliasDbc);
         }
 
     // ---- 4. Is the 1x droop mode-independent? dsp.md's low-OS shelf restore assumes it is -- it was
@@ -152,11 +140,9 @@ int main()
         Setup ref;
         ref.osIndex = 3;
         ref.modeIndex = m;
-        ref.adaa = Adaa::forceOff;
         Setup one;
         one.osIndex = 0;
         one.modeIndex = m;
-        one.adaa = Adaa::forceOff;
         std::printf("  %-10s", kModeNames[m]);
         for (int i = 0; i < kNumFr; ++i)
         {

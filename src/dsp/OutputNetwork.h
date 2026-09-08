@@ -50,7 +50,11 @@ public:
     void reset() { c10.reset(); }
 
     /** Drain Norton impedance from JfetStage::outputImpedance(), in ohms. */
-    void setDrainImpedance(double rOutOhms) { rOut.setResistanceValue(rOutOhms); }
+    void setDrainImpedance(double rOutOhms)
+    {
+        rOut.setResistanceValue(rOutOhms);
+        lastRout = rOutOhms;
+    }
 
     /** VOLUME knob, 0..1. Full CCW grounds node E through Ra -> 0 and genuinely silences the pedal. */
     void setVolume(double x)
@@ -72,6 +76,30 @@ public:
             rB.setResistanceValue(circuit::kVolumePot - ra);
         }
         pNodeE.propagateImpedanceChange();
+        lastRa = ra;
+    }
+
+    /** AC impedance seen looking INTO the drain node, in ohms. This is the load line's slope, and
+     *  JfetStage needs it because that is what turns drain current into drain volts.
+     *
+     *  Computed with C10 treated as a short, i.e. the mid-band value. ⚠ That is an approximation at
+     *  the bottom: below ~100 Hz C10 starts blocking, which RAISES this impedance and so brings the
+     *  drain into triode slightly EARLIER than the model will predict. Measured spread over
+     *  50 Hz - 5 kHz: 0.3 kOhm at VOLUME 0.8 (negligible) but 5.8 kOhm at VOLUME 0.2, where it is
+     *  worth about 2 dB of onset level. The frequency term is left out because the stage runs at the
+     *  OVERSAMPLED rate while this network runs at base rate, so a per-sample drain voltage is not
+     *  available to it even in principle -- see JfetParams::zLoad.
+     *
+     *  The VOLUME term is kept because it is the larger one: this value runs 9.8 to 17.9 kOhm across
+     *  the rotation, which moves the triode onset by about 4 dB. A fixed constant would have put the
+     *  load line in the wrong place at one end of the knob or the other. */
+    double drainNodeImpedance() const
+    {
+        const double ra = lastRa;
+        const double rb = circuit::kVolumePot - ra;
+        const double zE = 1.0 / (1.0 / circuit::kR10 + 1.0 / ra + 1.0 / (circuit::kR9 + circuit::kR8 + rb));
+        const double rd = lastRout;
+        return (rd * zE) / (rd + zE);
     }
 
     /** Drain Norton current (amps, injected into node D) -> output volts at the jack. */
@@ -87,6 +115,9 @@ private:
     // A pot arm never reaches a true 0 ohm, and a zero-impedance port would divide by zero in the
     // parallel adaptor. 0.1 ohm puts full CCW ~106 dB down, which is silence by any measure.
     static constexpr double kMinPotArm = 0.1;
+
+    double lastRa = circuit::kVolumePot * 0.25;
+    double lastRout = circuit::kR6;
 
     chowdsp::wdft::ResistorT<double> rOut { circuit::kR6 };
     chowdsp::wdft::CapacitorT<double> c10 { circuit::kC10 };

@@ -1257,3 +1257,107 @@ made at matched DRIVE computed from the ratio.
 ⭐ **The measurement that would confirm it costs one extra pass during the capture session:** record a
 DI of the guitar through the same interface input at a noted gain setting. The DI's peak dBFS, with
 the interface calibration known, gives the guitar's actual peak volts, which IS `kInputRef` directly.
+
+---
+
+## 16. The device model (2026-09-09): kInputRef, the load line, and the shaper that had to go
+
+One change with three parts, done together because they are not separable. Code and reasoning in
+`src/dsp/JfetStage.h`; guarded by `tests/JfetStageTest.cpp` section 8. All 11 tests pass; `auval`
+passes.
+
+### 16.1 The causal chain — the calibration did not cost the CPU, it changed what had to be modelled
+
+1. **`kInputRef` 0.87 → 4.4626 V/FS.** A well-recorded guitar metering −12 dBFS RMS measures ~0.78 V
+   RMS, and a full-scale sine at that calibration is 3.156 V RMS = 4.4626 V peak. This is the owner's
+   own tracking calibration and the one the capture session will use.
+2. **That moves where a performance sits on the device curve.** The drain enters triode at a **1.691 V
+   gate swing** — a property of the rail, R6 and the bias point, unchanged by any of this. At the old
+   calibration that was **+7.5 dBFS**, i.e. unreachable without input trim. At the new one it is
+   **−7.5 dBFS**, i.e. the top 7.5 dB of every normal take.
+3. **So the load line had to be built.** It had been deliberately deferred as an extreme-settings
+   corner case, correctly, under the old calibration.
+4. **Building it forced the shaper out.** The fitted shaper's even bump ALONE asymptotes at
+   `Vov/2` = 347 µA, and the load-line ceiling is ~542 µA — 64 % of the budget gone before the core
+   gets any. `JfetStage.h` had recorded that as a known impossibility and it was right.
+5. **The replacement is the device's own equations**, Shichman-Hodges with cutoff and triode, solved
+   implicitly against the source one-port AND the drain load. `aEven`, `bumpScale`, `beta`,
+   `limitPos`, `limitNeg` are all gone; `Vov` is the single amplitude parameter.
+
+### 16.2 What the stage now does, and it is finally shaped like a preamp
+
+DARK, 192 kHz, 107 Hz probe, at the shipped `Vov`:
+
+| input | gate V | in triode? | compression | H2 | H3 |
+|---|---|---|---|---|---|
+| −24 dBFS | 0.253 | no | −0.003 dB | −49.7 dBc | −78.4 |
+| −12 dBFS | 1.009 | no | −0.057 dB | −36.6 dBc | −52.6 |
+| −6 dBFS | 2.013 | no | −0.649 dB | −22.0 dBc | −27.7 |
+| −3 dBFS | 2.843 | **YES** | −2.369 dB | −19.5 dBc | −17.1 |
+| 0 dBFS | 4.016 | **YES** | −4.903 dB | −21.3 dBc | −12.9 |
+
+Clean through normal playing, gritting up on peaks, and going odd-dominant once the drain bottoms —
+which is what a stage clipping against cutoff and triode must do.
+
+### 16.3 ⚠⚠ The solve got much harder, and plain Newton does not work on it
+
+The square law is not bounded the way the fitted shaper was, and `F'` runs from 1 in cutoff to ~40 in
+strong saturation. Plain Newton **cycles** — measured doing exactly that, a period-3 orbit with the
+residual stuck near 1e-2 A regardless of iteration count. A warm start does not fix it and makes it
+worse (stuck at 2.7e-2 A at every count). The fix is a **safeguarded Newton**, and the bracket is
+free and tight: `lo = −Id0` (cutoff) and `hi = (Vds_q − vOff)/(zLoad + Rd)` (drain bottomed), about
+980 µA wide.
+
+⚠ **The bracket comparison must be NON-STRICT.** The root sits exactly ON an end whenever the device
+is in cutoff or the drain is bottomed, which are not corner cases here — they are what the loud
+half-cycles do. With strict inequalities a converged iterate is rejected as "outside", the solve
+bisects away from the answer, and **more iterations make it worse**. Measured doing that.
+
+⚠⚠ **And do NOT "improve" the final iterate with `i = I(...) − Id0`.** That is a fixed-point step and
+this map is not a contraction: `|dI/di|` reaches ~8.8 in the normal range, so it MULTIPLIES the error.
+The old structure did exactly that and it was mild enough to look harmless; against the square law it
+sent a 3 V input to 9.5 mA of drain current, past IDSS.
+
+### 16.4 The iteration count is 8, chosen on harmonics — and the CPU story was mostly a bug
+
+Harmonic error against a 40-iteration solve, worst cell (Mid, 48 kHz):
+
+| iterations | 3 | 4 | 5 | 6 | 8 |
+|---|---|---|---|---|---|
+| H2 error at 0 dBFS | −14.52 dB | −6.55 | −2.52 | −1.04 | **0.00** |
+| H2 error at −12 dBFS | 0.00 | 0.00 | 0.00 | 0.00 | 0.00 |
+
+⭐ **Ordinary playing needs THREE; it is the load-line region that needs eight.** ⛔ And a hard input
+discontinuity is NOT what drives it — first guess, refuted: a bandlimited tone and the same tone with
+steps converge at the same rate to within a factor of two.
+
+📌 **CPU: 4.78 % → 5.74 % at the 4× default, 8.95 % → 10.97 % at 8×.** A 20 % rise, not the tripling
+an intermediate measurement showed. ⚠⚠ **That intermediate figure was a STALE-PARAMETER BUG in my own
+probe**, and it is the exact trap `ProbeHarness`'s `Setup` comment warns about: `setSolveIters` was
+applied conditionally, so a "shipped" configuration inherited the previous run's count. PerfBenchmark's
+shipped column read 11.71 % against the 20-iteration column's 11.76 % — it was measuring 20 twice.
+`setSolveIters(0)` now RESTORES the shipped count rather than leaving it.
+
+### 16.5 ⚠ FeatureProfile under-discriminates on this, and says so
+
+Its three columns are chain-level and largely blind to solve convergence: the alias and 12 kHz
+figures are taken at +12 dB of trim where clipping swamps it, and even H2 moves under 0.2 dB from 2
+iterations to 20. An earlier cut read **2 iterations as "converged — buys nothing"** when a
+stage-level probe put its H2 14.5 dB out. ➡ `JfetStageTest` 8c is the authority: it drives the STAGE
+at a known gate voltage. FeatureProfile's CPU column is exact and is what it is now kept for.
+
+### 16.6 What was preserved, and what was given up
+
+✅ **Preserved.** Small-signal response identical to the derived source one-port at **1.6e-10 dB and
+4.7e-10°** over 3 modes × 4 rates × 5 frequencies. `Zs(z=1) = R5` exactly everywhere. Compression at
+0 dBFS-equivalent drive still matches `compression_audit.py`'s independent Python oracle
+(**−0.0321** against −0.032). ⭐ And the mode-dependent bias §14 found in the old fixed-count solve is
+**gone**: 0.000044 dB at the shipped count and fully converged alike.
+
+⛔ **Given up: ADAA.** ADAA1 needs a memoryless 1-D map whose argument is near-linear between samples.
+The map is now `I(Vov_i, Vds_i)` — two arguments, the second a function of the output current — so the
+derivation does not apply, and no closed-form antiderivative of the composite exists to substitute.
+It was already off at every shipped factor, and FeatureProfile's last run under the old structure put
+1× + ADAA as beaten outright by plain 2×. If it is ever wanted back, the saturation branch alone is
+1-D in `w` with the trivial antiderivative `beta·(Vov + w)³/3`; triode would fall back to plain
+evaluation, which makes the behaviour signal-dependent, so let the profile decide first.

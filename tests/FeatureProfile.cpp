@@ -71,101 +71,72 @@ int main()
     std::printf("Free below %.2f pp; accuracy deltas within +-%.1f dB are read as no change.\n", kFreeCpuPp,
                 kNeutralDb);
 
-    // ---- ADAA, at every factor, measured on all three axes at once. No score, no weighting: the
-    //      table is read by comparing whole configurations, which is the only comparison the
-    //      measurement actually supports.
-    std::printf("\n========== FEATURE: ADAA on the JFET shaper ==========\n");
-    std::printf("  %-16s %9s %11s %11s\n", "configuration", "CPU %", "alias dBc", "12 kHz dB");
+    // ---- THE ONE REMAINING LEVER: how many Newton iterations the JFET solve is given.
+    //
+    // ⚠ This test used to profile ADAA, which was the chain's only CPU-versus-accuracy knob. ADAA
+    // went with the device-model rewrite -- the map is 2-D now (overdrive and drain-source voltage),
+    // so ADAA1's derivation does not apply; PluginProcessor.h has the reasoning and the measurements
+    // that say nothing audible was lost. What replaced it as the lever is the solve itself: the
+    // square law with its load line needs a safeguarded Newton, and the iteration count is a
+    // straight trade of CPU against how far the solve converges.
+    //
+    // The accuracy axis here is the same pair OSFidelity uses -- the alias floor and the wanted
+    // harmonics -- because an under-converged solve shows up as BOTH: the residual is a per-sample
+    // error, so it is broadband, and it is signal-dependent, so it also moves the wanted content.
+    std::printf("\n========== FEATURE: Newton iterations in the JFET solve ==========\n");
+    std::printf("  Shipped count is JfetStage::kSolveIters. Fewer is cheaper; the question is where\n");
+    std::printf("  it stops being free.\n");
+    std::printf("  ⚠⚠ THIS TABLE UNDER-DISCRIMINATES, AND THE COUNT WAS NOT CHOSEN FROM IT. Every\n");
+    std::printf("  column here is a CHAIN-level measurement, and all three are largely blind to how far\n");
+    std::printf("  the solve converged: the alias and 12 kHz figures are taken at +12 dB of trim where\n");
+    std::printf("  the output is clipped hard enough to swamp it, and even H2 moves under 0.2 dB from 2\n");
+    std::printf("  iterations to 20. An earlier cut of this test therefore read 2 iterations as\n");
+    std::printf("  'converged -- buys nothing' when a stage-level probe put its H2 14.5 dB out.\n");
+    std::printf("  ➡ JfetStageTest section 8c is the authority: it drives the STAGE at a known gate\n");
+    std::printf("  voltage, so the load-line region is reached squarely instead of marginally. What\n");
+    std::printf("  this table is good for is the CPU column, which is exact and is the whole trade.\n\n");
+    std::printf("  %-16s %9s %11s %11s %11s\n", "configuration", "CPU %", "alias dBc", "12 kHz dB", "H2 err dB");
 
-    Point plain[4], withAdaa[4];
+    constexpr int kIterCounts[] = {2, 4, 6, 10, 20};
+    constexpr int kNumIter = (int) (sizeof(kIterCounts) / sizeof(kIterCounts[0]));
+    Point byIter[kNumIter];
+    double h2[kNumIter];
     for (int osIdx = 0; osIdx < 4; ++osIdx)
     {
-        Setup off;
-        off.osIndex = osIdx;
-        off.adaa = Adaa::forceOff;
-        Setup on = off;
-        on.adaa = Adaa::forceOn;
-        plain[osIdx] = measure(proc, off, &finite);
-        withAdaa[osIdx] = measure(proc, on, &finite);
+        for (int k = 0; k < kNumIter; ++k)
+        {
+            Setup s;
+            s.osIndex = osIdx;
+            s.solveIters = kIterCounts[k];
+            byIter[k] = measure(proc, s, &finite);
+            Setup h = s;
+            h.inputTrimDb = 0.0;
+            h2[k] = toneSpectrum(proc, h, 0.5, kToneBin, &finite).h2Dbc;
+            std::printf("  %2dx %-12s %8.2f%% %11.2f %11.2f %11.2f\n", kOsFactors[osIdx],
+                        (std::string(std::to_string(kIterCounts[k])) + " iters").c_str(),
+                        byIter[k].cpuPp, byIter[k].aliasDbc, byIter[k].hf12kDb,
+                        h2[k] - h2[kNumIter - 1]);
+        }
 
-        std::printf("  %2dx %-12s %8.2f%% %11.2f %11.2f\n", kOsFactors[osIdx], "ADAA off", plain[osIdx].cpuPp,
-                    plain[osIdx].aliasDbc, plain[osIdx].hf12kDb);
-        std::printf("  %2dx %-12s %8.2f%% %11.2f %11.2f\n", kOsFactors[osIdx], "ADAA on", withAdaa[osIdx].cpuPp,
-                    withAdaa[osIdx].aliasDbc, withAdaa[osIdx].hf12kDb);
+        // The verdict is per factor and against the CONVERGED answer, not against the neighbouring
+        // count: what matters is whether the shipped count has arrived, and a count-to-count delta
+        // can be small while both are still far from the root.
+        for (int k = 0; k < kNumIter - 1; ++k)
+        {
+            const double h2Err = h2[k] - h2[kNumIter - 1];
+            const double saved = byIter[kNumIter - 1].cpuPp - byIter[k].cpuPp;
+            const char* v = (std::abs(h2Err) < kNeutralDb) ? "converged -- the extra iterations buy nothing"
+                                                          : "NOT converged";
+            std::printf("      %2dx %2d iters vs converged: H2 %+7.2f dB, saves %5.2f pp   %s\n",
+                        kOsFactors[osIdx], kIterCounts[k], h2Err, saved, v);
+        }
+        std::printf("\n");
     }
 
-    // ---- THE VERDICT. The question the plugin actually has to answer is per-factor: the user
-    //      picks the oversampling factor, and given that choice, should ADAA be on? So the decision
-    //      is ADAA on against ADAA off AT THAT FACTOR, and the two error axes really do trade there.
-    //
-    //      A budget is needed to trade them, and inventing a dB-for-dB exchange rate would be a
-    //      weighting decision disguised as a measurement. So the budget is stated as what it is: a
-    //      frequency-response error at 12 kHz is a broadband, always-present coloration, while the
-    //      alias floor is inharmonic content sitting far below the fundamental only under a drive
-    //      no guitar produces. ADAA therefore has to keep its top-octave cost inside the response
-    //      budget before its alias gain counts for anything at all.
-    //
-    //      !! kHfBudgetDb is PROVISIONAL. The project's real pass/fail band is meant to come from
-    //      M6, the measured spread between two physical units (docs/build-plan.md), and that has not
-    //      been measured yet. 1 dB is a placeholder chosen to be defensible, not derived. If M6
-    //      shows two real Secret Preamps differ by several dB in the top octave, widen it here and
-    //      re-read this table -- the verdict below is only as good as this number.
-    constexpr double kHfBudgetDb = 1.0;
-
-    std::printf("\n========== VERDICT: at each factor, should ADAA be on? ==========\n");
-    std::printf("  ADAA must keep its top-octave cost inside %.1f dB at 12 kHz before its alias\n", kHfBudgetDb);
-    std::printf("  gain counts. That budget is a stated assumption, not a measurement -- see the\n");
-    std::printf("  source comment and build-plan.md M6.\n\n");
-    std::printf("  %-8s %11s %11s %11s   %s\n", "factor", "alias dB", "12 kHz dB", "CPU pp", "verdict");
-
-    for (int osIdx = 0; osIdx < 4; ++osIdx)
-    {
-        // Lower dBc is a quieter floor, so a positive gain means ADAA removed fold-back.
-        const double aliasGain = plain[osIdx].aliasDbc - withAdaa[osIdx].aliasDbc;
-        const double hfCost = withAdaa[osIdx].hf12kDb - plain[osIdx].hf12kDb; // negative = darker
-        const double cpuCost = withAdaa[osIdx].cpuPp - plain[osIdx].cpuPp;
-
-        const char* v;
-        if (-hfCost > kHfBudgetDb)
-            v = "OFF -- breaks the response budget";
-        else if (aliasGain <= kNeutralDb)
-            v = "NO-OP -- nothing measurable to remove";
-        else
-            v = cpuCost <= kFreeCpuPp ? "FREE WIN -- keep always on" : "HQ LEVER -- worth a switch";
-
-        std::printf("  %6dx %+11.2f %+11.2f %+11.2f   %s\n", kOsFactors[osIdx], aliasGain, hfCost, cpuCost, v);
-    }
-
-    // ---- Corroboration, on a comparison that needs no budget at all: ADAA competes for the same
-    //      job as the next step of the factor, which the user already has. Where doubling the factor
-    //      wins on BOTH axes, ADAA is dominated outright and no weighting is required to say so.
-    std::printf("\n  Corroboration -- ADAA against simply doubling the factor (no budget needed):\n");
-    std::printf("  %-24s %11s %11s %11s   %s\n", "comparison", "alias dB", "12 kHz dB", "CPU pp", "verdict");
-
-    for (int osIdx = 0; osIdx < 3; ++osIdx)
-    {
-        const double aliasLead = plain[osIdx + 1].aliasDbc - withAdaa[osIdx].aliasDbc;
-        const double hfLead = withAdaa[osIdx].hf12kDb - plain[osIdx + 1].hf12kDb;
-        const double cpuLead = plain[osIdx + 1].cpuPp - withAdaa[osIdx].cpuPp;
-
-        char label[64];
-        std::snprintf(label, sizeof(label), "%dx + ADAA  vs  %dx plain", kOsFactors[osIdx], kOsFactors[osIdx + 1]);
-
-        const char* v;
-        if (std::abs(aliasLead) <= kNeutralDb && std::abs(hfLead) <= kNeutralDb)
-            v = "TOSS-UP -- neither is better";
-        else if (aliasLead > kNeutralDb && hfLead > -kNeutralDb)
-            v = "ADAA wins";
-        else
-            v = "DOMINATED -- spend the CPU on the factor";
-
-        std::printf("  %-24s %+11.2f %+11.2f %+11.2f   %s\n", label, aliasLead, hfLead, cpuLead, v);
-    }
-
-    std::printf("\nRead the tables as whole configurations, not as a score. dsp.md warns the ADAA\n");
-    std::printf("benefit is not monotone in rate, so the gate is a threshold on the factor and never\n");
-    std::printf("an interpolation -- and any single-number summary of two different error axes is a\n");
+    std::printf("Read the table as whole configurations, not as a score. The count is a threshold,\n");
+    std::printf("never an interpolation, and any single-number summary of two error axes is a\n");
     std::printf("weighting decision wearing a measurement's clothes.\n");
+
 
     if (! finite)
     {

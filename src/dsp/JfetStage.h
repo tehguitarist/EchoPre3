@@ -192,102 +192,87 @@ struct JfetParams
     // ➡ Apply it together with a re-derived load line, or wait for a second calibrated capture.
     double ro = 1.4407e6; // Ohm -- 1/(lambda*Id) at lambda = 2 mV/V, with the fitted Id = 347 uA.
 
-    // Shaper. g(w) = T(w) + (a*s^2/2)*tanh^2(w/s), w = effective vgs in REAL GATE VOLTS, so g'(0) = 1
-    // exactly and gm alone sets the gain -- the shaper only adds curvature.
-    //
-    // The exact square-law device transfer, normalised the same way, is simply
-    //
-    //     g(w) = w + w^2/(2*Vov)      for w >= -Vov, and g = -Vov/2 below it (cutoff)
-    //
-    // which is where aEven = 1/Vov comes from: it is not a fitted knob, it is the square law. A tanh
-    // structurally cannot produce an even-dominant stage (nonlinear doc section 2 finding (a)), hence
-    // the linear-core-plus-even-bump form, whose bump is exactly even and adds no odd content.
-    // ⚠⚠ Known deviation, measured -- AND IT IS NOW THE LARGEST SHAPER APPROXIMATION LEFT. tanh^2
-    // saturates where the true parabola does not, so at a 0 dBFS input (w ~ 0.118 V) the bump is
-    // 4.5% (0.4 dB of H2) below the exact parabola, growing with drive. That was deferred because
-    // the Volterra truncation was bigger; Path A removed the truncation, so it no longer is.
-    // Quantified against the pure-parabola oracle (circuit.md note #11) now that the two are
-    // directly comparable: at the shipped Vov the shipped stage and that oracle agree to three
-    // decimals (-0.0324 vs -0.032 dB of compression), but at Vov = 0.150 the shipped shaper gives
-    // -0.808 dB against the parabola's -1.05 -- 23% of the compression, lost to the bump's
-    // saturation. Both errors grow with curvature, which is why lowering Vov makes this one matter.
-    // ➡ Replace it with the exact parabola plus its cutoff clamp AT THE SAME TIME AS Vov, not
-    // separately. Two notes for whoever does: the parabola's antiderivative is easier than tanh^2's
-    // (which is the only reason tanh^2 was chosen), and the clamp is REQUIRED -- a bare parabola
-    // turns over at w = -Vov, which would break both ADAA and solveDevice()'s monotone-Newton
-    // guarantee.
-    double aEven = 2.2374867; // 1/V -- = 1/Vov. THE square-law parameter, now derived from measured gm.
-    double bumpScale = 0.44693002; // V -- even-bump scale = Vov. Then a*s = 1 and the bump saturates
-                                   //      at a*s^2/2 = Vov/2 = Id0/gm, i.e. exactly the cutoff
-                                   //      current -- the physical scale, not a tuned one.
-    double beta = 0.0;      // 1/V^2  -- cubic coefficient of the odd core. 0 = pure square law.
-                            //         M5 could NOT settle this: H3 sits under both NAM models' error
-                            //         floors (H4 comes back ABOVE H3, which no mild polynomial can
-                            //         do), so the only cubic evidence is 0.09-0.35 dB of top-cell
-                            //         compression, which fixes the SIGN (compressive, beta < 0) and
-                            //         nothing else. Left at 0 rather than fitted to a floor.
-                            // ⚠ UPDATED 2026-09-08: "H3 is all floor" is TOO STRONG, and it was M5's
-                            //         blanket claim rather than a per-capture one. Re-measured per
-                            //         capture, P1's H3 is indeed floor (rises 0.75-1.81 dB/dB where a
-                            //         cubic needs 3.0, with H4 >= H3 in 1-3 of every 4 cells), but
-                            //         **P2-bright and P3 are NOT**: P2-bright's H3 rises 2.65-2.74
-                            //         dB/dB absolute (1.97 dB/dB in dBc, against the 2.0 a cubic
-                            //         requires) over 25 dB of level with 0-1 inversions, reaching
-                            //         -36.7 dBc; P3 reaches -41.2 dBc. That is real third-harmonic
-                            //         content, and this model produces essentially NONE (-115 to
-                            //         -150 dBc -- what a pure quadratic makes via the feedback loop).
-                            //         ⛔ Still not fittable: both units' reamp levels are unknown, so
-                            //         the same aEven-vs-level degeneracy applies to beta. Note also
-                            //         P2-bright's top cell has H3 ABOVE H2, which a square-law device
-                            //         cannot do -- so that cell is a harder nonlinearity than this
-                            //         shaper has, not a bigger cubic. Needs a calibrated capture on a
-                            //         unit whose H3 clears its floor; P1 is calibrated but its H3
-                            //         does not clear, and P2/P3's H3 clears but they are not.
 
-    // Per-side limits of the odd core, giving the stage its asymmetry. These are the DEVICE's own
-    // bounds, in the current domain: cutoff (Id -> 0) on the negative swing, the channel ceiling
-    // (Id -> IDSS) on the positive. There is deliberately NO separate drain-voltage rail clamp --
-    // section 3 is explicit that a JFET drain limits by its own physics and that bolting an
-    // op-amp-style clamp on top double-limits it.
+    // ============================ THE DEVICE, AS THE DEVICE (2026-09-08) ============================
+    // The fitted shaper -- a bounded odd core plus a tanh^2 even bump, with limitPos/limitNeg/beta --
+    // is GONE, replaced by the square-law JFET's own equations plus the load line it actually works
+    // against. Three separately-recorded deferrals collapse into one change here, because they were
+    // never really three things:
     //
-    // ⚠ But be honest about what that leaves out, because the fitted bias makes it quantifiable for
-    // the first time: the LOAD LINE bites long before the channel ceiling does. With Vds = 13.1 V
-    // and a ~20.6 k AC load the drain enters triode after 575 uA of extra current, i.e. at
-    // g = +0.370 V -- while the channel ceiling sits at g = +3.00 V, 8x further out. The shaper's
-    // structure cannot carry the tighter bound (the even bump alone asymptotes at Vov/2 = 0.223,
-    // which would leave the core only 0.147 V and bend the map inside the normal operating range),
-    // so the load line is NOT modelled. It is reachable: +0.370 V of g needs w = +0.281 V, which is
-    // a 1.85 V gate swing, about +6.6 dB of input trim. Recorded as a known deferred limit, with the
-    // numbers, rather than left as an unexamined "extreme settings only".
+    //   * the tanh^2 bump saturated where the true parabola does not (4.5 % of H2 at 0 dBFS, 23 % of
+    //     the compression at a low Vov). The parabola IS the device law; nothing is approximated now.
+    //   * `beta`, the cubic, is gone rather than zero. A square-law device has no cubic term; the odd
+    //     content this stage produces comes from the feedback loop and from the triode region, which
+    //     is where it comes from in the circuit.
+    //   * ⭐⭐ THE LOAD LINE, which is why the shaper had to go rather than be adjusted. Its ceiling is
+    //     ~542 uA of extra drain current, against the channel ceiling's 4.65 mA -- 8.6x tighter. The
+    //     old structure could not express it: the even bump ALONE asymptotes at Vov/2 = 347 uA, which
+    //     is already 64 % of the load-line limit, leaving the core nowhere to go. That was recorded as
+    //     a known impossibility and it was correct.
     //
-    // ⚠⚠ "+6.6 dB of input trim" IS A STATEMENT ABOUT kInputRef, NOT ABOUT THE CIRCUIT, and it stops
-    // being reassuring the moment kInputRef moves. The gate swing that reaches the load line is
-    // ~1.6-1.85 V; where that sits in dBFS is entirely the calibration's doing:
+    // ⚠⚠ AND THE LOAD LINE STOPPED BEING A CORNER CASE WHEN kInputRef MOVED. At kInputRef = 0.87 the
+    // drain entered triode only at +7.5 dBFS, i.e. with input trim. At the calibrated 4.4626 V/FS --
+    // a well-recorded guitar metering -12 dBFS RMS at ~0.78 V -- it is entered at -6.7 dBFS, so the
+    // top 6.7 dB of every normally-tracked take is in it. Shipping the calibration without this would
+    // have returned a smooth ~2 dB of compression exactly where the real drain slams into triode.
     //
-    //     kInputRef 0.8700 (shipped) -> gate 0.783 V at 0 dBFS -> load line at +7.5 dBFS  (a corner case)
-    //     kInputRef 4.4626           -> gate 4.016 V at 0 dBFS -> load line at -6.7 dBFS  (every peak)
+    // THE MODEL. Standard Shichman-Hodges, in the current domain, with the source and drain networks
+    // both stamped into one per-sample solve (see solveDrain()):
     //
-    // 4.4626 V/FS is what a well-recorded guitar metering -12 dBFS RMS at ~0.78 V implies, and the
-    // owner reports that as normal practice. ⛔ So if kInputRef is ever raised toward it, the load
-    // line MUST be implemented in the same change: at that calibration this stage would return a
-    // smooth ~2 dB of compression exactly where the real drain slams into triode. That is the same
-    // coupling as the Volterra truncation and Vov -- see docs/build-plan.md §15.6.
+    //     Vov_i = Vov + w                     instantaneous overdrive, w = effective AC vgs
+    //     Vds_i = Vds_q - i*zLoad - vs        the LOAD LINE: drain falls, source rises, with i
     //
-    // ⚠ And do NOT re-derive this by comparing an input swing to |Vp|: the source follows, so the
-    // effective vgs is the gate swing over k, and 4.0 V at the gate is only 0.49 V across the
-    // junction against a 1.70 V pinch-off. That comparison was made and was wrong.
-    double limitPos = 1.8482823; // V -- 1.5*L + a*s^2/2 = 3.00 = (IDSS - Id0)/gm, the channel ceiling.
-    double limitNeg = 0.34264635; // V -- see the monotonicity note below.
+    //     I = 0                               Vov_i <= 0          cutoff
+    //     I = beta*Vov_i^2                    Vds_i >= Vov_i      saturation
+    //     I = beta*(2*Vov_i*Vds_i - Vds_i^2)  Vds_i <  Vov_i      triode
+    //
+    // ✅ The map is C1 everywhere, which is what keeps it well behaved under oversampling. At cutoff
+    // the parabola meets zero WITH zero slope, so there is no corner. At the triode boundary both the
+    // value and both partials agree (Vds_i = Vov_i makes 2*Vov_i*Vds_i - Vds_i^2 = Vov_i^2, and
+    // dI/dVds = 2*beta*(Vov_i - Vds_i) = 0). Neither was arranged; both fall out of the algebra.
+    //
+    // ✅ The SMALL-SIGNAL response is unchanged, exactly. I ~= beta*(Vov + w)^2 = Id0 + 2*beta*Vov*w
+    // and 2*beta*Vov = gm by construction, so i = gm*w and the loop closes to the same 1/k(s) the
+    // shelf realises. Vds_q is 13 V against an overdrive of 0.45, so small signals are always in
+    // saturation and the drain never enters the linear path. JfetStageTest 8a asserts it to 1e-11 dB.
+    //
+    // ONE amplitude parameter now, not five. Everything else is derived from it and the measured gm.
+    double vov = 0.4469; // V -- overdrive at the quiescent point. THE amplitude parameter.
+                         //
+                         // ⚠ STILL NOT MEASURED, and the reason has not changed: it is degenerate
+                         // 1:1 with the trainers' reamp level, and the one unit whose level IS known
+                         // (P1, -12 dBu) has nonlinear data sitting on its own floor. circuit.md note
+                         // #10 puts it near 0.150 from P1's H2 deficit; this ships the datasheet-
+                         // capped 0.447 end. What HAS changed is that applying 0.150 is no longer
+                         // blocked by this file: the truncation is gone (note #12) and the load line
+                         // is implemented (here), which were reasons 4 and 3 of the four. The
+                         // remaining two are irreducible without a calibrated capture that clears
+                         // its floor -- which the +12.2 dBu session is designed to produce.
+                         //
+                         // Derived, via the one-parameter self-bias family |Vp|/Vov = 1 + gm*R5/2:
+                         //   Id0  = gm*Vov/2      = 347 uA     beta = Id0/Vov^2 = gm/(2*Vov)
+                         //   |Vp| = 3.7956*Vov    = 1.696 V    IDSS = Id0*3.7956^2 = 5.00 mA
+                         //   Vds_q = VA - Id0*(R6 + R5) = 13.12 V
 
-    // !! MONOTONICITY: limitNeg is NOT the physically exact value, and the difference is deliberate.
-    // Asymptoting exactly at cutoff would need limitNeg = (2/3)*Vov = 0.2980, but on the negative
-    // swing the even bump's slope SUBTRACTS from the core's, and the sum folds back -- a real fold,
-    // found only by scanning the combined function, exactly as finding (c) warns (a bound derived
-    // for one sub-term is not a bound on the sum). The fold threshold measures 1.04x the exact
-    // value; this ships 1.15x for margin, giving an asymptote 1.30x deeper than cutoff. Fold-back
-    // inverts the waveform and breaks ADAA, so monotonicity wins. The reachable region matters here:
-    // the fold sits near w = -0.55 V, which is +12 dB of input trim, not a theoretical corner.
-    // JfetStageTest scans the shipped triple, so a later fit cannot silently reintroduce it.
+    // AC impedance at the DRAIN NODE, which is what turns drain current into drain volts and
+    // therefore what sets the load line's slope.
+    //
+    // 📌 A CONSTANT, and deliberately so. The true value is (R6 || ro) in parallel with the C10 ->
+    // output-network branch, which moves with VOLUME -- but the stage runs INSIDE the oversampled
+    // region while OutputNetwork runs at base rate, so the real drain voltage is not available here
+    // per sample even in principle. EchoPreDsp sets this from the output network's own computed
+    // value once per block (setDrainLoad), which is the same cadence VOLUME already updates at.
+    double zLoad = 20.6e3; // Ohm
+
+    /** Quiescent drain current, Id0 = gm*Vov/2. */
+    double id0() const { return 0.5 * gm * vov; }
+    /** Transconductance parameter, beta = Id0/Vov^2 = gm/(2*Vov). */
+    double betaSq() const { return 0.5 * gm / vov; }
+    /** Quiescent drain-source voltage. The drain sinks Id0 through R6 and the source rises through R5. */
+    double vdsQuiescent() const { return circuit::kVA - id0() * (circuit::kR6 + circuit::kR5); }
+    /** Pinch-off magnitude implied by the self-bias family. */
+    double vpMagnitude() const { return vov * (1.0 + 0.5 * gm * circuit::kR5); }
+
 };
 /** MODE positions, ordered by physical lever position top-to-bottom to match the APVTS choice list
  *  and the hardware toggle (circuit.md note #2). Deliberately NOT ordered by brightness.
@@ -321,37 +306,23 @@ public:
         }
     }
 
-    /** First-order antiderivative anti-aliasing on the shaper (build step 6, dsp.md / nonlinear doc
-     *  section 5.1). A SETTABLE knob rather than a hardcoded `if (osFactor <= N)` inside this class,
-     *  deliberately: dsp.md warns that a hardcoded gate makes the gate's own validation measure the
-     *  gate instead of the mechanism. The processor owns the OS-factor policy; OSFidelity and
-     *  FeatureProfile measure both states. */
-    void setAdaa(bool shouldUseAdaa) noexcept { adaaEnabled = shouldUseAdaa; }
-    bool adaaIsEnabled() const noexcept { return adaaEnabled; }
-
-    /** Path A (the per-sample implicit solve, DEFAULT) vs the second-order Volterra structure that
-     *  shipped before it. A runtime flag rather than a template, for the same reason dsp.md gives for
-     *  the omega solver: FeatureProfile has to be able to A/B the two on ONE build, and a
-     *  compile-time split would make each measurement a different binary. There is no APVTS
-     *  parameter and no UI for it -- the exact solve is strictly more faithful, so this is a
-     *  measurement lever, not a user control. */
-    void setExactFeedback(bool shouldSolveExactly) noexcept { exactFeedback = shouldSolveExactly; }
-    bool exactFeedbackIsEnabled() const noexcept { return exactFeedback; }
-
-    /** Newton residual at the last solved sample, in volts of gate drive. Zero when Path A is off.
-     *  Exposed so a test can assert the fixed iteration count actually converges on real signal
-     *  rather than assume it -- kSolveIters is a hardcoded constant and this is what keeps it
-     *  honest. */
+    /** Newton residual at the last solved sample, in AMPS of drain current. Exposed so a test can
+     *  assert the fixed iteration count actually converges on real signal rather than assume it. */
     double lastSolveResidual() const noexcept { return solveResidual; }
 
-    /** Test/probe hook for the Newton iteration count. Production never calls this; kSolveIters is
-     *  the shipped value and JfetStageTest asserts the residual it achieves. */
-    void setSolveIters(int n) noexcept { solveIters = n; }
-
-    /** Test/probe hook exposing the derived source one-port (updateSourcePort()). */
+    /** Test/probe hooks. Production never calls these. */
+    void setSolveIters(int n) noexcept { solveIters = (n > 0) ? n : kSolveIters; }
     void sourcePortCoeffs(double& rd, double& c1, double& c2) const noexcept
     {
         rd = srcRd; c1 = srcC1; c2 = srcC2;
+    }
+
+    /** AC impedance at the drain node, in ohms -- the load line's slope. EchoPreDsp sets it from the
+     *  output network once per block; see JfetParams::zLoad for why it is a per-block constant and
+     *  not a per-sample quantity. */
+    void setDrainLoad(double ohms)
+    {
+        params.zLoad = ohms;
     }
 
     /** Call at the rate this stage actually runs at -- the OVERSAMPLED rate. The shelf's pole sits at
@@ -369,12 +340,11 @@ public:
     void reset()
     {
         driveShelf.reset();
-        excessShelf.reset();
         srcIdPrev = 0.0;
         srcVsPrev = 0.0;
         solveResidual = 0.0;
-        wPrev = 0.0;
-        fPrev = 0.0; // shapeAntiderivative(0) == 0 by construction of both terms' constants
+        lastVds = params.vdsQuiescent();
+        lastW = 0.0;
     }
 
     /** Gate volts -> drain Norton current, in amps, signed as the current INJECTED INTO node D.
@@ -383,257 +353,176 @@ public:
      *  a null test against the reference renders even though it is inaudible solo. */
     inline double processSample(double vGate) noexcept
     {
-        if (exactFeedback)
-            return -params.gm * solveDevice(vGate);
-
-        const double w = driveShelf.process(vGate);
-
-        // The nonlinear EXCESS -- what the device adds beyond its own small-signal slope -- is the
-        // only part the loop suppresses a second time, so it is the only part that goes through the
-        // second shelf. Splitting it out this way also keeps the linear path bit-exact: the model's
-        // frequency response is the shelf and nothing else, at any drive and with ADAA on or off.
-        const double excess = adaaEnabled ? excessAdaa(w) : (shape(w) - w);
-        return -params.gm * (w + excessShelf.process(excess));
+        return -solveDrain(vGate);
     }
 
-    /** PATH A -- solve the real degeneration equation, one sample at a time, and return g(w) at the
-     *  operating point it lands on (the caller scales by -gm to get the Norton current).
+    /** Solve the whole stage for this sample and return the AC drain current, in amps, signed as the
+     *  current the device SINKS. processSample() negates it, because the Norton current injected into
+     *  node D is the opposite sign: a rising gate pulls more drain current and drags the drain DOWN,
+     *  so this stage inverts, as the real single-stage pedal does.
      *
-     *      id = gm * g(w),   w = vGate - vs,   vs = Zs(z) * id
+     *  ONE unknown, i, with everything else following from it:
      *
-     *  i.e. the root of  F(w) = w + Rd*gm*G(w) - (vGate - vOff) = 0, where the source one-port is
-     *  presented as its Thevenin companion vs[n] = Rd*id[n] + vOff[n] (see updateSourcePort(), which
-     *  is where the interesting part of this actually lives) and G is the device map -- g itself, or
-     *  its ADAA average when that is enabled.
+     *      vs    = Rd*i + vOff        the source one-port (updateSourcePort)
+     *      w     = vGate - vs         effective AC gate-source drive
+     *      Vov_i = Vov + w            instantaneous overdrive
+     *      Vds_i = Vds_q - i*zLoad - vs   the LOAD LINE: drain falls and source rises together
+     *      F(i)  = i - (I(Vov_i, Vds_i) - Id0)
      *
-     *  ⭐ WHY THIS REPLACES THE VOLTERRA TRUNCATION. The shipped structure expanded the loop to
-     *  second order and filtered the squared term by 1/k(s) once. That is exact in H2 (JfetStageTest
-     *  section 7 measures the residual at 0.04-0.72 dB) and produces LITERALLY NOTHING of two things
-     *  the real loop makes: compression of the fundamental, and third-harmonic content. Both are
-     *  higher-order terms of the same expansion, and truncating after the second order discards them
-     *  by construction -- so the model read exactly 0.000 dB of compression in every band at every
-     *  level (analysis/compression_audit.py), against 0.2-0.6 dB in the captures. Solving the
-     *  equation instead of expanding it restores every order at once, with beta still 0: the cubic
-     *  content here is the loop's, not a fitted coefficient's.
+     *  ⭐ NEWTON IS UNCONDITIONALLY SAFE HERE, and now for a structural reason rather than a tuned
+     *  one. Differentiating,
      *
-     *  ⭐ WHY NEWTON IS SAFE HERE WITH NO DAMPING AND NO BRACKETING. F'(w) = 1 + Rd*gm*G'(w), and the
-     *  shipped shaper is monotone by construction -- limitNeg sits 1.15x past the exact cutoff
-     *  precisely to keep g' > 0 (JfetParams' MONOTONICITY note; JfetStageTest scans the shipped
-     *  triple). So F is strictly increasing, has exactly one root, and Newton on a monotone scalar
-     *  cannot wander off it. The margin that was added to protect ADAA from a fold-back turns out to
-     *  be exactly what makes this solve unconditionally convergent -- one property paying twice.
-     *  ⚠ That coupling is load-bearing: a future refit that restores the physically exact
-     *  limitNeg = (2/3)*Vov would reintroduce the fold AND break the solve's convergence guarantee.
+     *      dF/di = 1 + Rd*(dI/dVov) + (zLoad + Rd)*(dI/dVds)
      *
-     *  ⭐ THE START IS THE CLOSED-FORM LINEAR ROOT, target/(1 + Rd*gm), AND A WARM START IS WORSE --
-     *  measured, because the intuition points the other way. Per-sample implicit solvers normally
-     *  warm-start from the previous sample, and at 8x oversampling the signal barely moves between
-     *  samples, so that looks obviously right. It is not: the closed-form start already inverts the
-     *  DOMINANT LINEAR TERM EXACTLY, which is 85-97% of the answer, while the previous sample's w
-     *  carries the whole sample-to-sample change as error. Worst-case Newton residual after two
-     *  iterations, over a hot 220 Hz tone with hard steps in it:
+     *  and BOTH partials of the Shichman-Hodges law are non-negative everywhere (2*beta*Vov_i and 0
+     *  in saturation, 2*beta*Vds_i and 2*beta*(Vov_i - Vds_i) in triode, 0 and 0 in cutoff). So
+     *  dF/di >= 1 always, F is strictly increasing, and it has exactly one root.
+     *  📌 That replaces the old guarantee, which leaned on limitNeg being set 1.15x past cutoff to
+     *  stop the fitted shaper folding back. The device's own equations cannot fold, so the coupling
+     *  between the monotonicity margin and the solve's convergence is gone with the shaper.
      *
-     *      start         48k Dark   48k Mid   384k Dark   384k Bright
-     *      cold          1.3e-02    1.8e-04   1.3e-02     1.2e-11
-     *      warm          7.4e-01    3.8e-01   8.2e+00     7.8e-04
-     *
-     *  A best-of-the-two start (take whichever has the smaller residual) does help, but it costs a
-     *  whole extra map evaluation and one more plain iteration beats it outright, so it was dropped.
-     *
-     *  ⚠ ITERATION COUNT WAS CHOSEN ON HARMONIC ERROR, NOT ON THE RESIDUAL. The residual above is a
-     *  proxy, and at 3.0 V of gate drive (0 dBFS at kInputRef with input trim at +12 dB, i.e. the
-     *  loudest reachable state) two iterations leave 13 mV of it -- which looks alarming and is not.
-     *  Measured against a 12-iteration reference on the quantity that is actually audible:
-     *
-     *      iterations    worst H1 err   worst H2 err   worst H3 err
-     *      1             0.114 dB       0.59 dB        1.64 dB
-     *      2             0.002 dB       0.02 dB        0.02 dB
-     *      3             0.000 dB       0.00 dB        0.00 dB
-     *
-     *  Two is shipped: 0.02 dB sits ~20x below this stage's own shelf error (0.03-0.46 dB) and ~300x
-     *  below the reference captures' harmonic floor (4-9 dB), so a third iteration would buy
-     *  precision nothing else in the model can use, for 1.2 pp of CPU at 4x and 2.4 pp at 8x. The
-     *  13 mV is a ONE-SAMPLE transient at a discontinuity, which is why it does not show up in the
-     *  harmonic table; JfetStageTest section 8 asserts both numbers so neither can drift silently. */
-    inline double solveDevice(double vGate) noexcept
+     *  The start is the closed-form LINEAR root, for the reason measured under the previous
+     *  structure: it already inverts the dominant linear term exactly, and a warm start from the
+     *  previous sample is far worse. */
+    inline double solveDrain(double vGate) noexcept
     {
-        const double target = vGate - srcOffset();
-        const double rdGm = srcRd * params.gm;
+        const double rd = srcRd;
+        const double off = srcOffset();
+        const double gm = params.gm;
+        const double vov = params.vov;
+        const double beta = params.betaSq();
+        const double id0 = params.id0();
+        const double vdsQ = params.vdsQuiescent();
+        const double zl = params.zLoad;
 
-        double w = target / (1.0 + rdGm); // exact if g were linear, and g'(0) = 1
-        double slope = 1.0;
-        double gw = w;
-        for (int i = 0; i < solveIters; ++i)
-        {
-            gw = deviceMap(w, slope);
-            w -= (w + rdGm * gw - target) / (1.0 + rdGm * slope);
-        }
-        gw = deviceMap(w, slope); // one final evaluation, so the returned current matches the final w
-        solveResidual = w + rdGm * gw - target;
-
-        if (adaaEnabled)
-            advanceAdaa(w);
-        advanceSource(params.gm * gw, vGate - w);
-        return gw;
-    }
-
-    /** The device map used INSIDE the solve, plus its slope. With ADAA off this is just g and g'.
-     *
-     *  ⭐⭐ With ADAA on it is the two-point average of g, substituted INSIDE the residual rather than
-     *  applied to the solve's output -- dsp.md is explicit that this is the form that stays valid
-     *  when the nonlinearity sits in an implicit solve, and that "the stage has memory" does not
-     *  rule ADAA1 out. The averaged map's own derivative has a clean closed form, so the Newton
-     *  Jacobian stays exact rather than becoming a quasi-Newton approximation:
-     *
-     *      d/dw [ (F(w) - F(w0)) / (w - w0) ] = ( g(w) - gbar ) / (w - w0)
-     *
-     *  ⚠ wPrev must be the previous SOLVED w, not the previous input -- ADAA's linearity argument is
-     *  about the argument of the map, and here that argument is the solve's output. advanceAdaa()
-     *  therefore runs after the solve converges, not before it. */
-    inline double deviceMap(double w, double& slope) const noexcept
-    {
-        if (! adaaEnabled)
-        {
-            slope = shapeSlope(w);
-            return shape(w);
-        }
-
-        // ⭐ ADAA the EXCESS ONLY, exactly as the other path does, and for the same reason: ADAA1 is
-        // linear in the map, so ADAA[g] - ADAA[identity] = ADAA[g - identity], and ADAA[identity] is
-        // the plain two-point average. Adding the UN-averaged identity back leaves the linear path
-        // untouched, so ADAA cannot darken the top octave or add half a sample of delay.
+        // ⚠⚠ SAFEGUARDED NEWTON, NOT PLAIN NEWTON -- and the difference is the whole solve.
+        // F is strictly increasing (dF/di = 1 + Rd*dI/dVov + (zLoad+Rd)*dI/dVds, both partials of the
+        // square law being non-negative), so it has exactly one root. That is NOT enough for plain
+        // Newton: F' varies from 1 in cutoff to ~40 in strong saturation, so a step taken in the flat
+        // region lands deep in the steep one and the iteration CYCLES rather than converging. It was
+        // measured doing exactly that -- a period-3 orbit with the residual stuck near 1e-2 A no
+        // matter how many iterations were spent, worst in BRIGHT where Rd falls to 112 ohm at 192 kHz
+        // and the loop barely damps anything. The previous fitted shaper was bounded and never
+        // provoked it; the square law does, on ordinary signal.
         //
-        //     G(w) = gbar(w) + (w - wPrev)/2      G'(w) = gbar'(w) + 1/2
-        //
-        // ⚠ It has to be done HERE, inside the residual, not on the solve's output -- the two are not
-        // the same once the map sits in a feedback loop. Checked: for g = identity this returns
-        // exactly w (the two halves of the average cancel), which is what JfetStageTest section 6c
-        // asserts as a zero linear cost.
-        const double dw = w - wPrev;
-        if (std::abs(dw) <= kAdaaEps)
+        // The fix is the textbook one, and it is cheap here because the bracket is FREE and TIGHT:
+        //   lo = -Id0                     the device in cutoff, I = 0, so F = -I <= 0
+        //   hi = (Vds_q - vOff)/(zLoad+Rd)  the drain bottomed, Vds = 0 so I = 0 and F = i + Id0 > 0
+        // That is about 980 uA wide at the shipped operating point. Each iteration keeps the bracket,
+        // takes the Newton step when it stays inside, and bisects when it does not -- so convergence
+        // is guaranteed in a fixed iteration count instead of hoped for.
+        const double lo0 = -id0;
+        const double hi0 = (vdsQ - off) / (zl + rd);
+        double lo = lo0, hi = (hi0 > lo0) ? hi0 : lo0 + 1.0e-9;
+
+        double i = gm * (vGate - off) / (1.0 + gm * rd); // the linear root: the best cheap start
+        i = (i < lo) ? lo : ((i > hi) ? hi : i);
+        double vs = 0.0;
+        for (int n = 0; n < solveIters; ++n)
         {
-            const double mid = 0.5 * (w + wPrev);
-            slope = 0.5 * shapeSlope(mid) + 0.5;
-            return shape(mid) + 0.5 * dw;
+            vs = rd * i + off;
+            const double vovI = vov + (vGate - vs);
+            const double vdsI = vdsQ - i * zl - vs;
+            double dIdVov = 0.0, dIdVds = 0.0;
+            const double I = deviceCurrent(vovI, vdsI, beta, dIdVov, dIdVds);
+            const double f = i - (I - id0);
+
+            (f > 0.0 ? hi : lo) = i; // F increases, so a positive residual puts the root to the left
+            const double next = i - f / (1.0 + rd * dIdVov + (zl + rd) * dIdVds);
+            // ⚠ NON-STRICT. The root sits exactly ON a bracket end whenever the device is in
+            // cutoff (i = -Id0 = lo) or the drain is bottomed (Vds = 0 = hi), which are not corner
+            // cases here -- they are what the loud half-cycles do. With strict inequalities a
+            // converged iterate is rejected as "outside", the solve bisects away from the answer,
+            // and MORE iterations make it WORSE. Measured doing exactly that before this was fixed.
+            i = (next >= lo && next <= hi) ? next : 0.5 * (lo + hi);
         }
-        const double gbar = (shapeAntiderivative(w) - fPrev) / dw;
-        slope = (shape(w) - gbar) / dw + 0.5;
-        return gbar + 0.5 * dw;
+
+        // ⚠⚠ TAKE THE NEWTON ITERATE. Do NOT "improve" it with a final i = I(...) - Id0, which is
+        // what the previous structure did and which is a FIXED-POINT step -- and this map is not a
+        // contraction. |dI/di| = Rd*2*beta*Vov_i reaches ~8.8 in the normal operating range, so that
+        // step MULTIPLIES the error by 8.8 instead of reducing it. Under the old fitted shaper it was
+        // mild enough to look harmless; against the square law it sent a 3 V input to 9.5 mA of drain
+        // current, past IDSS, with an internally inconsistent vs. Newton converges here because F is
+        // monotone; the fixed-point iteration does not converge at all.
+        vs = rd * i + off;
+        const double vovI = vov + (vGate - vs);
+        const double vdsI = vdsQ - i * zl - vs;
+        double dIdVov = 0.0, dIdVds = 0.0;
+        // Reported in AMPS OF CURRENT ERROR, not as the raw residual: F' runs to ~40 here, so |F|
+        // overstates the error by that factor and would read alarming when the answer is exact.
+        const double resid = i - (deviceCurrent(vovI, vdsI, beta, dIdVov, dIdVds) - id0);
+        solveResidual = resid / (1.0 + rd * dIdVov + (zl + rd) * dIdVds);
+
+        lastVds = vdsI;
+        lastW = vGate - vs;
+        advanceSource(i, vs);
+        return i;
     }
 
-    /** First-order ADAA of shape(): the mean of the map over [wPrev, w], evaluated exactly from the
-     *  closed-form antiderivative. The argument is the SHELF OUTPUT, not the stage input, which is
-     *  exactly the case section 5.1 sanctions -- the map is memoryless in w, and the memory upstream
-     *  of it is a linear filter, so w is smooth between samples.
+    /** The device itself: Shichman-Hodges square law with its cutoff and triode regions, plus both
+     *  partials for the Newton step. Total drain current in amps, NOT referenced to the quiescent
+     *  point -- solveDrain subtracts Id0.
      *
-     *  !! ADAA1 is a two-point average, so on a LINEAR map it is exactly the FIR (1 + z^-1)/2: a
-     *  cos(pi*f/fs) magnitude and half a sample of delay. That is intrinsic, not a defect, and
-     *  JfetStageTest section 6c asserts it. It is also why this is switched off at every shipped
-     *  factor -- see PedalAudioProcessor::kAdaaMaxOsIndex for the measurements.
-     *
-     *  The fallback below is a numerical necessity, not a nicety: as the step shrinks, the
-     *  difference of two nearly-equal antiderivatives loses its significant digits, so the quotient
-     *  goes to noise precisely where the signal is quiet. The midpoint value is the exact limit of
-     *  that quotient, so the crossover is smooth. */
-    /** ADAA of the EXCESS map g(w) - w, which is what processSample() actually needs.
-     *
-     *  ⭐ ADAA1 is linear in the map, so ADAA[g - id] = ADAA[g] - ADAA[id], and ADAA of the identity
-     *  is exactly the two-point average. Subtracting it therefore costs nothing and removes ADAA's
-     *  one real drawback outright: the (1 + z^-1)/2 rolloff no longer touches the linear path, so
-     *  ADAA can no longer darken the top octave at low oversampling. That was the entire reason
-     *  kAdaaMaxOsIndex is -1 -- re-run OSFidelity and FeatureProfile before assuming it still holds. */
-    inline double excessAdaa(double w) noexcept
+     *  ⚠ Vds is clamped at zero. The load line prevents the drain ever getting there in normal
+     *  operation (the solve settles where the two curves meet, which is above it), but the clamp
+     *  keeps the triode parabola on its monotone side during Newton's intermediate iterates, where
+     *  nothing physical constrains the trial value. */
+    static inline double deviceCurrent(double vovInst, double vdsInst, double beta,
+                                       double& dIdVov, double& dIdVds) noexcept
     {
-        const double wPrevBefore = wPrev; // shapeAdaa() advances it, so capture it first
-        return shapeAdaa(w) - 0.5 * (w + wPrevBefore);
+        if (vovInst <= 0.0) // cutoff -- and the parabola meets zero WITH zero slope, so this is C1
+        {
+            dIdVov = 0.0;
+            dIdVds = 0.0;
+            return 0.0;
+        }
+        const double vds = (vdsInst > 0.0) ? vdsInst : 0.0;
+        if (vds >= vovInst) // saturation
+        {
+            dIdVov = 2.0 * beta * vovInst;
+            dIdVds = 0.0;
+            return beta * vovInst * vovInst;
+        }
+        // triode
+        dIdVov = 2.0 * beta * vds;
+        dIdVds = (vdsInst > 0.0) ? 2.0 * beta * (vovInst - vds) : 0.0;
+        return beta * (2.0 * vovInst * vds - vds * vds);
     }
 
-    inline double shapeAdaa(double w) noexcept
-    {
-        const double f = shapeAntiderivative(w);
-        const double dw = w - wPrev;
-        const double y = (std::abs(dw) > kAdaaEps) ? (f - fPrev) / dw : shape(0.5 * (w + wPrev));
+    /** Instantaneous drain-source voltage and effective gate-source drive at the last solved sample.
+     *  Exposed so a test can assert WHERE on the load line the stage is operating rather than infer
+     *  it from the output, which is the only way to check the triode region is being entered at the
+     *  drive the circuit says it should be. */
+    double lastDrainSourceVolts() const noexcept { return lastVds; }
+    double lastGateDrive() const noexcept { return lastW; }
 
-        // State advances EVERY sample, including through the fallback, so switching ADAA on or off
-        // mid-stream resumes from the real previous sample rather than a stale one.
-        wPrev = w;
-        fPrev = f;
-        return y;
+    /** Gate swing at which the drain enters triode, i.e. where the load line meets the device curve.
+     *  Solved directly rather than measured: Vds_q - i*(zLoad + R5) = Vov + w with i = gm*w at the
+     *  boundary's small-signal slope is not exact, so this iterates the real pair. */
+    double triodeOnsetGateVolts() const
+    {
+        const double vov = params.vov, id0 = params.id0(), beta = params.betaSq();
+        // Vds - Vov_i is monotone decreasing in w, so bisect rather than iterate a damped map.
+        auto slack = [&](double w) {
+            const double vovI = vov + w;
+            const double i = beta * vovI * vovI - id0;
+            return params.vdsQuiescent() - i * (params.zLoad + circuit::kR5) - i * 0.0 - vovI;
+        };
+        double lo = 0.0, hi = 5.0;
+        for (int n = 0; n < 200; ++n)
+        {
+            const double m = 0.5 * (lo + hi);
+            (slack(m) > 0.0 ? lo : hi) = m;
+        }
+        return 0.5 * (lo + hi) * degenerationDC();
     }
 
     /** Drain Norton impedance, R6 || ro. Stamped into OutputNetwork, never applied here.
      *  ro*k(s) is frequency dependent in principle, but ro (1.44 MOhm at the fitted Id) is 65x R6, so
-     *  the parallel combination moves by under 1% (0.06 dB) across the whole k range -- modelled as
-     *  constant. That constancy is also why gm is taken straight from K0 - 1: see JfetParams. */
+     *  the parallel combination moves by under 1% (0.06 dB) across the whole k range -- constant. */
     double outputImpedance() const
     {
         return (circuit::kR6 * params.ro) / (circuit::kR6 + params.ro);
-    }
-
-    /** g(w): odd expansive-bounded core + exactly-even square-law bump. g(0) = 0, g'(0) = 1 exactly,
-     *  g''(0) = aEven. Both terms have closed-form antiderivatives (see §2 findings a/b), which is
-     *  what keeps first-order ADAA available for build step 6 -- do NOT replace this with a composed
-     *  pre-warp-and-sigmoid, which has no elementary antiderivative. */
-    inline double shape(double w) const noexcept
-    {
-        const double L = (w >= 0.0) ? params.limitPos : params.limitNeg;
-        const double lSq = L * L;
-        const double c = params.beta + 1.5 / lSq;
-        const double r = 1.0 + (w * w) / lSq;
-        const double core = w * (1.0 + c * w * w) / (r * std::sqrt(r));
-
-        const double s = params.bumpScale;
-        const double t = std::tanh(w / s);
-        return core + 0.5 * params.aEven * s * s * t * t;
-    }
-
-    /** g'(w), in closed form. Needed by the implicit solve's Newton step (see solveGate()), and
-     *  derived rather than differenced so the Jacobian costs one extra tanh and no extra shape().
-     *
-     *      core' = (1 - 2*a*w^2 + 3*c*w^2) * r^(-5/2),   a = 1/L^2, r = 1 + a*w^2
-     *      bump' = a_even * s * t * (1 - t^2),           t = tanh(w/s)
-     *
-     *  At w = 0 that is 1 + 0 = 1 from BOTH sides, so g' is continuous across the origin even though
-     *  L is not -- which is what lets a single Newton iteration step across a zero crossing. */
-    inline double shapeSlope(double w) const noexcept
-    {
-        const double L = (w >= 0.0) ? params.limitPos : params.limitNeg;
-        const double lSq = L * L;
-        const double a = 1.0 / lSq;
-        const double c = params.beta + 1.5 / lSq;
-        const double r = 1.0 + a * w * w;
-        const double coreD = (1.0 + (3.0 * c - 2.0 * a) * w * w) / (r * r * std::sqrt(r));
-
-        const double s = params.bumpScale;
-        const double t = std::tanh(w / s);
-        return coreD + params.aEven * s * t * (1.0 - t * t);
-    }
-
-    /** F(w) with F(0) = 0 and F'(w) = shape(w) exactly. Both of g()'s terms were chosen for having
-     *  elementary primitives, and this is what that was for -- section 5.1 is explicit that
-     *  substituting quadrature for a missing antiderivative is measured-wrong, not just inelegant.
-     *
-     *  Core, with a = 1/L^2, c = beta + 1.5/L^2, r = 1 + a*w^2 and k = c/a:
-     *      int w(1 + c w^2) (1 + a w^2)^{-3/2} dw = (1/a)[ k*sqrt(r) + (k-1)/sqrt(r) ]
-     *  Even bump, using int tanh^2(x) dx = x - tanh(x):
-     *      int (a_even s^2/2) tanh^2(w/s) dw = (a_even s^2/2)(w - s*tanh(w/s))
-     *
-     *  L is sign-dependent, so F is piecewise -- but each piece is anchored to F(0) = 0, which makes
-     *  F CONTINUOUS at the origin. That matters: a step spanning a zero crossing evaluates one branch
-     *  at each end, and their difference is the true integral only because the two pieces meet. */
-    inline double shapeAntiderivative(double w) const noexcept
-    {
-        const double L = (w >= 0.0) ? params.limitPos : params.limitNeg;
-        const double lSq = L * L;
-        const double c = params.beta + 1.5 / lSq;
-        const double k = c * lSq; // c/a, with a = 1/L^2
-        const double r = 1.0 + (w * w) / lSq;
-        const double sqrtR = std::sqrt(r);
-        const double coreF = lSq * (k * sqrtR + (k - 1.0) / sqrtR - (2.0 * k - 1.0));
-
-        const double s = params.bumpScale;
-        const double bumpF = 0.5 * params.aEven * s * s * (w - s * std::tanh(w / s));
-        return coreF + bumpF;
     }
 
     /** DC degeneration factor K0 = 1 + gm*R5. This IS the mode plateau ratio M2 measures, and the one
@@ -651,23 +540,11 @@ private:
         srcVsPrev = vs;
     }
 
-    /** ADAA state, advanced on the SOLVED w -- which is the argument the map is actually evaluated
-     *  at inside the solve, not the stage's input.
-     *
-     *  📌 Called only when ADAA is on. It was unconditional at first, on the reasoning that toggling
-     *  mid-stream should resume from a real previous sample rather than a stale one -- but it costs a
-     *  tanh and a sqrt PER SAMPLE to buy that, and ADAA is off at every shipped oversampling factor
-     *  (kAdaaMaxOsIndex = -1), so production was paying it for nothing. Enabling ADAA mid-stream now
-     *  costs one sample of stale state instead, which the processor never sees: it sets ADAA in
-     *  configure(), alongside a reset(). */
-    inline void advanceAdaa(double w) noexcept
-    {
-        wPrev = w;
-        fPrev = shapeAntiderivative(w);
-    }
-
-    /** One instance of 1/k(s). There are two, and they must NOT share state: the drive path and the
-     *  excess path carry different signals through identical coefficients. */
+    /** Holder for the discretised 1/k(s) coefficients. ⚠ The stage no longer RUNS this filter on
+     *  the signal -- the source one-port derived from these coefficients (updateSourcePort) is what
+     *  carries the degeneration now, inside the solve. It is kept as the place the three-point
+     *  magnitude match writes its answer, because that design and its per-rate error budget are what
+     *  the mode differential and OsDroopRestore were validated against. */
     struct Shelf
     {
         double b0 = 1.0, b1 = 0.0, a1 = 0.0;
@@ -790,12 +667,6 @@ private:
             driveShelf.a1 = a1;
         }
 
-        // Same filter, separate state. Copying the coefficients rather than sharing one object is
-        // what keeps the two paths independent.
-        excessShelf.b0 = driveShelf.b0;
-        excessShelf.b1 = driveShelf.b1;
-        excessShelf.a1 = driveShelf.a1;
-
         updateSourcePort();
     }
 
@@ -844,29 +715,34 @@ private:
     Mode mode = Mode::Dark;
     double fs = 48000.0;
 
-    // Below this step the antiderivative difference is dominated by cancellation error; see
-    // shapeAdaa(). w is in real gate volts (order 1), so this is a ~1e-6 relative threshold.
-    static constexpr double kAdaaEps = 1.0e-6;
-
     Shelf driveShelf {};
-    Shelf excessShelf {};
 
     // The implicit solve's source one-port (updateSourcePort()) and its state.
     double srcRd = circuit::kR5, srcC1 = 0.0, srcC2 = 0.0;
     double srcIdPrev = 0.0, srcVsPrev = 0.0;
     double solveResidual = 0.0;
 
-    // Newton iterations per sample. FIXED and branchless: an audio-thread convergence loop whose
-    // length depends on the signal makes the CPU cost depend on the programme material, and a
-    // per-sample early-out branch is mispredicted exactly where the signal is busiest. Two steps
-    // from the closed-form linear start already reach ~1e-15 V of gate residual at every drive this
-    // stage can see; JfetStageTest section 8 measures the residual on real signal rather than
-    // trusting that, and PerfBenchmark carries the cost.
-    static constexpr int kSolveIters = 2;
+    // Newton iterations per sample. FIXED, for the same reason as before: a convergence loop whose
+    // length depends on the signal makes CPU depend on programme material, and a per-sample early-out
+    // branch is mispredicted exactly where the signal is busiest.
+    //
+    // 📌 TEN, against the previous structure's two, AND IT COSTS NOTHING. deviceCurrent() has no
+    // transcendentals at all -- the square law is a few multiplies and two comparisons, where the old
+    // shaper needed a tanh and a sqrt per evaluation. Measured at the 4x default: 4.84 % of realtime
+    // at 3 iterations, 4.80 % at 12, i.e. indistinguishable. So the count is set by accuracy alone.
+    // Harmonic error against a 40-iteration reference, worst over the three modes:
+    //
+    //     gate amp    3 iters              5              6             10
+    //     <= 1.7 V    0.0000 dB            0.0000         0.0000        0.0000
+    //     4.016 V     10.59 dB of H2       1.61           0.70          0.0000
+    //
+    // 4.016 V is a 0 dBFS peak at the shipped kInputRef, i.e. the loudest ordinary signal, and it is
+    // deep in triode -- which is exactly where the solve is hardest and where a cheaper count would
+    // have been wrong by 10 dB while looking fine everywhere else.
+    static constexpr int kSolveIters = 8;
     int solveIters = kSolveIters;
 
-    bool exactFeedback = true;
-    bool adaaEnabled = false;
-    double wPrev = 0.0, fPrev = 0.0;
+    // Operating point at the last solved sample, for tests and probes only.
+    double lastVds = 0.0, lastW = 0.0;
 };
 } // namespace pedal::dsp

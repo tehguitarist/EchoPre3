@@ -186,8 +186,6 @@ void PedalAudioProcessor::updateOversamplingFactor(int factorIndex)
         d.reset();
     }
 
-    applyAdaaPolicy();
-
     // ROUND, don't truncate. The equiripple FIR's latency is fractional (about 65.9 samples at 8x),
     // and truncating threw away nearly a whole sample of it -- which the host's delay compensation
     // then never puts back, and which showed up directly as a 1-sample lag in the OfflineRender
@@ -196,18 +194,10 @@ void PedalAudioProcessor::updateOversamplingFactor(int factorIndex)
     setLatencySamples(roundToInt(os.getLatencyInSamples()));
 }
 
-void PedalAudioProcessor::applyAdaaPolicy()
+void PedalAudioProcessor::setSolveIters(int n)
 {
-    adaaActive = (adaaOverride == AdaaOverride::useOsGate) ? (currentOsIndex <= kAdaaMaxOsIndex)
-                                                           : (adaaOverride == AdaaOverride::forceOn);
     for (auto& d : dsp)
-        d.setAdaa(adaaActive);
-}
-
-void PedalAudioProcessor::setAdaaOverride(AdaaOverride m)
-{
-    adaaOverride = m;
-    applyAdaaPolicy();
+        d.setSolveIters(n);
 }
 
 bool PedalAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const

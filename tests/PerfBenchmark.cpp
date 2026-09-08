@@ -25,7 +25,7 @@ int main()
     std::printf("Echo Pre 3 -- CPU as %% of realtime, stereo, %g s render at %g Hz, %d-sample blocks\n", kSeconds, kFs,
                 kBlock);
     std::printf("Timed through processBlock, so trims, metering and the bypass crossfade are all in it.\n\n");
-    std::printf("  %-8s %-10s %10s %10s %10s %12s\n", "factor", "mode", "shipped", "ADAA off", "ADAA on",
+    std::printf("  %-8s %-10s %10s %10s %10s %12s\n", "factor", "mode", "shipped", "2 iters", "20 iters",
                 "latency smp");
 
     for (int osIdx = 0; osIdx < 4; ++osIdx)
@@ -35,12 +35,15 @@ int main()
             s.osIndex = osIdx;
             s.modeIndex = m;
 
-            s.adaa = Adaa::useOsGate;
+            // The two extra columns used to be ADAA off/on. ADAA went with the device-model
+            // rewrite (PluginProcessor.h has why), and what replaced it as the CPU lever is the
+            // solve's iteration count -- so these bracket the shipped count instead.
+            s.solveIters = 0; // shipped kSolveIters
             const double shipped = cpuPercent(proc, s, kSeconds, &finite);
             const int latency = proc.getLatencySamples();
-            s.adaa = Adaa::forceOff;
+            s.solveIters = 2;
             const double off = cpuPercent(proc, s, kSeconds, &finite);
-            s.adaa = Adaa::forceOn;
+            s.solveIters = 20;
             const double on = cpuPercent(proc, s, kSeconds, &finite);
 
             std::printf("  %6dx %-10s %9.2f%% %9.2f%% %9.2f%% %12d\n", kOsFactors[osIdx], kModeNames[m], shipped, off,

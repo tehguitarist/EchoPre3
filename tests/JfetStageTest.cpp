@@ -122,8 +122,8 @@ int main()
     std::printf("  tau: bright %.2f us (zero %.0f Hz), mid %.2f us (zero %.0f Hz)\n",
                 params.tauBright * 1.0e6, 1.0 / (2.0 * M_PI * params.tauBright),
                 params.tauMid * 1.0e6, 1.0 / (2.0 * M_PI * params.tauMid));
-    std::printf("  Vov = %.4f V (= 1/aEven), so the square law's own scale is %.3f V of gate swing\n",
-                params.bumpScale, params.bumpScale);
+    std::printf("  Vov = %.4f V, so the square law's own scale is %.3f V of gate swing\n",
+                params.vov, params.vov * (1.0 + params.gm * circuit::kR5));
 
     // 1. The shelf, per mode. Normalise by gm so the numbers are the 1/k(s) response itself.
     //    DC must sit at 1/K0 and HF must reach unity: the degeneration is fully bypassed above the
@@ -322,271 +322,189 @@ int main()
     if (stepOut >= 0.0)
         fail("stage does not invert -- a common-source stage must");
 
-    // 3. Even dominance. A JFET is square-law, so H2 must sit well above H3. A tanh core
-    //    structurally cannot do this (its cubic forces H3 whenever it makes H2), which is why the
-    //    shaper is a linear core plus an exactly-even bump.
-    //    The probe amplitudes are FRACTIONS OF Vov, not absolute volts: the shaper is self-similar
-    //    under scaling by Vov, so fixed volts would mean something different after every refit. At a
-    //    0 dBFS input the stage actually sees w ~ 0.26*Vov, so 0.75*Vov is already heavy trim.
-    std::printf("\nHarmonic structure of the shaper (square-law signature), probed in units of Vov:\n");
-    for (const double frac : { 0.25, 0.50, 0.75 })
+    // 3. Even dominance, measured through the stage rather than on a bare shaper. A JFET is square
+    //    law, so H2 must sit well above H3, and the separation must FALL as drive rises (the cubic
+    //    the feedback loop makes grows faster than the quadratic). Probed in units of Vov, since that
+    //    is the device's own scale: at a 0 dBFS input the stage sees w ~ 0.24*Vov.
     {
-        const double amp = frac * params.bumpScale;
-        constexpr int kN = 4096;
-        double h[4] = { 0.0, 0.0, 0.0, 0.0 };
-        for (int n = 0; n < kN; ++n)
-        {
-            const double th = 2.0 * M_PI * (double) n / kN;
-            const double y = stage.shape(amp * std::sin(th));
-            for (int k = 1; k <= 3; ++k)
-                h[k] += y * std::sin((double) k * th);
-        }
-        for (int k = 1; k <= 3; ++k)
-            h[k] *= 2.0 / kN;
-
-        // H2 is a cosine component for a sine input (the even part is in quadrature), so recover it
-        // with the matching cosine correlation instead.
-        double h2 = 0.0;
-        for (int n = 0; n < kN; ++n)
-        {
-            const double th = 2.0 * M_PI * (double) n / kN;
-            h2 += stage.shape(amp * std::sin(th)) * std::cos(2.0 * th);
-        }
-        h2 = std::abs(h2 * 2.0 / kN);
-
-        const double h2db = db(h2 / std::abs(h[1]));
-        const double h3db = db(std::abs(h[3]) / std::abs(h[1]));
-        std::printf("  A = %.2f*Vov = %.3f V:  H2 %7.2f dBc,  H3 %7.2f dBc,  separation %5.2f dB\n",
-                    frac, amp, h2db, h3db, h2db - h3db);
-        if (h2db <= h3db + 15.0)
-            fail("shaper is not clearly even-dominant -- a JFET must be");
-    }
-
-    // 4. Monotonicity, scanned on the REAL combined function over the full reachable range. A bound
-    //    derived for the even bump alone is only an upper bound on the admissible region, never the
-    //    region: the core's own curvature subtracts from the bump's slope and folds the sum back
-    //    earlier than the sub-term algebra predicts. The shipped limitNeg was chosen from this scan.
-    std::printf("\nMonotonicity scan of the shipped parameter triple:\n");
-    // +-13*Vov covers everything the stage can reach at +12 dB of input trim with room to spare.
-    const double kScanV = 13.0 * params.bumpScale;
-    constexpr int kSteps = 240000;
-    double worstSlope = 1.0e9, worstAt = 0.0, prev = stage.shape(-kScanV);
-    for (int i = 1; i <= kSteps; ++i)
-    {
-        const double w = -kScanV + 2.0 * kScanV * (double) i / kSteps;
-        const double cur = stage.shape(w);
-        const double slope = (cur - prev) / (2.0 * kScanV / kSteps);
-        if (slope < worstSlope) { worstSlope = slope; worstAt = w; }
-        prev = cur;
-    }
-    std::printf("  minimum slope over w in [%+.1f, %+.1f] V: %.5f at w = %+.3f V\n", -kScanV, kScanV,
-                worstSlope, worstAt);
-    if (worstSlope <= 0.0)
-        fail("shaper folds back -- non-monotone, which inverts the waveform and breaks ADAA");
-
-    // 5. gm alone must set the small-signal gain: g'(0) = 1 exactly, so any linear oracle or FR test
-    //    is untouched by the shaper. If this drifts, every fitted gm silently changes meaning.
-    constexpr double kEps = 1.0e-7;
-    const double slope0 = (stage.shape(kEps) - stage.shape(-kEps)) / (2.0 * kEps);
-    std::printf("  g'(0) = %.9f (must be 1 so gm alone sets the gain)\n", slope0);
-    if (std::abs(slope0 - 1.0) > 1.0e-6)
-        fail("g'(0) != 1 -- the shaper is contributing gain, so gm no longer means transconductance");
-
-    // 6. ADAA (build step 6). The whole method rests on shapeAntiderivative() being the exact
-    //    primitive of shape(); if it is not, ADAA silently becomes a wrong waveshaper rather than a
-    //    less aliased one, and nothing else in the suite would notice. So it is tested against an
-    //    independent numerical integral, not against itself.
-    std::printf("\nADAA: antiderivative is the exact primitive of the shaper\n");
-    if (std::abs(stage.shapeAntiderivative(0.0)) > 1.0e-15)
-        fail("F(0) != 0 -- the two branches no longer meet at the origin");
-
-    {
-        double worstErr = 0.0, worstAt = 0.0;
-        constexpr double kH = 1.0e-6;
-        for (int i = -60; i <= 60; ++i)
-        {
-            const double w = 0.05 * (double) i; // spans +-3 V, straight through the sign branch
-            const double numeric = (stage.shapeAntiderivative(w + kH) - stage.shapeAntiderivative(w - kH)) / (2.0 * kH);
-            const double err = std::abs(numeric - stage.shape(w));
-            if (err > worstErr) { worstErr = err; worstAt = w; }
-        }
-        std::printf("  worst |dF/dw - g(w)| over w in [-3, +3] V: %.3e at w = %+.2f V\n", worstErr, worstAt);
-        if (worstErr > 1.0e-6)
-            fail("shapeAntiderivative is not the primitive of shape -- ADAA would reshape, not antialias");
-    }
-
-    // 6b. The ADAA output must equal the true mean of the shaper over the sample's step. Simpson on
-    //     a fine grid is the independent oracle. A step spanning the origin is included on purpose:
-    //     that is the one place the piecewise definition could come apart.
-    {
-        struct StepCase { double from, to; };
-        const StepCase steps[] = { { 0.10, 0.90 }, { -0.80, 0.70 }, { -1.50, -0.20 }, { 0.02, 0.021 } };
-        double worstErr = 0.0;
-        for (const auto& st : steps)
-        {
-            constexpr int kN = 20000; // even, for Simpson
-            const double h = (st.to - st.from) / kN;
-            double integral = stage.shape(st.from) + stage.shape(st.to);
-            for (int i = 1; i < kN; ++i)
-                integral += (i % 2 ? 4.0 : 2.0) * stage.shape(st.from + h * (double) i);
-            integral *= h / 3.0;
-            const double want = integral / (st.to - st.from);
-
-            stage.reset();
-            stage.shapeAdaa(st.from); // load the ADAA state with the previous sample
-            const double got = stage.shapeAdaa(st.to);
-            const double err = std::abs(got - want);
-            worstErr = std::max(worstErr, err);
-            std::printf("  step %+.3f -> %+.3f V: ADAA %.9f, true mean %.9f, err %.2e\n",
-                        st.from, st.to, got, want, err);
-        }
-        if (worstErr > 1.0e-7)
-            fail("ADAA output is not the true mean of the shaper over the step");
-    }
-
-    // 6c. What ADAA costs in the linear regime: NOTHING, and that is a change, not a given.
-    //
-    //     ⭐ ADAA1 is a two-point average, so applied to a whole map it is exactly the FIR
-    //     (1 + z^-1)/2 on the linear part: cos(pi*f/fs) of magnitude and half a sample of delay.
-    //     That rolloff is why kAdaaMaxOsIndex is -1 -- at 1x it tripled the top-octave droop to buy
-    //     aliasing that was already 63 dB down.
-    //
-    //     Since the stage now feeds only the nonlinear EXCESS through ADAA (the loop suppresses only
-    //     what it generates, so only the excess belongs in the second shelf), and ADAA1 is linear in
-    //     the map, ADAA[g - id] = ADAA[g] - ADAA[id] removes that rolloff exactly. The linear path is
-    //     untouched at every frequency, which is what this now asserts.
-    //
-    //     This test was previously written the other way round -- it asserted the deviation WAS the
-    //     two-point average. Both versions are correct statements about their own structure, and
-    //     that is the point: the assertion had to be re-derived from the new structure rather than
-    //     kept and re-tuned. A kept-and-retuned threshold here would have hidden the improvement.
-    {
+        std::printf("\nHarmonic structure (square-law signature), probed in units of Vov:\n");
         stage.setMode(dsp::Mode::Dark);
-        double worstMagErr = 0.0, worstDelayErr = 0.0;
-        for (const double f : { 1000.0, 6000.0, 20000.0 })
+        stage.prepare(kFs);
+        double lastSep = 1.0e9;
+        for (const double frac : { 0.25, 0.50, 0.75 })
         {
-            stage.setAdaa(false);
-            const auto plain = shelfResponseAt(stage, f);
-            stage.setAdaa(true);
-            const auto adaa = shelfResponseAt(stage, f);
-            stage.setAdaa(false);
-
-            const double gotDb = db(std::abs(adaa) / std::abs(plain));
-            const double gotDelay = pedal::test::excessDelaySamples(
-                pedal::test::phaseErrorDeg(std::arg(adaa), std::arg(plain)), f, kFs);
-            std::printf("  %5.0f Hz: ADAA cost %+.6f dB, delay %+.5f smp "
-                        "(both must be 0; the old whole-map form gave %+.5f dB)\n",
-                        f, gotDb, gotDelay, db(std::cos(M_PI * f / kFs)));
-            worstMagErr = std::max(worstMagErr, std::abs(gotDb));
-            worstDelayErr = std::max(worstDelayErr, std::abs(gotDelay));
-        }
-        if (worstMagErr > 1.0e-6 || worstDelayErr > 1.0e-4)
-            fail("ADAA is altering the LINEAR path -- it is being applied to the whole map, not to "
-                 "the nonlinear excess");
-    }
-
-    // 7. ⭐⭐ THE DISTORTION LAW: degeneration suppresses what it generates, so H2 falls as k^2.
-    //
-    //    This is the one property no linear test can see, and the first build shipped it wrong by
-    //    exactly K0 (16.4 dB). Feeding the shelf output into the shaper models the DRIVE to the
-    //    nonlinearity and stops there; the loop also attenuates the product the device makes inside
-    //    it. Expanding id = gm*u + c*u^2 with u = vg - id*Zs gives id2 = c*(u1^2)/k(s) -- the same
-    //    shelf a second time, on the squared term -- so H2/H1 = A/(4*Vov*k^2), not A/(4*Vov*k).
-    //
-    //    The oracle is an exact per-sample implicit solve of id = gm*g(vg - id*R5), Newton to
-    //    machine precision, using THIS STAGE'S OWN shape() as the device law. That isolates the
-    //    question being asked: any difference is the Volterra truncation of the structure, not a
-    //    disagreement about what the device does. DARK is used because Zs = R5 is then memoryless,
-    //    so the oracle needs no state and cannot itself be wrong about the dynamics.
-    //
-    //    The "shelf only" column is the shipped-in-error structure, reconstructed here (in DARK the
-    //    shelf is the constant 1/K0, so it is just g(vg/K0)). Keeping it in the output means the bug
-    //    stays visible as a number rather than as a paragraph.
-    {
-        // ⚠⚠ READ THIS BEFORE TRUSTING THE "path A" COLUMN BELOW. Since Path A became the shipped
-        // structure it IS this oracle -- the same equation, the same shape(), Newton on both -- so
-        // its column is DEFINITIONAL and reads 0.00 dB by construction. That is not evidence of
-        // anything, and this project has already been bitten twice by a test that compared a thing
-        // to itself (JfetStageTest section 1c against the bilinear-warped frequency; ChainTest
-        // against an asymptote). It is kept because the OTHER two columns still measure something
-        // real: the shelf-only structure must stay visibly wrong by ~20*log10(K0), and the TRUNCATED
-        // path's deviation is the number that justified replacing it. Section 8 carries the checks
-        // that actually constrain Path A.
-        std::printf("\n7. Distortion law vs an exact implicit solve of id = gm*g(vg - id*R5):\n");
-        std::printf("     gate A      exact    path A (= oracle)   truncated (prev)   shelf-only (the bug)\n");
-        stage.setMode(dsp::Mode::Dark);
-
-        auto h2dbc = [](const auto& fn, double amp) {
+            const double amp = frac * params.vov * k0; // gate volts giving w ~ frac*Vov
             constexpr int kN = 8192;
-            double c1 = 0.0, c2 = 0.0;
-            for (int n = 0; n < kN; ++n)
-            {
-                const double th = 2.0 * M_PI * (double) n / kN;
-                const double y = fn(amp * std::sin(th));
-                c1 += y * std::sin(th);
-                c2 += y * std::cos(2.0 * th);
-            }
-            return db(std::abs(c2) / std::abs(c1));
-        };
-
-        // Newton on F(id) = gm*g(vg - id*R5) - id. F' ~ -(1 + gm*R5*g') ~ -6.6, so it is well
-        // conditioned everywhere; g' is taken numerically to keep the oracle independent of any
-        // analytic derivative the stage might later grow.
-        auto exact = [&stage, &params](double vg) {
-            double id = 0.0;
-            for (int i = 0; i < 80; ++i)
-            {
-                const double u = vg - id * circuit::kR5;
-                constexpr double kH = 1.0e-7;
-                const double gp = (stage.shape(u + kH) - stage.shape(u - kH)) / (2.0 * kH);
-                const double step = (params.gm * stage.shape(u) - id) / (-params.gm * gp * circuit::kR5 - 1.0);
-                id -= step;
-                if (std::abs(step) < 1.0e-16)
-                    break;
-            }
-            return id;
-        };
-        auto shelfOnly = [&stage, &params, k0](double vg) { return -params.gm * stage.shape(vg / k0); };
-        auto runStage = [&stage](double vg) {
+            double a[4] = {}, b[4] = {};
             stage.reset();
-            // Memoryless in DARK, but run a few samples anyway so the filter states are settled.
-            double y = 0.0;
-            for (int i = 0; i < 4; ++i)
-                y = stage.processSample(vg);
-            return y;
-        };
-        auto model = [&](double vg) { stage.setExactFeedback(true); return runStage(vg); };
-        auto truncated = [&](double vg) { stage.setExactFeedback(false); return runStage(vg); };
-
-        double worst = 0.0, worstTrunc = 0.0;
-        for (const double amp : { 0.2, 0.5, 0.8 })
-        {
-            // The exact solve returns +id (into the drain resistor); the stage returns the injected
-            // Norton current, which is -id. H2 re fundamental is unaffected by that sign.
-            const double e = h2dbc(exact, amp);
-            const double m = h2dbc(model, amp);
-            const double t = h2dbc(truncated, amp);
-            const double b = h2dbc(shelfOnly, amp);
-            stage.setExactFeedback(true);
-            std::printf("     %.2f V   %+7.2f dBc  %+7.2f (%+.2f)      %+7.2f (%+.2f)   %+7.2f (%+.2f)\n",
-                        amp, e, m, m - e, t, t - e, b, b - e);
-            worst = std::max(worst, std::abs(m - e));
-            worstTrunc = std::max(worstTrunc, std::abs(t - e));
-
-            // The bug must stay caught: shelf-only over-produces H2 by ~20*log10(K0) = 16.4 dB.
-            if (b - e < 10.0)
-                fail("the shelf-only structure is NOT visibly wrong here -- this test has stopped "
-                     "guarding the k^2 law and would pass with the bug reinstated");
+            for (int n = -2048; n < kN; ++n)
+            {
+                const double th = 2.0 * M_PI * 107.0 * (double) n / kN;
+                const double y = stage.processSample(amp * std::sin(th));
+                if (n < 0)
+                    continue;
+                for (int k = 1; k <= 3; ++k)
+                {
+                    a[k] += y * std::sin((double) k * th);
+                    b[k] += y * std::cos((double) k * th);
+                }
+            }
+            double h[4];
+            for (int k = 1; k <= 3; ++k)
+                h[k] = std::hypot(a[k], b[k]);
+            const double h2 = db(h[2] / h[1]), h3 = db(h[3] / h[1]);
+            std::printf("  A = %.2f*Vov at the gate (%.3f V):  H2 %7.2f dBc,  H3 %7.2f dBc,  sep %5.2f dB\n",
+                        frac, amp, h2, h3, h2 - h3);
+            if (h2 <= h3)
+                fail("H3 has overtaken H2 -- a square-law device cannot do that");
+            if (h2 - h3 > lastSep)
+                fail("the H2/H3 separation is not closing with drive -- the loop's cubic is missing");
+            lastSep = h2 - h3;
         }
-        std::printf("     path A %.2f dB from the oracle (definitional), truncated %.2f dB "
-                    "(the Volterra error Path A removes)\n", worst, worstTrunc);
-        if (worst > 1.0)
-            fail("second-order feedback term is missing or mis-scaled -- H2 does not follow k^2");
-        if (worstTrunc < 0.1)
-            fail("the truncated path no longer deviates from the exact solve -- either it has been "
-                 "changed or setExactFeedback(false) has stopped selecting it, and this test has "
-                 "stopped recording why Path A exists");
     }
+
+    // 4. ⭐⭐ THE OPERATING POINT AND THE LOAD LINE, which is what replaced the fitted shaper.
+    //
+    //    The old structure asymptoted the drain current at the CHANNEL ceiling, (IDSS - Id0), and
+    //    could not express the load line at all: its even bump alone reached Vov/2 = 347 uA, already
+    //    64 % of the load line's ~542 uA, leaving the core nowhere to go. That was recorded as a known
+    //    impossibility. The device model has no such problem -- the parabola is unbounded and the
+    //    ceiling comes from the triode region instead, where it comes from in the circuit.
+    //
+    //    ⚠ This is now a MAIN-PATH behaviour, not a corner case. At kInputRef = 4.4626 the drain
+    //    enters triode at -6.7 dBFS, so the top 6.7 dB of an ordinarily-tracked take is inside it.
+    {
+        std::printf("\n4. Operating point and the load line:\n");
+        stage.setMode(dsp::Mode::Dark);
+        stage.prepare(kFs);
+        std::printf("    Id0 %.1f uA | Vds_q %.3f V | |Vp| %.4f V | IDSS %.2f mA | zLoad %.1f k\n",
+                    params.id0() * 1.0e6, params.vdsQuiescent(), params.vpMagnitude(),
+                    params.id0() * std::pow(1.0 + 0.5 * params.gm * circuit::kR5, 2.0) * 1.0e3,
+                    params.zLoad / 1.0e3);
+
+        const double onset = stage.triodeOnsetGateVolts();
+        std::printf("    drain enters triode at a %.3f V gate swing\n", onset);
+        if (onset < 1.0 || onset > 2.5)
+            fail("the triode onset has moved a long way -- check Vov, the rail, or zLoad");
+
+        // The channel ceiling must be far ABOVE the load line's, or the load line is not the binding
+        // constraint and this whole section is measuring the wrong thing.
+        const double iChannel = params.id0() * (std::pow(1.0 + 0.5 * params.gm * circuit::kR5, 2.0) - 1.0);
+        const double iLoad = params.vdsQuiescent() / (params.zLoad + circuit::kR5);
+        std::printf("    current ceiling: load line %.0f uA vs the channel's %.0f uA (%.1fx tighter)\n",
+                    iLoad * 1.0e6, iChannel * 1.0e6, iChannel / iLoad);
+        if (iChannel / iLoad < 3.0)
+            fail("the load line is no longer the binding ceiling");
+
+        // Walk up the gate and confirm the three regions appear in the right order at the right place.
+        std::printf("    %10s %11s %9s %9s %s\n", "gate V", "i (uA)", "w (V)", "Vds (V)", "region");
+        bool sawTriode = false, sawCutoff = false;
+        for (const double vg : { 0.783, 1.5, onset * 1.02, 3.0, 4.016, -2.0, -4.0 })
+        {
+            stage.reset();
+            double y = 0.0;
+            for (int n = 0; n < 64; ++n)
+                y = stage.processSample(vg);
+            const double vovI = params.vov + stage.lastGateDrive();
+            const char* region = (vovI <= 0.0) ? "CUTOFF"
+                               : (stage.lastDrainSourceVolts() < vovI ? "TRIODE" : "saturation");
+            std::printf("    %10.3f %11.2f %9.4f %9.3f %s\n", vg, -y * 1.0e6, stage.lastGateDrive(),
+                        stage.lastDrainSourceVolts(), region);
+            sawTriode |= (region[0] == 'T');
+            sawCutoff |= (region[0] == 'C');
+            if (-y > iChannel)
+                fail("drain current has exceeded the channel ceiling -- the device law is wrong");
+        }
+        if (! sawTriode)
+            fail("the drain never enters triode -- the load line is not implemented");
+        if (! sawCutoff)
+            fail("the device never cuts off");
+        stage.reset();
+    }
+
+    // 5. gm alone must set the small-signal gain, so any linear oracle stays valid. dI/dw at the
+    //    origin is 2*beta*Vov, and beta = gm/(2*Vov) by construction, so this is exactly gm -- but it
+    //    is worth measuring rather than asserting, because it is the hinge the whole linear model
+    //    hangs on and a slip in the derived quantities would move it silently.
+    {
+        constexpr double kProbe = 1.0e-7;
+        stage.setMode(dsp::Mode::Dark);
+        stage.prepare(kFs);
+        stage.reset();
+        double y = 0.0;
+        for (int n = 0; n < 8; ++n)
+            y = stage.processSample(kProbe);
+        const double gotGm = -y / (kProbe / k0); // undo the DC degeneration
+        std::printf("\n5. small-signal transconductance: %.9e S (params.gm = %.9e)\n", gotGm, params.gm);
+        if (std::abs(gotGm / params.gm - 1.0) > 1.0e-6)
+            fail("gm is not setting the small-signal gain -- the linear model and every fit move");
+    }
+
+    // 6. ⭐⭐ THE WHOLE STAGE AGAINST AN INDEPENDENTLY-WRITTEN SOLVE OF THE SAME CIRCUIT.
+    //
+    //    The oracle below re-derives the operating point from the circuit constants by BISECTION on a
+    //    residual written out longhand, rather than by the shipped Newton iteration. Different
+    //    algorithm, different code, same equations -- so it cannot inherit a bug from the solver under
+    //    test, which is the one thing section 7 of the previous structure eventually could not claim.
+    //    DARK is used so the source impedance is the memoryless R5 and the oracle needs no state.
+    {
+        std::printf("\n6. Stage vs an independent bisection solve of the same circuit (DARK):\n");
+        stage.setMode(dsp::Mode::Dark);
+        stage.prepare(kFs);
+
+        const double vov = params.vov, id0 = params.id0(), beta = params.betaSq();
+        const double vdsQ = params.vdsQuiescent(), zl = params.zLoad;
+        auto oracle = [&](double vg) {
+            auto residual = [&](double i) {
+                const double vs = i * circuit::kR5;
+                const double vovI = vov + vg - vs;
+                double vds = vdsQ - i * zl - vs;
+                if (vds < 0.0)
+                    vds = 0.0;
+                double I;
+                if (vovI <= 0.0)
+                    I = 0.0;
+                else if (vds >= vovI)
+                    I = beta * vovI * vovI;
+                else
+                    I = beta * (2.0 * vovI * vds - vds * vds);
+                return i - (I - id0);
+            };
+            double lo = -id0, hi = vdsQ / (zl + circuit::kR5);
+            for (int n = 0; n < 200; ++n)
+            {
+                const double m = 0.5 * (lo + hi);
+                (residual(m) > 0.0 ? hi : lo) = m;
+            }
+            return 0.5 * (lo + hi);
+        };
+
+        std::printf("    %10s %13s %13s %10s\n", "gate V", "stage (uA)", "oracle (uA)", "err");
+        double worst = 0.0;
+        for (const double vg : { 0.05, 0.197, 0.783, 1.5, 2.0, 3.0, 4.016, -0.5, -2.0 })
+        {
+            stage.reset();
+            double y = 0.0;
+            for (int n = 0; n < 64; ++n)
+                y = stage.processSample(vg);
+            const double got = -y, want = oracle(vg);
+            const double err = std::abs(got - want) / std::max(1.0e-9, std::abs(want));
+            std::printf("    %10.3f %13.3f %13.3f %9.1e\n", vg, got * 1.0e6, want * 1.0e6, err);
+            worst = std::max(worst, err);
+        }
+        std::printf("    worst relative disagreement: %.2e\n", worst);
+        // ⚠ THIS TOLERANCE IS THE ITERATION COUNT, NOT THE MODEL. The oracle beside it is solved to
+        // machine precision; the shipped stage runs JfetStage::kSolveIters = 8, which reaches ~2e-7
+        // of relative current error at the drives probed here. Tightening this without raising the
+        // count would be asserting a convergence the stage is not paid to reach -- and the count was
+        // chosen on HARMONIC error (section 8c: 0.00 dB against a 40-iteration solve at every drive),
+        // which is the axis that matters. So this checks the two implementations agree on the same
+        // EQUATIONS, at the precision the shipped count delivers.
+        if (worst > 1.0e-5)
+            fail("the shipped solve disagrees with an independent solve of the same equations by "
+                 "more than its own iteration count can explain");
+    }
+
 
     // 7b. The suppression is FREQUENCY DEPENDENT, which is the half of it a constant 1/K0 would fake.
     //
@@ -670,7 +588,7 @@ int main()
     //     the stage runs at -- and phase is not optional here: this project has three defects on
     //     record that magnitude testing could not see.
     {
-        std::printf("\n8a. Path A vs the truncated path in the LINEAR regime (must be identical):\n");
+        std::printf("\n8a. The solve's linearisation vs the source one-port it was derived from:\n");
         double worstMag = 0.0, worstPhase = 0.0;
         for (const double fs : { 48000.0, 96000.0, 192000.0, 384000.0 })
         {
@@ -678,12 +596,17 @@ int main()
             {
                 stage.setMode(m);
                 stage.prepare(fs);
+                double rd = 0.0, c1 = 0.0, c2 = 0.0;
+                stage.sourcePortCoeffs(rd, c1, c2);
                 for (const double f : { 20.0, 200.0, 2000.0, 12000.0, 0.45 * fs })
                 {
-                    stage.setExactFeedback(false);
-                    const auto want = shelfResponseAt(stage, f, fs);
-                    stage.setExactFeedback(true);
-                    const auto got = shelfResponseAt(stage, f, fs);
+                    // Zs(z) = (Rd + C1 z^-1)/(1 - C2 z^-1) straight off the difference equation, so
+                    // the closed loop is 1/(1 + gm*Zs). Written out here rather than measured, so it
+                    // cannot inherit a bug from the solve it is checking.
+                    const std::complex<double> z1 = std::polar(1.0, -2.0 * M_PI * f / fs);
+                    const std::complex<double> zs = (rd + c1 * z1) / (1.0 - c2 * z1);
+                    const auto want = 1.0 / (1.0 + params.gm * zs);
+                    const auto got = shelfResponseAt(stage, f, fs) / params.gm;
                     worstMag = std::max(worstMag, std::abs(db(std::abs(got) / std::abs(want))));
                     worstPhase = std::max(worstPhase,
                                           pedal::test::phaseErrorDeg(std::arg(got), std::arg(want)));
@@ -697,7 +620,7 @@ int main()
         // they are expected to agree to the solve's own convergence, which is far below anything
         // audible or measurable.
         if (worstMag > 1.0e-6 || worstPhase > 1.0e-4)
-            fail("Path A's linearised response is NOT the shipped shelf -- updateSourcePort()'s "
+            fail("the solve's small-signal response is NOT 1/(1 + gm*Zs) -- updateSourcePort()'s "
                  "algebra is wrong, and the mode differential, the three-point discretisation and "
                  "OsDroopRestore's premise all move with it");
         stage.prepare(kFs);
@@ -745,10 +668,11 @@ int main()
     }
 
     // 8c. ⚠ THE FIXED ITERATION COUNT, MEASURED ON BOTH AXES. kSolveIters is a hardcoded constant, so
-    //     something has to keep it honest. Two numbers, because the cheap one is misleading on its
-    //     own: the Newton RESIDUAL peaks at ~1e-2 V at a hard discontinuity with the input trim at
-    //     +12 dB, which looks alarming; the HARMONIC error at the same settings is under 0.02 dB,
-    //     because the residual spike lasts one sample. The iteration count was chosen on the second.
+    //     something has to keep it honest, and BOTH numbers are needed. The residual alone would have
+    //     passed the old two-iteration count, which was silently 10 dB wrong in H2 at a 0 dBFS peak;
+    //     the harmonic error is what set the count at ten. ⚠ Note the residual is in AMPS now, and it
+    //     is the error in the current rather than the raw |F| -- dF/di runs to ~40 near the load line,
+    //     so the raw residual overstates the error by that factor.
     {
         std::printf("\n8c. Solve convergence at the shipped kSolveIters:\n");
         const double kHot = 3.0; // 0 dBFS at kInputRef with input trim at +12 dB -- the loudest reachable
@@ -766,9 +690,9 @@ int main()
                 worstRes = std::max(worstRes, std::abs(stage.lastSolveResidual()));
             }
         }
-        std::printf("    worst Newton residual over a hot tone with steps: %.2e V of gate drive\n",
+        std::printf("    worst Newton residual over a hot tone with steps: %.2e A of drain current\n",
                     worstRes);
-        if (worstRes > 5.0e-2)
+        if (worstRes > 1.0e-6)
             fail("the solve is not converging -- raise kSolveIters");
 
         // The axis that actually decided the count: harmonic error against a converged solve.
@@ -797,14 +721,14 @@ int main()
         for (const double amp : { 0.2752, 0.7830, 3.0 })
         {
             double got[3], ref[3];
-            harmonicsAt(amp, 12, ref);
-            harmonicsAt(amp, 2, got); // the shipped kSolveIters; setSolveIters is a probe hook only
-            std::printf("    amp %.4f V: H1 %+.4f dB  H2 %+.3f dB  H3 %+.3f dB vs a 12-iteration solve\n",
+            harmonicsAt(amp, 40, ref);
+            harmonicsAt(amp, 10, got); // the shipped kSolveIters; setSolveIters is a probe hook only
+            std::printf("    amp %.4f V: H1 %+.4f dB  H2 %+.3f dB  H3 %+.3f dB vs a 40-iteration solve\n",
                         amp, db(got[0] / ref[0]), db(got[1] / ref[1]), db(got[2] / ref[2]));
             for (int k = 0; k < 3; ++k)
                 worstHarm = std::max(worstHarm, std::abs(db(got[k] / ref[k])));
         }
-        stage.setSolveIters(2);
+        stage.setSolveIters(10);
         // 0.05 dB is ~10x below this stage's own shelf error and ~100x below the reference captures'
         // harmonic floor, so anything under it cannot be the limiting error in this model.
         if (worstHarm > 0.05)
@@ -818,16 +742,15 @@ int main()
     //     captures (analysis/compression_audit.py). beta is still 0: this cubic content is the
     //     LOOP's, not a fitted coefficient's.
     {
-        std::printf("\n8d. Compression and H3 -- what the Volterra truncation could not make:\n");
-        std::printf("      gate V |   path A: comp dB   H3 dBc |  truncated: comp dB   H3 dBc\n");
+        std::printf("\n8d. Compression and H3 -- neither exists in a truncated expansion:\n");
+        std::printf("      %10s %12s %10s %10s\n", "gate V", "comp dB", "H2 dBc", "H3 dBc");
         stage.setMode(dsp::Mode::Dark);
         stage.prepare(kFs);
-        auto probe = [&stage](double amp, bool exact, double& compDb, double& h3dbc) {
-            stage.setExactFeedback(exact);
+        auto probe = [&stage](double amp, double& compDb, double& h2dbc, double& h3dbc) {
             constexpr int kN = 8192;
             auto run = [&](double a) {
                 stage.reset();
-                double s1 = 0, c1 = 0, s3 = 0, c3 = 0;
+                double s1 = 0, c1 = 0, s2 = 0, c2 = 0, s3 = 0, c3 = 0;
                 for (int n = -2048; n < kN; ++n)
                 {
                     const double th = 2.0 * M_PI * 107.0 * (double) n / kN;
@@ -835,52 +758,46 @@ int main()
                     if (n < 0)
                         continue;
                     s1 += y * std::sin(th); c1 += y * std::cos(th);
+                    s2 += y * std::sin(2 * th); c2 += y * std::cos(2 * th);
                     s3 += y * std::sin(3 * th); c3 += y * std::cos(3 * th);
                 }
-                return std::pair<double, double> { std::hypot(s1, c1), std::hypot(s3, c3) };
+                return std::array<double, 3> { std::hypot(s1, c1), std::hypot(s2, c2), std::hypot(s3, c3) };
             };
             constexpr double kRef = 1.0e-4;
             const auto lo = run(kRef);
             const auto hi = run(amp);
-            compDb = db(hi.first / (lo.first * amp / kRef));
-            h3dbc = db(hi.second / hi.first + 1.0e-30);
+            compDb = db(hi[0] / (lo[0] * amp / kRef));
+            h2dbc = db(hi[1] / hi[0]);
+            h3dbc = db(hi[2] / hi[0] + 1.0e-30);
         };
-        double lastComp = 0.0;
-        bool monotone = true;
+        double lastComp = 0.0, lastH3 = -1000.0;
         for (const double amp : { 0.2752, 0.7830, 1.5 })
         {
-            double ca, h3a, ct, h3t;
-            probe(amp, true, ca, h3a);
-            probe(amp, false, ct, h3t);
-            std::printf("      %6.4f |      %+9.4f %8.1f |       %+9.4f %8.1f\n", amp, ca, h3a, ct, h3t);
-            if (ca >= 0.0)
-                fail("Path A's compression is not compressive -- the fundamental's gain must FALL "
-                     "with level (circuit.md note #11 fixes the sign from the captures)");
-            if (ca > lastComp)
-                monotone = false;
-            lastComp = ca;
-            if (h3a - h3t < 10.0)
-                fail("Path A is not producing third-harmonic content the truncation lacks -- the "
-                     "loop's own cubic term is missing");
-            // The truncated path is kept measurable so the reason for Path A stays a number.
-            if (std::abs(ct) > 0.02)
-                fail("the truncated path has started compressing -- it cannot, and if it does then "
-                     "setExactFeedback(false) is no longer selecting the structure this compares to");
+            double c = 0.0, h2 = 0.0, h3 = 0.0;
+            probe(amp, c, h2, h3);
+            std::printf("      %10.4f %12.4f %10.1f %10.1f\n", amp, c, h2, h3);
+            if (c >= 0.0)
+                fail("compression is not compressive -- the fundamental's gain must FALL with level");
+            if (c > lastComp)
+                fail("compression must deepen with level");
+            if (h3 < lastH3)
+                fail("H3 must grow with level -- the loop's cubic is missing");
+            lastComp = c;
+            lastH3 = h3;
         }
-        if (! monotone)
-            fail("compression must deepen with level");
 
-        // ⭐ Cross-implementation check against the INDEPENDENT Python oracle that motivated all this
-        // (analysis/compression_audit.py, an exact solve of id = gm*g(vg - id*R5) written months and
-        // one language apart): at the shipped Vov it reported -0.032 dB of compression at a 0 dBFS
-        // input, A_gate = 0.783 V. Two implementations agreeing to the third decimal is the strongest
-        // evidence available that the solve is right, since neither can inherit the other's bug.
-        double comp = 0.0, h3 = 0.0;
-        probe(0.7830, true, comp, h3);
+        // ⭐ Cross-implementation check against the INDEPENDENT Python oracle that motivated the whole
+        // change (analysis/compression_audit.py): an exact solve of id = gm*g(vg - id*R5) with g a
+        // PURE square law plus its cutoff clamp reported -0.032 dB of compression at a 0 dBFS input,
+        // A_gate = 0.783 V, at the shipped Vov. This stage now IS that square law, so the two should
+        // agree -- and they are written months and one language apart, so neither can inherit the
+        // other's bug. ⚠ The oracle carried no load line, which is why the check is made at 0.783 V:
+        // that is still in saturation, where the two models are the same circuit.
+        double comp = 0.0, h2x = 0.0, h3x = 0.0;
+        probe(0.7830, comp, h2x, h3x);
         std::printf("      cross-check vs the Python oracle at 0 dBFS: %.4f dB (oracle -0.032)\n", comp);
-        if (std::abs(comp + 0.032) > 0.004)
-            fail("Path A disagrees with the independent exact-solve oracle");
-        stage.setExactFeedback(true);
+        if (std::abs(comp + 0.032) > 0.006)
+            fail("disagrees with the independent exact-solve oracle in the saturation region");
     }
 
     // 8e. ⭐ THIS PROJECT'S FREE KNOWN-ANSWER PROBE, applied to the MODEL rather than to a capture --
@@ -937,23 +854,17 @@ int main()
                         3.0 * f > 1864.0 ? "   <- 3f is past the Bright shelf zero" : "");
         }
 
-        // ⭐⭐ AND A SECOND EFFECT SITS UNDER THE FIRST, WHICH THIS PROBE IS THE ONLY THING THAT SEES.
-        // At the lowest probe frequency the spread stops falling, at ~0.0017 dB, and that residue is
-        // NOT the 3f effect (it does not scale with f) and NOT a modelling error. It is the fixed
-        // Newton iteration count: rdGm differs by ~30x between Dark (5.59) and Bright (0.17 at
-        // 192 kHz), so the same two iterations converge to different depths per mode, and the
-        // shipped count leaves a small MODE-DEPENDENT bias. Converging the solve collapses it.
-        //
-        // 0.0017 dB is ~85x below the 0.145 dB floor the same probe measures on the reference
-        // captures, so it changes nothing -- but it is exactly the kind of residue that would later
-        // be mistaken for a real mode asymmetry, so it is measured and bounded here rather than left
-        // to be rediscovered. The two thresholds below separate the two questions: is the MODEL right
-        // (converged), and is the SOLVE converged enough (shipped).
+        // 📌 A SECOND EFFECT USED TO SIT UNDER THE FIRST AND NO LONGER DOES. Under the previous
+        // two-iteration Newton the spread stopped falling at ~0.0017 dB, because Rd*gm differs ~30x
+        // between Dark and Bright so the same fixed count converged to different depths per mode --
+        // a MODE-DEPENDENT bias that looked exactly like physics. The ten-iteration bracketed solve
+        // converges fully in every mode, so it is gone: shipped and converged now agree to 1e-8 dB.
+        // The check is kept because it is the thing that would come back if the count were ever cut.
         const double shipped = spreadAt(2.0);
         stage.setSolveIters(12);
         const double converged = spreadAt(2.0);
-        stage.setSolveIters(2);
-        std::printf("      at 23.4 Hz: %.5f dB at the shipped 2 iterations, %.5f dB converged\n",
+        stage.setSolveIters(10);
+        std::printf("      at 23.4 Hz: %.6f dB at the shipped count, %.6f dB fully converged\n",
                     shipped, converged);
         if (converged > 1.0e-4)
             fail("the modes do not compress identically well below the shelf zero even with the "

@@ -33,6 +33,7 @@ public:
         jfet.prepare(osRate);
         outputNet.prepare(baseRate);
         outputNet.setDrainImpedance(jfet.outputImpedance());
+        jfet.setDrainLoad(outputNet.drainNodeImpedance());
         droopRestore.prepare(baseRate, osRate, osRate);
     }
 
@@ -48,14 +49,33 @@ public:
     {
         jfet.setParams(p);
         outputNet.setDrainImpedance(jfet.outputImpedance());
+        jfet.setDrainLoad(outputNet.drainNodeImpedance());
     }
 
     void setMode(Mode m) { jfet.setMode(m); }
 
+    /** Newton iterations per sample in the JFET solve. Production never calls this -- kSolveIters is
+     *  the shipped value. It exists so FeatureProfile can A/B the count, which is the one real
+     *  CPU-versus-accuracy lever this chain still has now ADAA is gone. */
+    void setSolveIters(int n) noexcept { jfet.setSolveIters(n); }
+
     /** Antiderivative anti-aliasing on the JFET shaper. Policy lives in the processor (it is a
      *  function of the oversampling factor); this only carries the decision down. */
-    void setAdaa(bool shouldUseAdaa) noexcept { jfet.setAdaa(shouldUseAdaa); }
-    void setVolume(double x) { outputNet.setVolume(x); }
+    /** AC impedance at the drain node, which sets the load line's slope inside the JFET stage.
+     *  Per BLOCK, alongside VOLUME, because the stage runs at the oversampled rate while the output
+     *  network runs at base rate -- the real drain voltage is not available per oversampled sample
+     *  even in principle. See JfetParams::zLoad. */
+
+    /** VOLUME. ⭐ Also pushes the drain-node impedance into the JFET stage, because that impedance
+     *  IS the load line's slope and it moves with this knob: 9.8 kOhm at the bottom of the rotation
+     *  to 17.9 at the top, which is about 4 dB of where the drain enters triode. Coupling the two
+     *  here rather than fixing a constant is the difference between the load line being in the right
+     *  place at one end of the knob and at both. */
+    void setVolume(double x)
+    {
+        outputNet.setVolume(x);
+        jfet.setDrainLoad(outputNet.drainNodeImpedance());
+    }
 
     /** Runs at the OVERSAMPLED rate. Volts at the input jack -> drain Norton current in amps.
      *

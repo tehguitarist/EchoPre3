@@ -29,8 +29,6 @@ constexpr int kFftSize = 1 << kFftOrder; // 32768 -> 1.46 Hz bins at 48 kHz
 inline const char* const kModeNames[] = {"Bright", "Dark", "Mid"};
 inline constexpr int kOsFactors[] = {1, 2, 4, 8};
 
-using Adaa = PedalAudioProcessor::AdaaOverride;
-
 inline double db(double x)
 {
     return 20.0 * std::log10(std::max(x, 1.0e-300));
@@ -46,7 +44,7 @@ struct Setup
     double volume = 0.5;
     double inputTrimDb = 0.0;
     bool bypass = false;
-    Adaa adaa = Adaa::useOsGate;
+    int solveIters = 0; // 0 = the shipped JfetStage::kSolveIters (restored, not inherited)
 };
 
 inline void configure(PedalAudioProcessor& proc, const Setup& s)
@@ -73,7 +71,8 @@ inline void configure(PedalAudioProcessor& proc, const Setup& s)
     setChoice("render_oversampling", s.osIndex);
 
     proc.prepareToPlay(kFs, kBlock);
-    proc.setAdaaOverride(s.adaa);
+    // ALWAYS set it, never conditionally: 0 means "the shipped count" and the processor restores it.
+    proc.setSolveIters(s.solveIters);
 }
 
 /** Run `n` samples of `gen` through the processor in blocks after discarding `discard` samples of

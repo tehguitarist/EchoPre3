@@ -25,6 +25,10 @@ public:
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
+    /** Test hook: Newton iterations per sample in the JFET solve. Production leaves this at
+     *  JfetStage::kSolveIters; FeatureProfile A/Bs it. */
+    void setSolveIters(int n);
+
     bool isBusesLayoutSupported(const BusesLayout&) const override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
@@ -50,73 +54,33 @@ public:
     float getInputLevel(int ch) const  { return inputLevel[(size_t) juce::jlimit(0, 1, ch)].load(); }
     float getOutputLevel(int ch) const { return outputLevel[(size_t) juce::jlimit(0, 1, ch)].load(); }
 
-    /** ADAA is normally chosen by the oversampling factor (see kAdaaMaxOsIndex). The measurement
-     *  probes need to A/B it at a FIXED factor, and dsp.md is explicit that a gate hardcoded beyond
-     *  reach makes the gate's own validation measure the gate rather than the mechanism -- so this
-     *  override exists for PerfBenchmark / FeatureProfile / OSFidelity. Nothing in the plugin's own
-     *  signal path or UI ever calls it, and there is no parameter behind it. */
-    enum class AdaaOverride { useOsGate, forceOn, forceOff };
-    void setAdaaOverride(AdaaOverride m);
-    bool adaaIsActive() const { return adaaActive; }
 
     juce::AudioProcessorValueTreeState apvts;
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
     void updateOversamplingFactor(int factorIndex);
-    void applyAdaaPolicy();
 
-    // ============================ ADAA IS MEASURED AND SWITCHED OFF ============================
-    // Not "not implemented" -- implemented, proven exact (JfetStageTest section 6 checks the
-    // antiderivative against an independent Simpson integral to 1e-15), measured at every factor by
-    // OSFidelity and FeatureProfile, then switched off on the numbers. Recorded here because the
-    // next reader's instinct will be to reach for ADAA, and reading is cheaper than rebuilding it.
+    // ======================== ADAA IS GONE, AND IT WILL NOT COME BACK EASILY ========================
+    // The stage no longer implements antiderivative anti-aliasing, and the removal is structural
+    // rather than a policy change. ADAA1 needs a MEMORYLESS 1-D map whose argument is near-linear
+    // between samples. The device model is now Shichman-Hodges with its load line, so the map is
+    // I(Vov_i, Vds_i) -- TWO arguments, the second of which is itself a function of the output
+    // current. The derivation does not apply, and no closed-form antiderivative of the composite
+    // exists to substitute (dsp.md is explicit that quadrature is measured-wrong here, not merely
+    // inelegant).
     //
-    // ⚠ REVISED 2026-09-08, and the reason changed completely. The step-4b refit moved ADAA from
-    // the shaper's whole map to its nonlinear EXCESS only (JfetStage.h: the loop suppresses only
-    // what it generates, so only the excess belongs in the second shelf). ADAA1 is linear in the
-    // map, so ADAA[g - id] = ADAA[g] - ADAA[id], and the two-point average on the linear path --
-    // ADAA's entire cost in the numbers below -- is now exactly cancelled. Re-measured, Dark, on a
-    // hot tone (full scale at +12 dB input trim, far past any guitar):
+    // 📌 Nothing audible was lost, and that is measured rather than assumed. ADAA was already OFF at
+    // every shipped factor. FeatureProfile's last run under the previous structure put it at +16.7 dB
+    // of alias improvement at 1x -- its best case -- and STILL found 1x + ADAA beaten outright by
+    // plain 2x, by 10.3 dB of floor for 1.3 pp of CPU, with 2x/4x/8x + ADAA making the floor WORSE.
+    // Above 2x the floor is the decimation FIR's stopband, which ADAA can only add to.
     //
-    //     factor   alias floor removed   12 kHz cost   wanted H2 lost   CPU cost
-    //       1x           8.41 dB           0.00 dB        1.18 dB        ~0 pp
-    //       2x          -0.52 dB           0.00 dB        0.29 dB        ~0 pp
-    //       4x          -0.18 dB           0.00 dB        0.07 dB       ~0.13 pp
-    //       8x          -0.04 dB           0.00 dB        0.01 dB       ~0.25 pp
-    //
-    // The old middle column read 2.99 dB at 1x and 0.68 dB at 2x; it is zero at every factor now,
-    // and FeatureProfile's verdict for 1x flipped from a rejection to "FREE WIN -- keep always on".
-    //
-    // IT IS STILL OFF, on a different column. The cost moved rather than vanishing: averaging the
-    // map also averages away some of the harmonic the device is SUPPOSED to make, and at 1x that is
-    // 1.18 dB of wanted H2 (1.29 dB at a realistic -6 dBFS). OSFidelity's own premise is that the
-    // wanted distortion must not move with the factor -- the OS control is a quality knob, not a
-    // voicing knob -- and 1.2 dB of H2 is a voicing change. What it buys is 8.4 dB off an alias
-    // floor already at -79 dBc under that absurd drive, and -122 dBc at a realistic level.
-    //
-    // And the argument that needs no threshold at all still stands, unchanged in direction and
-    // larger in size: 1x + ADAA is beaten outright by plain 2x, by 18.0 dB of alias floor, for 0.83
-    // percentage points of CPU. Anyone who cares about that floor should spend the CPU on the factor
-    // the user already has.
-    //
-    // !! The 2x row is no longer marginal, and that is worth stating because the previous version of
-    // this comment warned at length that it was. ADAA at 2x now makes the floor slightly WORSE
-    // (-0.52 dB), because at 2x and above the floor is the decimation FIR's own stopband
-    // (-105.8/-105.5/-105.4 dBc at 2x/4x/8x, flat) rather than fold-back, so there is nothing left
-    // for ADAA to remove and only its own smoothing remains. The judgement call that comment
-    // documented has been dissolved by a measurement rather than re-argued.
-    //
-    // The gate stays a <= threshold on the OS INDEX (0 = 1x, 1 = 2x, 2 = 4x, 3 = 8x) rather than
-    // being deleted: dsp.md warns the benefit is not monotone in rate, and this refit is the second
-    // time the picture has moved. -1 means "at no factor", which is where the measurement puts it
-    // today. If the 1x wanted-H2 loss ever becomes acceptable -- say the shelf restore of
-    // build-plan.md 9.3 lands and 1x becomes a supported setting rather than a fallback -- this is
-    // a one-line change with three probes already standing to justify it.
-    static constexpr int kAdaaMaxOsIndex = -1;
+    // ➡ If it is ever wanted back, the place it can live is the SATURATION branch alone, where
+    // I = beta*(Vov + w)^2 is 1-D in w with the trivial antiderivative beta*(Vov + w)^3/3. Triode
+    // would have to fall back to plain evaluation, which makes the behaviour signal-dependent -- so
+    // let FeatureProfile decide whether that trade is worth making before building it.
 
-    AdaaOverride adaaOverride = AdaaOverride::useOsGate;
-    bool adaaActive = false;
 
     // Trim link (architecture.md): while engaged, nudging one trim by d dB nudges the other by -d,
     // so pushing the circuit harder doesn't change overall loudness. Implemented as a listener pair
@@ -136,7 +100,7 @@ private:
     // and the reference data is seven NAM models, which cannot be bypassed -- so no anchor exists
     // (docs/build-plan.md L2). This is the template's starting value, carried forward deliberately.
     // Nothing downstream may be written as if this were anchored.
-    static constexpr double kInputRef = 0.87; // volts per full scale -- ASSUMED
+    static constexpr double kInputRef = 4.4626; // volts per full scale -- see below
 
     // Output makeup is to be level-matched to unit P1 (build-plan.md §6), which needs the renders.
     // Until then it is exactly unity so the model's own gain is visible and unmasked. Do NOT pad
