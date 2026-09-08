@@ -148,8 +148,12 @@ struct JfetParams
     // (the sqrt(2) is because the calibration measures the RMS of a full-scale SINE, while V/FS is
     // the volts a sample of 1.0 represents). ✅ That is INSIDE the <= 0.41 V/FS bound this block
     // derived independently from H2 -- two unrelated routes agreeing, which is why it is believed.
-    // It is 10.00 dB below kInputRef = 0.87, so matched-drive A/B against P1 means feeding the
-    // plugin -10.00 dB (analysis/harmonic_audit.py --dbu-capture -12 does exactly this).
+    // It is 24.20 dB below kInputRef = 4.4626, so matched-drive A/B against P1 means feeding the
+    // plugin -24.20 dB (analysis/harmonic_audit.py --dbu-capture -12 does exactly this).
+    // ⚠ That offset was -10.00 dB while kInputRef was 0.87 and this comment said so for a while
+    // after the calibration moved. It is the same trap OfflineRender's --input-trim guard exists
+    // for: a drive offset is a DIFFERENCE between two calibrations, so it changes whenever either
+    // end does.
     //
     // ⚠⚠ AND THE MODEL IS ~10 dB SHORT OF H2 AT THAT DRIVE. Over P1's 24 usable cells (125-800 Hz,
     // top two levels, all three modes) the deficit is mean -9.47 dB, median -9.65, sd 2.98. Since
@@ -191,6 +195,41 @@ struct JfetParams
     //      justified the IDSS = 5 mA end: the implied part is LOW-IDSS, LOW-pinchoff (1.68 mA,
     //      0.57 V), not a hot one.
     // ➡ Apply it together with a re-derived load line, or wait for a second calibrated capture.
+    //
+    // ============ FITTED 2026-09-09, TWICE, AND STILL NOT APPLIED -- analysis/vov_fit.py ============
+    // The fit the block above asked for now exists, with the cross-check it asked for. Two
+    // observables of DIFFERENT ORDER, off different signals, with different floors:
+    //
+    //     route A   H2 in dBc, 125-800 Hz, all three modes, 60 cells    Vov = 0.126  (0.133-0.136
+    //               (near-inverse in Vov)                                     per mode; bright lower)
+    //     route B   compression GROWTH over the top 10 dB, 5-8 kHz      Vov = 0.165  (0.127-0.182
+    //               (third order, so ~1/Vov^2)                                per cell)
+    //
+    // They agree to a factor of 1.31, inside the factor of ~1.5 the floor allows, and they bracket
+    // note #10's independently-derived 0.150. ⭐ The estimator is validated by construction first:
+    // `--self-test` replaces the capture with a plugin render at an off-grid Vov = 0.2200 and both
+    // routes recover it (A exactly, B at 0.2215-0.2217).
+    //
+    // ⚠⚠ REASON 3 ABOVE IS DISCHARGED, AND A BETTER ONE REPLACES IT. The load line does NOT move:
+    // triodeOnsetGateVolts() reads 1.691 V at the shipped Vov and 1.737 V at 0.150, because
+    // lowering Vov raises Vds_q by almost exactly as much as it lowers the current. What moves is
+    // CUTOFF, and it overtakes triode:
+    //
+    //     Vov      Vds_q      cutoff        triode      first to clip
+    //     0.4469   13.12 V    -2.7 dBFS     -7.5 dBFS   triode   (the stage as shipped)
+    //     0.2050   17.92 V    -9.5 dBFS     -6.9 dBFS   cutoff   (the crossover is near here)
+    //     0.1500   19.02 V   -12.2 dBFS     -7.3 dBFS   cutoff, by 4.9 dB
+    //
+    // So applying the fit does not invalidate the load line -- it makes the load line nearly
+    // unreachable, and swaps the stage's clipping MECHANISM from triode-first to cutoff-first. That
+    // is a qualitative voicing change, decided by a parameter pinned only to a factor of 1.3-1.5,
+    // from the one capture whose harmonic data sits just 4.7 dB above its own error floor. It is a
+    // stronger reason to wait than any of the four above, and it did not exist until the load line
+    // was built and the fit was done.
+    //
+    // 📌 Reasons 1, 2 and 4 are unchanged. ➡ The +12.2 dBu capture session settles this: it puts the
+    // reference's digital levels 1:1 onto the plugin's and reaches the load-line region, so it
+    // measures the clipping mechanism directly instead of inferring it from a parameter.
     double ro = 1.4407e6; // Ohm -- 1/(lambda*Id) at lambda = 2 mV/V, with the fitted Id = 347 uA.
 
 
@@ -297,6 +336,8 @@ public:
         params = p;
         updateShelf();
     }
+
+    const JfetParams& getParams() const noexcept { return params; }
 
     void setMode(Mode m)
     {

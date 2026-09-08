@@ -1029,6 +1029,78 @@ high, execute routine work cheap) is what should persist.
 > `R5·C`. ⚠ **But the fit is to P1 specifically**, so hitting ±0.5 dB against P1 does not guarantee
 > ±0.5 dB against the owner's own unit — that is what their capture answers.
 
+> ### ⭐⭐ ALL THREE OF THAT LIST ARE NOW DONE (2026-09-09). Two of them reversed a recorded belief.
+>
+> Instruments: `analysis/vov_fit.py`, `analysis/hf_shape_fit.py`, `analysis/phase_reconcile.py`
+> (+ their JSON in `analysis/reports/`). Detail in `.claude/rules/circuit.md` notes **#16–#18** and
+> `src/dsp/JfetStage.h`. **All 11 tests pass, warning-free. NO DSP constant changed.**
+> New: `OfflineRender --vov V`, a measurement flag beside `--input-scale` — every other quantity in
+> the device model is derived from `Vov`, so it cannot be swept from outside the stage.
+>
+> **1. ⭐⭐ `Vov` IS FITTED, TWICE, AND THE TWO ROUTES AGREE — note #16.** Route A (H2 in dBc,
+> 125–800 Hz, 60 cells) gives **0.126**; route B (compression GROWTH over the top 10 dB, 5–8 kHz —
+> a different ORDER off a different signal) gives **0.165**. A factor of **1.31** apart, inside the
+> ~1.5 the floor allows, bracketing note #10's independent 0.150. The shipped **0.4469 is outside
+> both by ~3×**. Both routes recover an off-grid `Vov` = 0.2200 from a plugin render in `--self-test`
+> before any capture is read.
+> - ⚠⚠ **Route B only works on the INCREMENT.** `comp_db` carries the reference's level-INDEPENDENT
+>   gain error as compression that was never there (P1-dark: −0.089/−0.087/−0.088 dB over the top
+>   10 dB — flat). Differencing across level cancels it and drops the route's floor **0.145 →
+>   0.013 dB**, the latter measured as the worst DARK increment.
+> - ⚠⚠ **And do not pool by median across modes.** DARK has no leverage (`Zs = R5` at every
+>   frequency), so a median sits on it: pooled that way route B's statistic moved **0.01 dB across
+>   the whole admissible range** and read as a dead route. It is not — bright's 8 kHz cell spans
+>   0.85 dB. **The statistic was flat, not the observable.**
+> - ⛔ **STILL NOT APPLIED, and note #10's reason 3 is discharged and replaced by a stronger one.**
+>   The load line does NOT move (triode onset 1.691 → 1.737 V; lowering `Vov` raises `Vds_q` by
+>   almost as much as it lowers the current). **CUTOFF moves, and overtakes it**: first clipping goes
+>   from triode at −7.5 dBFS to **cutoff at −12.2 dBFS**, i.e. the stage's clipping MECHANISM
+>   changes. That is a qualitative voicing change decided by a parameter pinned to a factor of
+>   1.3–1.5, from the one capture whose harmonic data clears its own floor by 4.7 dB. Reasons 1, 2
+>   and 4 stand. ➡ The +12.2 dBu session measures the mechanism directly instead of inferring it.
+>
+> **2. ⛔⭐⭐ THE 4–8 kHz DIP IS P1's RIG, AND P2 CONFIRMS THE 7.3 kHz INPUT POLE — note #17.**
+> It is not a dip: as a whole curve the error runs **+3.4 dB at 25 Hz → 0 near 1 kHz → −0.6 dB at
+> 5 kHz → +0.95 dB at 16 kHz**, and those four cells are its bottom. Modelling the capture as the
+> plugin × a high-pass × two low-passes: **P2 returns 3.2 kHz + 7.4 kHz at a 0.021–0.034 dB residual
+> in ALL THREE MODES** — the pedal's own `R3 ∥ R4` into `C3` pole, recovered from a capture with no
+> prior, to within 2 %, plus note #7's 3.2 kHz cable pole. P3 accommodates 7300 Hz freely.
+> **P1 cannot be described by any cascade containing a 7.3 kHz pole** — and since an extra pole can
+> only DARKEN, P1 is *brighter* at 4–8 kHz than the circuit as drawn can be. ➡ **The plugin is not
+> too dark; P1 is too bright. Do not touch `C3`, `R3` or the input network.**
+> - ⭐ **The estimator is not shelf-blind because it fits capture-against-PLUGIN**, so the mode shelf
+>   appears on both sides and cancels — exactly the term note #9 found missing from M3. Evidence:
+>   P2's fitted poles are mode-independent to 3 %.
+> - ⚠ **P1 is the noisiest model in the set and is also the designated absolute anchor.** Residual
+>   ranking (P2 0.02 ≪ P3 0.22 ≈ P1 0.19–0.26) matches note #2's shelf-fit ranking exactly, from an
+>   unrelated fit. P1's best model still leaves a structured +0.3 dB hump at 3–5 kHz — the same size
+>   as the miss. `goal_check.py` now says so in its own docstring.
+> - ⚠⚠ **A BOUND THE FIT SITS ON IS NOT A FIT.** Flooring the "extra" pole at 8 kHz — on the
+>   reasoning that it must sit above the pedal's own — put P2 exactly on that bound in all three
+>   modes at a 2.1 dB residual and hid the whole result. The two pole terms enter the model
+>   identically, so neither is "the input pole" until something outside the algebra says so.
+>
+> **3. ✅ THE PHASE FIGURES RECONCILE; THE RECORDED "2.4°" WAS MISLABELLED — note #18.** One residual
+> curve, re-read under each differing choice: the recorded figure is a max over **six hand-listed
+> report frequencies from 500 Hz up**, and the same instrument reads **−5.85 to −6.47° at its own
+> 200 Hz report point**, which the claim's band label includes and its arithmetic did not. A max over
+> interpolated points is not a max over a band. `goal_check`'s statistic is the one the "within 5°
+> across all bands" target asks for. 📌 The OS factor was never it — 4× → 8× moves 0.2°.
+> ✅ **And the miss is entirely at the bottom:** 200–500 Hz reads 6.8–8.0°, while 500 Hz–2 kHz reads
+> 1.6–2.6°, 2–8 kHz 1.4–2.3° and 8–12 kHz 1.8–4.3°. The 5° target is MET above 500 Hz. What fails is
+> the tail of the missing LF pole, already confounded and already blocked on the VOLUME sweep.
+> ⛔ Note #17 also removes the minimum-phase companion that was suspected: there is no model-side
+> magnitude dip at 4–8 kHz for phase to be carrying.
+>
+> ### NEXT — everything left is gated on the owner's capture session, and on nothing else
+> - **Apply `Vov`** once a capture reaches the load-line region and can show which mechanism clips
+>   first. The fit is done; only the decision is outstanding.
+> - **`kOutputMakeup` = 1.0, unanchored.** Needs `output_level_dbu` and has no other route.
+> - **The VOLUME sweep** still owns the taper, the 3.9 vs 1–2 dB fall-back, and the LF pole — which
+>   is now the ONLY thing standing between the model and both stated targets, on both axes.
+> - **The M0 no-plugin null render has still never run.**
+> `CLAUDE.md`'s capture list above is unchanged and still correct.
+
 ## Project-specific carry-forwards
 
 ### Reference data: seven NAM models (see `docs/build-plan.md`)

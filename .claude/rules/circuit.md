@@ -1108,3 +1108,145 @@ second-order ones. ⭐ The PLUGIN returns 1.00/1.00/1.00/2.00/2.00 exactly, whic
 check that the instrument works before any capture is read. **The calibrated unit's nonlinear data is
 floor and the units with real nonlinear data are uncalibrated — confirmed now by three separate
 signals. Asking the P2/P3 trainers for `input_level_dbu` is still the highest-value one-message ask.**
+
+### 16. ⭐⭐ `Vov` is FITTED (2026-09-09) — twice, agreeing — and deliberately still not applied
+
+`analysis/vov_fit.py`, raw `analysis/reports/vov_fit.json`, consequences in `src/dsp/JfetStage.h`.
+This is the fit note #10 asked for and the cross-check it said it lacked. **No constant changed.**
+
+**Two observables, different ORDERS, different signals, different floors:**
+
+| Route | What it reads | Fitted `Vov` |
+|---|---|---|
+| A | H2 in dBc, 125–800 Hz, all three modes, 60 cells (near-inverse in `Vov`) | **0.126** (per mode: dark 0.136, mid 0.133, bright below the grid) |
+| B | compression GROWTH over the top 10 dB, 5–8 kHz (third order, so ~1/`Vov`²) | **0.165** (per cell 0.127–0.182) |
+
+They agree to a factor of **1.31**, inside the ~1.5 the floor allows, and they bracket note #10's
+independently-derived 0.150. The shipped 0.4469 is outside both by a factor of ~3.
+
+⭐ **The estimator is validated by construction BEFORE any capture is read** (note #9's standing
+rule). `--self-test` puts a plugin render at an off-grid `Vov` = 0.2200 where the capture goes, and
+both routes recover it — route A exactly, route B at 0.2215–0.2217.
+
+⚠⚠ **ROUTE B ONLY WORKS ON THE INCREMENT, AND THE FIRST VERSION READ `comp_db` AND FOUND NOTHING.**
+The reference models carry a level-INDEPENDENT gain error per band, which `comp_db` reports as
+compression that was never there — P1-dark reads −0.089 / −0.087 / −0.088 dB over the top 10 dB at
+5 kHz, i.e. flat, so not compression at all. Differencing across level cancels that offset exactly
+and drops the route's own floor from `compression_audit.py`'s **0.145 dB to ~0.013 dB** — the worst
+DARK increment, where the circuit permits almost nothing. ➡ When an
+observable is contaminated by a constant, difference it rather than widen the tolerance.
+
+⚠⚠ **AND DO NOT POOL BY MEDIAN ACROSS MODES.** In DARK `Zs = R5` at every frequency, so there is
+almost no compression to measure and its cells do not move with `Vov` at all. A median over the
+three modes sits on the insensitive one: pooled that way, route B's statistic moved **0.01 dB across
+the entire admissible range** and read as a route with no leverage. It has leverage — bright's 8 kHz
+cell spans 0.85 dB over the same range. **The statistic was flat, not the observable.**
+📌 Read "flat" apart from "floor" here: dark's *offset* is the reference's error, but its flat
+*increment* is the circuit — `--self-test` shows the PLUGIN's dark cells are just as flat.
+
+⚠ **The H2 floor shows up as a systematic per-MODE BIAS, not as scatter.** Below the shelf zero every
+mode has `Zs = R5`, so H2 in dBc must be mode-independent — yet bright reads **2.4 dB lower than
+dark and mid at every point on the grid**. That is note #15's "systematic, will not average down"
+made visible: 60 cells buy no precision beyond the single-cell floor of 4.74 dB.
+
+⛔ **NOT APPLIED — and reason 3 of note #10's four is discharged and REPLACED by a stronger one.**
+The load line does not move (`triodeOnsetGateVolts()` reads 1.691 V at the shipped value and 1.737 V
+at 0.150, because lowering `Vov` raises `Vds_q` by almost as much as it lowers the current). What
+moves is CUTOFF, and it overtakes triode:
+
+| `Vov` | `Vds_q` | cutoff | triode | first to clip |
+|---|---|---|---|---|
+| 0.4469 (shipped) | 13.12 V | −2.7 dBFS | −7.5 dBFS | **triode** |
+| 0.2050 | 17.92 V | −9.5 dBFS | −6.9 dBFS | cutoff (crossover near here) |
+| 0.1500 | 19.02 V | −12.2 dBFS | −7.3 dBFS | **cutoff, by 4.9 dB** |
+
+So applying the fit would not invalidate the load line — it would make the load line nearly
+unreachable and swap the stage's clipping MECHANISM. That is a qualitative voicing change, decided
+by a parameter pinned to a factor of 1.3–1.5 from the one capture whose harmonic data clears its own
+floor by 4.7 dB. Reasons 1, 2 and 4 of note #10 stand unchanged. ➡ The +12.2 dBu session settles it
+by measuring the clipping mechanism directly instead of inferring it from a parameter.
+
+### 17. ⛔⭐⭐ The "4–8 kHz dip" is P1's rig — and P2 CONFIRMS the 7.3 kHz input pole to 0.02 dB
+
+`analysis/hf_shape_fit.py`, raw `analysis/reports/hf_shape_fit.json`. This answers the one FR item
+`goal_check.py` flagged as unexplained, and it reverses part of note #9.
+
+**It is not a dip.** Printed as a whole curve rather than as four core-band cells, the plugin-minus-
+P1 error is one continuous shape: **+3.4 dB at 25 Hz → 0 near 1 kHz → −0.6 dB at 5 kHz → +0.95 dB at
+16 kHz**, in all three modes. The 4064–8127 Hz cells are the bottom of that curve, not a feature.
+⚠ Any mechanism therefore has to produce a lift that PEAKS AND TURNS OVER. A single-pole difference
+is monotone and saturates, which is why moving the input pole cannot describe it (fitting it free
+gives 7185–7558 Hz and improves the residual by 0.003 dB).
+
+**What the fit says, modelling the capture as the plugin × a high-pass × two low-passes:**
+
+| capture | LF high-pass | lower pole | upper pole | residual |
+|---|---|---|---|---|
+| **P2, all 3 modes** | 20–21 Hz | **3.18–3.29 kHz** | **7.34–7.46 kHz** | **0.021–0.034 dB** |
+| P3 (mid) | 18 Hz | 4.53 kHz | 7.95 kHz | 0.222 dB |
+| P1, all 3 modes | 28–31 Hz | 12.4–12.9 kHz | 12.4–12.9 kHz | 0.176–0.263 dB |
+
+⭐⭐ **P2 recovers the pedal's own input pole — 7.3 kHz, from `R3 ∥ R4` into `C3` — to within 2 %,
+from a capture, with no prior, in every mode, at a 0.02 dB residual.** Pinning it at 7300 and fitting
+only the extra pole costs nothing (0.022–0.034 dB), so the confirmation is not an artefact of a free
+parameter. Its second pole, 3.2 kHz, reproduces note #7's independently-fitted cable pole (542 pF).
+P3 accommodates 7300 Hz just as freely. **P1 alone cannot be described by any cascade containing a
+7.3 kHz pole**; it wants two coincident poles at 12.8 kHz, and since an extra pole can only DARKEN,
+P1's capture is *brighter* at 4–8 kHz than the circuit as drawn can be. ➡ **The plugin is not too
+dark there. P1 is too bright.** Do not touch `C3`, `R3`, or the input network.
+
+⭐ **Why this estimator is not shelf-blind where note #9's M3 was.** It fits the capture against the
+**plugin**, not against the raw sweep, so the mode shelf appears on both sides and cancels. The
+evidence is in the table: P2's fitted poles are mode-independent to 3 % across bright/dark/mid, and
+note #9's whole finding was that a shelf-blind estimator cannot fit a bypassed mode at all.
+➡ **Note #9's disqualification of P2 and P3 was for ABSOLUTE LEVEL, POLARITY and their own extra
+poles. It does not extend to pole STRUCTURE measured this way** — a known, cleanly-fitted extra pole
+can be fitted out; 0.25 dB of unexplained model error cannot.
+
+⚠ **P1 is the NOISIEST NAM model in the set, and it is the designated absolute anchor.** The residual
+ranking here (P2 0.02 ≪ P3 0.22 ≈ P1 0.19–0.26) matches note #2's mode-shelf fit residuals (P2
+0.03–0.08, P1 0.24–0.25) — two unrelated fits agreeing on which model is cleaner. Even P1's best
+model leaves a structured **+0.3 dB hump at 3–5 kHz and −0.25 dB dish at 60–160 Hz**, which is the
+same size as the core-band miss being investigated. ➡ `goal_check.py`'s HF core-band miss against P1
+is inside P1's own error and is not a model defect.
+
+⚠⚠ **A BOUND THAT THE FIT SITS ON IS NOT A FIT, and it hid this result completely.** The first
+version floored the "extra" pole at 8 kHz, on the reasoning that it would sit above the pedal's own.
+P2's fit then rested exactly on that bound in all three modes and reported 3.1 kHz + 8 kHz at a
+2.1 dB residual. Freed, the same data gives 3.2 + 7.4 kHz at 0.02 dB. The bound had encoded an
+assumption about which pole was which that the algebra does not support — the two terms enter the
+model identically, so they are interchangeable and neither is "the input pole" until something else
+says so.
+
+### 18. ✅ The two phase instruments RECONCILE — the recorded "2.4°" was mislabelled
+
+`analysis/phase_reconcile.py`, raw `analysis/reports/phase_reconcile.json`. Neither instrument is
+broken and no model change follows; one number was described as covering a band it did not.
+
+The record said "within 2.4° over 200 Hz–12 kHz" (from `phase_sweep.py`) while `goal_check.py`
+reported 6.66–8.22° over the same band. Computing ONE residual curve per capture and re-reading it
+under each differing choice, one at a time, worst |residual| in 200 Hz–12 kHz against P1:
+
+| configuration | bright | dark | mid |
+|---|---|---|---|
+| `phase_sweep` as recorded | 2.15 | 2.41 | 6.21 |
+| + include the 200 Hz report point | 6.24 | 5.85 | 6.47 |
+| + every bin, not 10 interpolated points | 6.24 | 7.94 | 6.78 |
+| + raw cross-spectrum, not Farina-gated | 6.20 | 7.13 | 6.72 |
+| + unsettled segment | 6.20 | 7.13 | 6.72 |
+| + fit window 200 Hz–12 kHz | 7.30 | 6.89 | 8.05 |
+| = `goal_check`, also 8× OS | 7.14 | 6.79 | 7.97 |
+
+⚠⚠ **The dominant rung is the first: the recorded figure is a max over six hand-listed report
+frequencies starting at 500 Hz.** The same instrument reads −5.85 to −6.47° at its own 200 Hz report
+point, which the claim's band label includes and the claim's arithmetic did not. **A max over a
+handful of interpolated points is not a max over a band, and the gap is unbounded in one direction.**
+The target is "within 5° across all bands", which is a per-band claim — so `goal_check`'s statistic
+is the one that answers it. 📌 The OS factor was never the explanation: 4× → 8× moves it by 0.2°.
+
+✅ **And the miss is entirely at the bottom.** Worst |residual| by sub-band under that configuration:
+**200–500 Hz: 6.8–8.0°**, 500 Hz–2 kHz: 1.6–2.6°, 2–8 kHz: 1.4–2.3°, 8–12 kHz: 1.8–4.3°. So the 5°
+target is met everywhere above 500 Hz, and what fails is the tail of the missing LF high-pass pole
+(note #9d) — already confounded across units and already blocked on the VOLUME sweep. ⛔ Nothing new
+to act on, and note #17 rules out the minimum-phase companion the handover suspected: there is no
+model-side magnitude dip at 4–8 kHz for phase to be carrying.

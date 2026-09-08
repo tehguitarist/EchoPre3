@@ -17,37 +17,51 @@ warning-free, and `auval -v aufx Ep3p Lprc` passes. Steps 1–8 of the build seq
 The JFET stage models the device itself — Shichman-Hodges square law with cutoff and triode regions,
 solved **in closed form** against both the source one-port and the drain load line. There is no
 iteration, no fitted shaper, and no transcendental in the signal path. `Vov` is the single remaining
-amplitude parameter and it is not yet measured.
+amplitude parameter. It is now MEASURED (two agreeing routes, 2026-09-09) and deliberately not
+applied — the reason is a clipping-mechanism change, not a precision problem. See below.
 
 **Read before touching anything:**
 - `CLAUDE.md` → the "Current step" block, and the NEXT STEPS block just above
   "Project-specific carry-forwards". Long, but every ⚠ in it is a failure that has already happened.
 - `docs/build-plan.md` §16 (the device model) and §17 (the closed-form solve).
-- `.claude/rules/circuit.md` notes #12–#15.
+- `.claude/rules/circuit.md` notes #12–#18.
+
+## What the last session did (2026-09-09)
+
+The three items this page used to list are **done**, and two of them reversed a recorded belief. Full
+detail in `.claude/rules/circuit.md` notes **#16–#18** and the block at the end of `CLAUDE.md`'s
+"Current step". **No DSP constant changed; all 11 tests pass.**
+
+1. **`Vov` is fitted, twice, and the routes agree.** H2 in dBc over 125–800 Hz gives 0.126;
+   compression growth over the top 10 dB at 5–8 kHz gives 0.165. A factor of 1.31 apart, against a
+   shipped 0.4469. It is still **not applied** — see below.
+2. **The 4–8 kHz "dip" is P1's rig, not the model.** P2 recovers the pedal's own 7.3 kHz input pole
+   at a 0.02 dB residual in all three modes. P1 cannot be described by any cascade containing one,
+   and is *brighter* there than the drawn circuit can be. Do not touch the input network.
+3. **The two phase numbers reconcile.** The recorded "2.4° over 200 Hz–12 kHz" was a max over six
+   report frequencies starting at 500 Hz. The 5° target is met above 500 Hz; the whole miss is
+   200–500 Hz, which is the tail of the known LF pole.
+
+New instruments: `analysis/vov_fit.py`, `analysis/hf_shape_fit.py`, `analysis/phase_reconcile.py`,
+each with a `--self-test` or known-answer rung that runs on the plugin first. New CLI flag
+`OfflineRender --vov V`, a measurement flag beside `--input-scale`.
 
 ## Do these, in this order
 
-**1. Fit `Vov` from P1, using two independent observables and checking they agree.**
-P1 is the only calibrated capture (−12 dBu at the pedal jack). Its second-harmonic deficit is
-8.9–11.6 dB over 125 Hz–800 Hz and clears its own per-band floor by 1.6–6.0×, so it is real signal.
-Use the midband H2 deficit as one route and **compression above 3 kHz only** as the other — below
-3 kHz P1's compression reads positive, which the circuit forbids, so that region is floor regardless
-of its magnitude.
-⚠⚠ Do **not** claim a √N improvement from the 24 cells. The floors are systematic model error, not
-noise (`circuit.md` #15), so they do not average down. Expect to pin `Vov` to about a factor of 1.5,
-not to the owner's 5 % target.
+**1. Nothing in the model is blocked any more.** Every remaining item needs data the dataset cannot
+contain. If you are picking this up before the capture session, the highest-value action is still a
+single message: **ask the P2 and P3 trainers for their `input_level_dbu`.** P2 and P3 are the units
+whose nonlinear data clears its floor, and P1 is the unit that is calibrated; that split is what
+blocks the cubic, and one of those two numbers closes it.
 
-**2. Explain the 4–8 kHz frequency-response dip.** `analysis/goal_check.py` reports the plugin
-0.5–0.67 dB dark at 4064 / 5120 / 6451 / 8127 Hz against P1, in all three modes. This is inside the
-core target band, is not the low-frequency confound, and has never been investigated.
-⚠ The obvious candidate is ruled out by sign: P1 fits a 6.7 kHz input pole against the 7.3 kHz
-shipped, and a lower real corner would make the plugin *brighter* there, not darker.
+**2. When the +12.2 dBu capture lands, apply `Vov` — but decide it on the clipping MECHANISM, not on
+the parameter.** The reason it is still unapplied is not precision. It is that the fitted value swaps
+which region clips first: at the shipped 0.4469 the drain enters triode at −7.5 dBFS and cuts off at
+−2.7; at 0.150 it cuts off at −12.2 and triode is never reached. The load line itself barely moves.
+A capture that reaches the load-line region shows which one the real pedal does, directly.
 
-**3. Reconcile the two phase figures before tuning anything to either.** Whole-band RMS agrees
-between `phase_sweep.py` (3.14–4.43°) and `goal_check.py` (3.56–4.12°). But the recorded "within
-2.4° over 200 Hz–12 kHz" and `goal_check`'s 6.66–8.22° over the same band do not, and it is not yet
-known which is right (fit window, weighting, or 4× vs 8×). Do this **after** item 2 — a
-minimum-phase magnitude dip carries phase with it, so they may be one finding.
+**3. Then `kOutputMakeup`, the VOLUME sweep, and the M0 null render**, in that order — see the last
+section of this page.
 
 ## The traps, so they are not re-learned
 
@@ -62,8 +76,16 @@ minimum-phase magnitude dip carries phase with it, so they may be one finding.
   plateau inside the audio band.
 - ⚠ **Say WHERE in the chain a level is measured.** dBu at the interface and dBu at the pedal jack
   differ by the reamp box — 24.2 dB on this rig.
-- ⚠ **Do not fit anything to a capture below ~100 Hz**, or to P1's harmonics above H2, or to P2
-  above ~2 kHz. All three are the reference's own error.
+- ⚠⚠ **A bound the fit rests on is not a fit, and a flat STATISTIC is not a flat observable.** Both
+  hid a real result this session — one behind a plausible-sounding bound, one behind a median taken
+  across cells with wildly unequal sensitivity.
+- ⚠ **Difference out a contaminating constant rather than widening the tolerance around it.** Reading
+  compression as a growth-with-level instead of an absolute took its floor from 0.145 to 0.006 dB.
+- ⚠ **Do not fit anything to a capture below ~100 Hz**, or to P1's harmonics above H2, or to P2's
+  absolute LEVEL, POLARITY or top octave. All are the reference's own error.
+  ⚠ But note #17 narrows the last one: P2's HF is fully described as the pedal's own 7.3 kHz pole
+  times a 3.2 kHz cable pole, to 0.02 dB, so it is the best capture in the set for pole STRUCTURE —
+  and P1, the designated absolute anchor, is the noisiest model in the set.
 - ⚠ `python3` on this machine has a broken numpy — use `.venv/bin/python`.
 - ⚠ This tree is hand-formatted; run `clang-format` on **new files only**.
 
