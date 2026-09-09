@@ -183,6 +183,44 @@ and it is doing three jobs at once: the M0 unity check, the LF-pole test in §3,
 ⚠ One caveat: in the loop the source is the interface's ~100 Ω output, not the pedal's ~130 kΩ, so
 the loop does **not** include the §2c loading error. That correction is separate and still needed.
 
+## ⚠⚠ 2f. If the level "drops" when you plug into the input — diagnose before compensating
+
+Seen on the first setup attempt: 1.775 V measured on an unloaded output, then a **3.8 dB drop**
+after plugging into the Hi-Z input. Do **not** just turn the source up. Work out which of two very
+different things it is, because they need opposite responses.
+
+**It is almost certainly NOT loading.** For a 3.8 dB loss into 1 MΩ the source impedance would have
+to be **549 kΩ**. A headphone output drives 32 Ω cans, so its source impedance is under ~50 Ω, which
+into 1 MΩ costs **0.0004 dB**. The far likelier explanation is that the drop was measured against an
+*expected* recorded dBFS, and the Hi-Z input's real sensitivity at minimum gain is simply ~3.8 dB
+below the +15 dBu figure. **That is benign and needs no compensation at all** — §2d's loop measures
+the true `output_level_dbu` and absorbs it exactly.
+
+**The 30-second test that settles it.** Put any resistor from 100 kΩ to 1 MΩ across the output and
+re-read the DMM:
+- **Reading does not move** → no loading. **Leave the output level alone.** The 3.8 dB is record-side
+  scaling; the loop capture already accounts for it.
+- **Reading drops** → something really is loading it. ⚠ Check for a **TS cable in a TRS jack**: a
+  headphone out is stereo, and a mono plug shorts ring to sleeve. Fix the cause; do not compensate.
+
+⚠⚠ **And if there IS real source impedance, compensating against the interface would still be wrong**
+— the pedal's input is **1.11 MΩ**, not 1 MΩ, so it loads differently (549 kΩ of source would give
+−3.49 dB into the pedal against −3.8 dB into the interface). ➡ **In that case calibrate in situ:**
+Y-split at the pedal's input jack, pedal connected, DMM on the other leg, and set 1.775 V there.
+The calibration is defined **at the pedal's input**, so that is the only place it is unambiguous.
+
+📌 **Why the headphone output was needed at all, and it is worth checking:** the SSL's line outputs
+are **balanced TRS**, and on a simple differential output a TS cable delivers only one leg — **6 dB
+down**, dropping the usable maximum from +14.5 to +8.5 dBu, below the +12.20 dBu required. If that is
+what happened, a proper balanced-to-unbalanced connection recovers the line output and is preferable
+to the headphone amp. ✅ The headphone output is otherwise acceptable here: low source impedance,
+ample level, and `output_level_dbu` is measured rather than assumed. Just keep its knob marked and
+re-verify at the end of the session, exactly as for the monitor knob.
+
+⛔ **Do not solve this by lowering the target.** `kInputRef` = 4.4626 V/FS is what puts triode onset
+at −7.5 dBFS. At 2.0 V/FS it moves to −0.5 dBFS and only the single hottest cell reaches the load
+line at all — which is the region the whole session exists to capture.
+
 ## ⭐ 3. Capture the clean loop AND the pedal bypassed — they are different tests
 
 - **Loop only (no pedal):** the M0 unity check, which has never run. It also **directly settles the
