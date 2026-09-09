@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""Integrity-check a freshly recorded capture BEFORE spending a session on the rest.
+
+Written 2026-09-10 against the owner's first loop capture. Every check here is one that, if it
+fails, invalidates the capture silently rather than loudly -- which is the whole reason to run it
+at the desk while the gear is still set up.
+
+    .venv/bin/python analysis/check_capture.py analysis/captures/<file>.wav [--loop]
+
+--loop marks a no-pedal loopback, which changes what "pass" means: the response should be FLAT and
+the distortion negligible, whereas a pedal capture should not be either.
+
+⚠⚠ THE DISTORTION SECTION MEASURES ITS OWN FLOOR FIRST (circuit.md note #9's standing rule). The
+reference deconvolved against itself must read 0.0000 %, and the same reference plus this capture's
+measured noise gives the level below which a THD number means nothing. Without both, a rising
+noise floor reads as distortion -- and on the first real capture the raw THD came back at 1.72 %
+on the quietest sweep purely because THD is a RATIO and the artefact is fixed in amplitude.
+
+📌 THD is an RSS over orders and hides the per-order picture completely (circuit.md note #10). The
+per-order table is the one to read; H2 is what the `Vov` fit consumes.
+"""
+import argparse, os, sys
+
+import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import analyze as A
+
+# Model expectations at the shipped calibration, for the clearance column (circuit.md note re §16).
+PEDAL_H2_DBC = {-6: -22.0, -12: -36.6}
+OK, WARN, BAD = "  ok  ", " WARN ", " BAD  "
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("path")
+    ap.add_argument("--loop", action="store_true", help="no-pedal loopback: expect flat and clean")
+    args = ap.parse_args()
+
+    orig = A.load(A.ORIG)
+    raw = A.load(args.path)
+    cap, lag = A.align(raw, orig)
+    ref = A.seg_of(orig, "sweep_clean", settled=False)
+    print(f"{os.path.basename(args.path)}   {len(raw)} samples, {len(raw)/A.FS:.2f} s\n")
+
+    # --- 1. integrity -----------------------------------------------------------------------
+    print("1. INTEGRITY")
+    last_end = max(b for _, b in A.T.values())
+    trunc = len(raw) < last_end * A.FS
+    pol, ang = A.polarity(cap, orig)
+    peak = float(np.max(np.abs(cap)))
+    nclip = int(np.sum(np.abs(cap) >= 0.999))
+    print(f"   {BAD if trunc else OK} content ends at {last_end:.1f} s, file holds "
+          f"{len(raw)/A.FS:.1f} s" + ("  *** TRUNCATED" if trunc else ""))
+    print(f"   {OK} align lag {lag} samples")
+    print(f"   {OK if pol > 0 else BAD} polarity {pol:+d} at {ang:.1f} deg"
+          + ("" if pol > 0 else "   *** INVERTED -- see circuit.md note #9b"))
+    print(f"   {BAD if nclip else OK} peak {20*np.log10(peak):.2f} dBFS, {nclip} samples at/over 0.999")
+    print(f"   {BAD if not np.all(np.isfinite(cap)) else OK} finite, DC offset {np.mean(cap):+.2e}")
+
+    # --- 2. frequency response --------------------------------------------------------------
+    print("\n2. FREQUENCY RESPONSE")
+    f, m, n = A.band_fr(A.seg_of(cap, "sweep_clean", settled=False), ref, frac=6)
+    ok = n > 0
+    mid = float(np.mean(m[ok & (f >= 300) & (f <= 3000)]))
+    for lo, hi, label in ((20, 40, "20-40 Hz  "), (40, 400, "40-400 Hz "),
+                          (400, 8000, "0.4-8 kHz "), (8000, 20000, "8-20 kHz  ")):
+        s = ok & (f >= lo) & (f <= hi)
+        if not np.any(s):
+            continue
+        d = m[s] - mid
+        flag = OK if (not args.loop or np.max(np.abs(d)) < 0.5) else WARN
+        print(f"   {flag} {label} {np.min(d):+6.3f} .. {np.max(d):+6.3f} dB  re midband")
+    if args.loop:
+        print("   ^ a loopback should be flat. Any HF droop here is REAL and must be deconvolved")
+        print("     from every pedal capture -- it is the same size as the project's 1 dB target.")
+
+    # --- 3. noise ---------------------------------------------------------------------------
+    print("\n3. NOISE")
+    nf = A.seg_of(cap, "noise_floor", settled=False)
+    nf_rms = A.rms_db(nf)
+    print(f"   {OK if nf_rms < -85 else WARN} noise floor {nf_rms:.1f} dBFS RMS, "
+          f"peak {20*np.log10(np.max(np.abs(nf))):.1f} dBFS")
+
+    # --- 4. distortion, floor first ----------------------------------------------------------
+    print("\n4. DISTORTION  (per order -- THD alone hides this, note #10)")
+    segs = A.sweep_segments()
+    self_thd = {}
+    rng = np.random.default_rng(0)
+    for db, seg in segs.items():
+        r = A.seg_of(orig, seg, settled=False)
+        _, t0, _ = A.harmonic_thd_curve(r, r)
+        noisy = r + rng.normal(0, np.sqrt(np.mean(nf ** 2)), len(r))
+        fr, t1, _ = A.harmonic_thd_curve(noisy, r)
+        s = (fr >= 100) & (fr <= 5000) & np.isfinite(t1)
+        self_thd[seg] = (float(np.nanmedian(t0[np.isfinite(t0)])), float(np.nanmedian(t1[s])))
+    print(f"   estimator's own floor (reference vs itself): "
+          f"{max(v[0] for v in self_thd.values()):.4f} %  <- must be 0.0000")
+    print(f"   {'segment':13s} {'fund':>8s} {'THD':>8s} {'noise-only':>11s} | "
+          + " ".join(f"{'H%d dBc' % k:>8s}" for k in (2, 3)) + " | H2 clearance")
+    for db, seg in segs.items():
+        x = A.seg_of(cap, seg, settled=False)
+        fr, thd, Hn = A.harmonic_thd_curve(x, A.seg_of(orig, seg, settled=False))
+        s = (fr >= 100) & (fr <= 5000)
+        H1 = np.nanmedian(Hn[1][s])
+        dbc = {k: 20 * np.log10(np.nanmedian(Hn[k][s]) / H1) for k in (2, 3) if k in Hn}
+        f0 = 20 * np.log10(np.max(np.abs(x)))
+        exp = PEDAL_H2_DBC[-6] if db >= -10 else PEDAL_H2_DBC[-12]
+        clear = exp - dbc.get(2, np.nan)
+        flag = OK if clear > 12 else (WARN if clear > 6 else BAD)
+        print(f"   {seg:13s} {f0:7.1f}  {np.nanmedian(thd[s]):7.4f}% "
+              f"{self_thd[seg][1]:10.4f}% | "
+              + " ".join(f"{dbc.get(k, np.nan):8.1f}" for k in (2, 3))
+              + f" |{flag}{clear:+.0f} dB")
+    print("   ^ clearance = the pedal's expected H2 minus this chain's. Under ~6 dB the cell")
+    print("     cannot measure harmonics; it is still fine for frequency response.")
+
+    # --- 5. calibration ----------------------------------------------------------------------
+    print("\n5. CALIBRATION")
+    c = A.rms_db(A.seg_of(cap, "cal_1k", settled=False))
+    co = A.rms_db(A.seg_of(orig, "cal_1k", settled=False))
+    g = c - co
+    play_fs_rms = 4.4626 / np.sqrt(2)
+    rec_fs = play_fs_rms * 10 ** (-g / 20)
+    print(f"   loop/chain gain {g:+.3f} dB  (cal_1k: {c:.3f} vs {co:.3f} dBFS)")
+    if args.loop:
+        print(f"   => output_level_dbu = {20*np.log10(rec_fs/0.7746):+.2f} dBu "
+              f"(record full scale = {rec_fs:.3f} V RMS)")
+        print("   ⚠ assumes the play side is set to 1.7745 V RMS at -5 dBFS. Confirm before trusting.")
+        print("   ⚠ the loop's source is the interface output, NOT the pedal's ~130 kOhm, so this")
+        print("     does NOT include the input-loading correction of checklist section 2c.")
+
+
+if __name__ == "__main__":
+    main()
