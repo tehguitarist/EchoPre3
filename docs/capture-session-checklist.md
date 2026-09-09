@@ -86,6 +86,69 @@ DI/instrument input at minimum gain often cannot accept 3.1 V RMS at all.
 - ⭐ `output_level_dbu` is the **only** thing that can ever anchor `kOutputMakeup`, which is still
   exactly 1.0 and has no other route. It is the single highest-value number of the session.
 
+## ⚠⚠ 2b. The 1.775 V is a SETUP TONE, not the capture — and the capture is MEANT to run hot
+
+Two things that sound contradictory and are not.
+
+- **0.78 V is a guitar's RMS at ordinary playing level** (−12 dBFS RMS). A real guitar's PEAKS sit
+  about 12 dB above its RMS, so the same instrument hits **3–4 V** on a hard-picked transient. The
+  calibration puts 0 dBFS at 4.4626 V peak precisely so the signal spans **0.02 V to ~4 V at the
+  pedal — quiet playing right through hard picking.**
+- **The 1.775 V tone is measured once, during setup, and never recorded.** It is at −5 dBFS only
+  because that is where the meter is most accurate.
+
+⛔ **So do NOT attenuate "to be safe".** The stage enters triode at about **−7.5 dBFS** and cuts off
+near −2.7 dBFS, so the top ~7 dB of the signal is the load-line region — **the region no existing
+capture reaches and the one the model most needs measured.** Backing off by even 6 dB throws away the
+entire reason for capturing at this calibration.
+
+✅ **Nothing is at risk.** `R3` = 110 kΩ sits in series with the input, so even if the gate junction
+conducts on the loudest peaks it draws microamps into a 22 V rail. ⭐ **And watch for exactly that:**
+gate conduction is real JFET behaviour that `JfetStage` does NOT model (it has cutoff and triode
+only). If the hottest cells show asymmetry the model cannot follow, that is the likely cause, and it
+is a finding rather than a fault in the capture.
+
+## ⚠⚠ 2c. The interface's INPUT IMPEDANCE will bias the result — check it
+
+This one is easy to miss. The pedal's output impedance is **92–139 kΩ** (circuit.md stage 3 — the
+wiper is grounded and R9 bridges to the jack, so the pot cannot pull it down). That is 15–20× a
+normal pedal's, so the input you record into forms a real divider with it, at 1 kHz:
+
+| input Z | mean level error | **spread across the volume sweep** |
+|---|---|---|
+| 470 kΩ | −1.54 dB | **0.67 dB** |
+| 1 MΩ | −0.76 dB | **0.34 dB** |
+| 2 MΩ | −0.39 dB | 0.18 dB |
+| 10 MΩ | −0.08 dB | 0.04 dB |
+
+⚠ The **mean** lands straight in `kOutputMakeup`. The **spread** is worse, because it varies with the
+knob and would therefore corrupt the taper fit — the very thing this session exists to settle.
+
+- ➡ **Use the highest-impedance input the interface has** (instrument/Hi-Z, not line/mic) and **write
+  down its rated impedance.** Both errors are then correctable, because the pedal's own output
+  impedance is known from the circuit — but only if the number is recorded.
+- ⛔ At 470 kΩ the volume-sweep spread is 0.67 dB, twice the whole unit-to-unit tolerance band
+  (0.33 dB RMS, note #7's M6). Do not record the sweep into a 470 kΩ input if anything better exists.
+
+## ⭐ 2d. Let the LOOP measure `output_level_dbu` — no meter needed
+
+Unity end-to-end is **not** required, and it is fine that the reference is not matched. The analysis
+works in absolute volts on both sides, so all that matters is that the record path's calibration is
+*known*. Getting it from the loop is both easier and more accurate than a second meter reading:
+
+1. Set the record gain for headroom on the **hottest case** — the test signal through the pedal, in
+   the louder mode, at the volume position with the most boost (around 1–2 o'clock). Verify no cell
+   clips. **Then do not touch it again for the rest of the session.**
+2. With that gain fixed, patch output straight back to input and play the 220 Hz tone at −5 dBFS.
+3. It records at some level `X` dBFS. Then
+   `V_fullscale_in = 3.1555 × 10^(−5/20) × 10^(−X/20)` and
+   `output_level_dbu = 20·log10(V_fullscale_in / 0.7746)`.
+
+⭐ The clean-loop capture you already planned **is** this measurement, so it costs nothing extra —
+and it is doing three jobs at once: the M0 unity check, the LF-pole test in §3, and this.
+⚠ One caveat: in the loop the source is the interface's ~100 Ω output, not the pedal's ~130 kΩ, so
+the loop does **not** include the §2c loading error. That correction is separate and still needed.
+
 ## ⭐ 3. Capture the clean loop AND the pedal bypassed — they are different tests
 
 - **Loop only (no pedal):** the M0 unity check, which has never run. It also **directly settles the
