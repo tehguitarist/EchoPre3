@@ -7,7 +7,16 @@ and the MODE label, e.g.:
 
     p1_V1430_bright.wav    unit P1, VOLUME at 2:30, MODE = Bright
     p3_V1000_mid.wav       unit P3, VOLUME at 10:00, MODE = Mid
-    null_V0000_mid.wav     the no-plugin loop-check render (M0) -- volume/mode are don't-cares
+
+Two REFERENCE captures have no pedal mode to name, and forcing them to borrow one ("dark" on a
+capture with no pedal in circuit) is actively misleading, so they get their own tokens:
+
+    loop_V0000_none.wav    no pedal in circuit at all -- the M0 loop check
+    p4_V1030_bypass.wav    pedal in circuit, footswitch bypassed (VOLUME noted, though inert)
+
+⚠⚠ REFERENCE CAPTURES ARE EXCLUDED FROM find_captures() BY DEFAULT. They must not flow into the
+comparison scripts, every one of which renders the plugin per capture and diffs it -- meaningless
+for a file with no pedal in it. Pass include_reference=True to get them.
 
 The `V<HHMM>` clock token reuses analyze.py's clock-to-x convention (0700=min .. 1200=noon ..
 1700=max), since the folder-name clock positions in the NAM data are exactly that scale.
@@ -30,8 +39,12 @@ CAPTURE_DIR = "analysis/captures"
 MODE_LABELS = ("bright", "dark", "mid")
 MODE_INDEX = {label: i for i, label in enumerate(MODE_LABELS)}
 
+# Not pedal modes: "none" = nothing in circuit, "bypass" = pedal present, footswitch bypassed.
+REFERENCE_MODES = ("none", "bypass")
+
 _CAPTURE_RE = re.compile(
-    r"^(?P<unit>[a-z0-9]+)_V(?P<clock>\d{3,4})_(?P<mode>bright|dark|mid)$", re.IGNORECASE
+    r"^(?P<unit>[a-z0-9]+)_V(?P<clock>\d{3,4})_(?P<mode>bright|dark|mid|none|bypass)$",
+    re.IGNORECASE,
 )
 
 
@@ -58,19 +71,33 @@ def parse_capture(filename):
         "volume_clock": clock,
         "volume": A.clock_to_x(clock),
         "mode": mode,
-        "mode_index": MODE_INDEX[mode],
+        # None for a reference capture: there is no MODE position to index, and a caller that
+        # reaches for it on one of those has made a category error rather than found a default.
+        "mode_index": MODE_INDEX.get(mode),
         "sw": mode,
+        "is_reference": mode in REFERENCE_MODES,
     }
 
 
-def find_captures(directory=CAPTURE_DIR):
-    """Return sorted [(path, parsed_dict), ...] for every .wav under directory."""
+def find_captures(directory=CAPTURE_DIR, include_reference=False):
+    """Return sorted [(path, parsed_dict), ...] for the PEDAL captures under directory.
+
+    ⚠ Reference captures (mode "none"/"bypass") are excluded unless include_reference=True. Every
+    comparison script renders the plugin per capture and diffs the two, which is meaningless for a
+    file recorded with no pedal in circuit -- and it would fail SILENTLY, as a mysterious outlier
+    rather than an error. Ask for them explicitly when you want them.
+    """
     if not os.path.isdir(directory):
         return []
-    return [
-        (p, parse_capture(p))
-        for p in sorted(glob.glob(os.path.join(directory, "*.wav")))
-    ]
+    out = [(p, parse_capture(p)) for p in sorted(glob.glob(os.path.join(directory, "*.wav")))]
+    if not include_reference:
+        out = [(p, d) for p, d in out if not d["is_reference"]]
+    return out
+
+
+def find_reference_captures(directory=CAPTURE_DIR):
+    """Just the no-pedal / bypassed captures -- the M0 loop check and the bypass anchor."""
+    return [(p, d) for p, d in find_captures(directory, include_reference=True) if d["is_reference"]]
 
 
 def load_capture(path, expect_fs=48000):
@@ -114,10 +141,21 @@ def render_args(parsed, extra_args=None):
     """Parsed settings -> flat list of CLI flags for OfflineRender.
 
     Only VOLUME and MODE are pedal controls that vary per capture (there is no drive/blend/tone on
-    this pedal -- see circuit.md). The "null" unit has no corresponding plugin render; callers doing
-    the M0 loop check compare the null capture directly against the source signal instead of calling
-    this.
+    this pedal -- see circuit.md).
+
+    Reference captures: mode "bypass" renders the plugin bypassed, so the pair should NULL and the
+    comparison is meaningful. Mode "none" has no plugin render at all -- compare that capture
+    directly against the source signal (the M0 loop check), and this raises rather than inventing
+    a setting for it.
     """
+    if parsed["mode"] == "none":
+        raise ValueError(
+            f"mode 'none' has no plugin render: {parsed['unit']} was captured with no pedal in "
+            "circuit. Compare it against analyze.ORIG directly (the M0 loop check)."
+        )
+    if parsed["mode"] == "bypass":
+        args = ["--volume", f"{parsed['volume']:.6f}", "--mode", "dark", "--bypass"]
+        return args + list(extra_args) if extra_args else args
     args = ["--volume", f"{parsed['volume']:.6f}", "--mode", parsed["mode"]]
     if extra_args:
         args += list(extra_args)
