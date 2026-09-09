@@ -304,3 +304,62 @@ value, since the ratio is the robust quantity and the absolute is not.
 ⚠ Since BRIGHT is the same physical position on both variants, its shelf zero should land near the
 **1.86 kHz** P1 and P2 measured. **Fit it rather than assuming it** — note #2's label reasoning was
 confidently wrong once already, and a two-parameter shelf fit returns ≤ 0.25 dB residuals.
+
+
+---
+
+# Session results (2026-09-10)
+
+## ⭐⭐ Use the BYPASS capture as the deconvolution reference, NOT the bare loop
+
+Both reference captures pass every integrity check. But they are **not interchangeable**, and the
+difference is exactly the size of the project's whole HF target.
+
+**`p4_V1030_bypass.wav` minus `loop_V0000_none.wav`**, level-matched, shape only:
+
+| 20 Hz | 1 kHz | 4 kHz | 8 kHz | 16 kHz | 18 kHz |
+|---|---|---|---|---|---|
+| −0.047 dB | −0.013 | +0.153 | +0.294 | +0.367 | +0.372 |
+
+Best description: **the bare loop carries one extra pole at 48.4 kHz** (residual 0.079 dB). A
+bypassed pedal cannot ADD treble, so the loop path had something the bypass path did not — almost
+certainly a different or longer cable between the two takes.
+
+➡ **The bypass capture has the SAME cabling as every pedal capture; the bare loop does not.**
+Deconvolving against the loop would import **0.37 dB of HF error at 18 kHz** into every result.
+⛔ The loop's remaining jobs are the M0 unity check and nothing else.
+
+## ✅ The bypass is genuinely TRUE bypass — nothing to model
+
+- Nulls against the loop at **−70.8 dB**.
+- Broadband level: loop −14.001 dBFS, bypass −13.993 dBFS — **0.008 dB of insertion loss**.
+- ⇒ No buffer, no loading, no bypass-path component in the model. §2c's input-loading correction
+  therefore does **not** apply to this capture; it applies only to the ACTIVE pedal captures, where
+  the source becomes the pedal's ~130 kΩ instead of the interface's output.
+
+## ⭐⭐ The chain has NO low-frequency pole, confirmed twice
+
+| capture | 20–40 Hz, re midband |
+|---|---|
+| bare loop | −0.006 .. +0.065 dB |
+| bypassed pedal | −0.053 .. +0.018 dB |
+| bypass minus loop at 20 Hz | −0.047 dB |
+
+➡ **This is the measurement circuit.md notes #19/#19a/#20 were blocked on.** The real, linear,
+single ~20–35 Hz pole seen in all seven NAM captures is **not** in this rig. So when the P4 pedal
+captures land, any LF pole they show belongs to the **pedal**, and `C10` (or whatever carries it)
+gets changed with evidence — or they show none, and it was the other three trainers' rigs.
+
+## 📌 Calibration is stable across both takes
+
+`output_level_dbu` = **+14.30 dBu** (loop) and **+14.29 dBu** (bypass) — 0.01 dB apart, which says
+the play-side setting did not drift between them. Record full scale ≈ **4.02 V RMS**.
+
+## ⚠ One unexplained, immaterial discrepancy — recorded so it is not rediscovered
+
+The loop's quietest sweep reads 1.72 % THD where the bypass reads 0.029 %, yet **their time-domain
+residuals against the played signal are identical** (median −66 dBFS, worst −44 dBFS, same blocks
+flagged in both). So neither capture is defective; the discrepancy lives in the harmonic gate at a
+level where it is at its own floor — the bypass figure sits *below* its own noise-only prediction of
+0.052 %. ⛔ Not worth chasing: the quietest sweep is the linear FR reference, and no harmonic result
+is read from it.
