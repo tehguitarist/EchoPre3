@@ -130,6 +130,40 @@ knob and would therefore corrupt the taper fit — the very thing this session e
 - ⛔ At 470 kΩ the volume-sweep spread is 0.67 dB, twice the whole unit-to-unit tolerance band
   (0.33 dB RMS, note #7's M6). Do not record the sweep into a 470 kΩ input if anything better exists.
 
+## ✅ 2e. SSL 2+ MkII: use the Hi-Z input at MINIMUM gain. Not line, and NOT the RNDI.
+
+⛔ **Do not try to simulate a guitar amp's input.** The plugin models an **ideal load** by decision
+(circuit.md stage 3: it feeds a DAW digitally, so there is no cable and no amp after it). Loading the
+capture the way an amp would bakes that amp into the reference — the same error already refused for
+P2's cable capacitance. **We want the LIGHTEST load available**, not a realistic one.
+
+| option | verdict | why |
+|---|---|---|
+| **Hi-Z / instrument, 1 MΩ** | ✅ **use this** | −0.76 dB mean, 0.34 dB sweep spread — and both are **calculable**, since the pedal's own output impedance is known |
+| Line input | ⛔ no | line inputs are ~10 kΩ; against the pedal's 92–139 kΩ that is >20 dB of loss and heavily volume-dependent |
+| RNDI in line | ⛔ **no** | ⚠⚠ it has a **transformer**, and an unknown ~20–35 Hz linear pole in the reference chain is the exact open question (notes #19a/#20). A transformer's LF response is not calculable and would have to be measured and deconvolved. **A known resistive divider is far better than an unknown magnetic one.** |
+
+**The levels work, with margin worth knowing:**
+
+| | needed | available | margin |
+|---|---|---|---|
+| line OUT (0 dBFS = 3.1555 V RMS) | +12.20 dBu | +14.5 dBu | **2.30 dB** |
+| Hi-Z IN (est. peak, drain ±9 V through the network into 1 MΩ ≈ 5.15 V pk) | ≈ +13.4 dBu | +15 dBu | **≈1.6 dB** |
+
+- ⭐ **Set the Hi-Z gain to its MINIMUM stop and leave it there.** That is a hard, repeatable position
+  (no knob to drift or bump), it gives the maximum headroom, and it puts `output_level_dbu` at
+  roughly **+15 dBu** — measure the exact figure with the §2d loop, which lands around −7.8 dBFS.
+- ⚠ **1.6 dB is tight, so verify before committing.** Run the hottest case first — signal through the
+  pedal, louder mode, volume around 1–2 o'clock — and check the recorded peaks. If it clips, the
+  fallback is to note the affected cell, **not** to attenuate the drive.
+- ⚠ **The output side needs the monitor knob, which is NOT a hard stop.** Mark its position, and
+  **re-measure the 1.775 V at the end of the session** to prove it did not move. Everything downstream
+  of `kInputRef` rests on that one setting.
+- 📌 **Verify the 1 MΩ rather than trusting it** (it is from a review, not SSL's spec sheet): patch
+  output to input through a **100 kΩ resistor** and compare the recorded level with a direct patch.
+  The drop gives `Zin` outright — `Zin = 100k · g/(1−g)` — at the impedance that actually matters,
+  in thirty seconds, with no meter.
+
 ## ⭐ 2d. Let the LOOP measure `output_level_dbu` — no meter needed
 
 Unity end-to-end is **not** required, and it is fine that the reference is not matched. The analysis
