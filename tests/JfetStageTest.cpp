@@ -17,6 +17,7 @@
 //     that factor of K0 (16.4 dB) missing, which is how it survived the first build.
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <complex>
 #include <cstdio>
