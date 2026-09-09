@@ -1326,3 +1326,44 @@ a pole to the pedal.
 the 3.9 vs 1–2 dB fall-back and the C10 corner of note #7's M4). Notes #9d and #18's "blocked on the
 VOLUME sweep" for the LF magnitude and phase misses should be read as **blocked on the bypassed
 capture** instead.
+
+#### 19a. ⚠⚠ CORRECTION to note #19 — the volume lever does NOT discriminate as claimed
+
+Note #19 says the three VOLUME settings discriminate between the candidates. **That is true of the
+loading explanations and of R10, and FALSE of the one that matters.** Challenged on it (three
+independent rigs agreeing in sign is not what arbitrary rig scatter looks like), the right test is a
+joint fit: pin the pedal's C10 at a trial value, then let EACH RIG have its own free high-pass, and
+profile the worst residual against C10. If the pedal is genuinely taking part of the deficit, that
+profile must minimise well below 100 nF.
+
+| C10 | worst residual | rig poles then needed (P1/P2/P3) |
+|---|---|---|
+| **100 nF (as drawn)** | **0.372 dB** | 29.3 / 21.4 / 19.9 Hz |
+| 85 nF | 0.382 dB | 25.1 / 19.4 / 14.6 Hz |
+| 70 nF | 0.331 dB | 19.1 / 16.2 / 0.5 Hz |
+| 61.4 nF (note #19's global fit) | 0.484 dB | 14.1 / 13.3 / 0.5 Hz |
+| 50 nF | 1.427 dB | rig poles pinned at the floor |
+
+⛔ **The profile is FLAT from 100 nF to 70 nF — the penalty for leaving C10 exactly as drawn is
+0.041 dB.** So the pedal-side term is **unidentifiable** from this dataset, not refuted. Three volume
+settings spanning Ra = 45–281 kΩ are not enough leverage, because R10 = 240 kΩ sits across node E and
+compresses the swing the knob actually produces. ➡ **The correct statement is "no measurement here
+assigns any of this to the pedal", not "it is the rigs".** Note #19's reamp-transformer mechanism
+remains a plausible, UNMEASURED hypothesis and must not be cited as established.
+
+⭐ **A second common-cause candidate is at least as strong and is not a rig at all: the NAM
+architecture's finite receptive field.** It is shared by all seven models by construction, which
+explains one-signedness better than three independent reamp boxes do, and truncation can only REMOVE
+low-frequency energy, never add it. Note #13 already found these models misbehaving below ~100 Hz
+from an unrelated route (H3 above H2 at 20–31 Hz, impossible for a square law; the known-answer probe
+reading 20.2 dB at 20 Hz where the circuit forces 0.00).
+
+📌 **And "three independent rigs agree" is weaker evidence than it feels: three of three sharing a
+sign is p ≈ 0.25.** It rules out arbitrary scatter — correctly — but it cannot distinguish *which*
+common cause, and there are three (the rigs' shared protocol, the shared architecture, the pedal).
+📌 Modern interfaces ARE flat to 20 Hz; conceded. A reamp box is a transformer, not an interface.
+
+➡ **Decision unchanged, but for a cleaner reason: changing C10 buys 0.041 dB, so there is nothing to
+act on.** The bypassed capture through the owner's own chain settles it in one pass — if that chain
+is flat to 10 Hz and the pedal capture still rolls off near 25 Hz, the pole IS the pedal's and the
+value change gets made with evidence behind it.
