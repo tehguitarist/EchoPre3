@@ -1359,9 +1359,12 @@ high, execute routine work cheap) is what should persist.
 > ⭐⭐ **CALIBRATION — `kOutputMakeup` CAN FINALLY BE ANCHORED.** `output_level_dbu` = **+14.30 dBu**
 > (loop) and **+14.29 dBu** (bypass), 0.01 dB apart, so the play side did not drift between takes.
 > Record full scale ≈ **4.02 V RMS**. `input_level_dbu` = **+12.20 dBu** (`kInputRef` = 4.4626 V/FS).
-> ⚠ The input figure assumes the play side is set to **1.7745 V RMS at −5 dBFS / 220 Hz** — confirm
-> with the owner before trusting it; the meter (Jaycar QM1529) is only specified to 400 Hz, which is
-> why 220 Hz rather than 1 kHz, and its accuracy at that reading is ±0.135 dB.
+> ✅ **CONFIRMED by the owner 2026-09-10:** the play side IS set to **1.7745 V RMS at −5 dBFS /
+> 220 Hz**, so `input_level_dbu` = +12.20 dBu and `kInputRef` = 4.4626 V/FS stand. (220 Hz rather
+> than 1 kHz because the meter, a Jaycar QM1529, is specified only to 400 Hz; accuracy at that
+> reading is ±0.135 dB, well inside anything that matters here.)
+> ✅ **CONFIRMED: the interface input is 1 MΩ**, so checklist §2c's loading correction is now a known
+> quantity rather than an open question — table below.
 > 📌 Noise floor −99.5 / −99.8 dBFS RMS. H2 clearance over the pedal's expected output is 16–71 dB on
 > every cell but the quietest sweep, which is the linear FR reference and reads no harmonics.
 >
@@ -1386,9 +1389,28 @@ high, execute routine work cheap) is what should persist.
 > ⛔ A level mismatch at 7:30 is not a taper error.
 >
 > ### ➡ NEXT SESSION — the order to work in, once the captures land
-> 1. `check_capture.py` on every file. Confirm the owner's play-side setting and the interface's
->    **rated input impedance** (checklist §2c: at 1 MΩ it is −0.76 dB mean and **0.34 dB of spread
->    across the volume sweep**, which would otherwise corrupt the taper fit).
+> 1. `check_capture.py` on every file. ✅ Both calibration questions are already ANSWERED (above) —
+>    nothing to confirm with the owner.
+>
+> ⭐ **THE INPUT-LOADING CORRECTION, at the confirmed Zin = 1 MΩ. ADD these dB to each capture to
+> undo the interface.** ⚠ It is NOT a single scalar: it moves with the knob (0.341 dB across the
+> sweep at 1 kHz) *and* with frequency (up to 0.120 dB within one position), because the pedal's own
+> output impedance does both. Generate it per capture from the network model rather than typing these
+> in — `analysis/lf_pole_attribution.py`'s `out_network(f, x, rl=1e6)` against `rl=inf` is the source.
+>
+> | knob | 20 Hz | 50 Hz | 100 Hz | 1 kHz | 10 kHz | 20 kHz |
+> |---|---|---|---|---|---|---|
+> | 7:30 | +0.781 | +0.781 | +0.781 | +0.780 | +0.780 | +0.780 |
+> | 9:00 | +0.862 | +0.843 | +0.832 | +0.826 | +0.825 | +0.825 |
+> | 10:30 | +0.940 | +0.873 | +0.851 | +0.842 | +0.842 | +0.842 |
+> | 12:00 | +0.956 | +0.864 | +0.842 | +0.834 | +0.834 | +0.834 |
+> | 13:30 | +0.924 | +0.831 | +0.811 | +0.804 | +0.804 | +0.804 |
+> | 15:00 | +0.846 | +0.764 | +0.748 | +0.742 | +0.742 | +0.742 |
+> | 17:00 | +0.552 | +0.512 | +0.504 | +0.501 | +0.501 | +0.501 |
+>
+> ⚠⚠ **The 0.341 dB of knob-dependence is the part that matters** — a constant would be absorbed
+> harmlessly by `kOutputMakeup`, but a knob-dependent one lands directly in the VOLUME taper fit,
+> which is step 5. ⛔ Do not fit the taper before applying this.
 > 2. **Deconvolve `p4_V1030_bypass.wav` out of every pedal capture**, then apply the §2c loading
 >    correction. Only then compare anything.
 > 3. **The LF pole**, using the 7:30 corner — the question this session was built to answer.
