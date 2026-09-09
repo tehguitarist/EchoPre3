@@ -39,30 +39,18 @@ jobs:
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
-        if: runner.os != 'Linux'
         # Unbounded --parallel lets make/ninja fan out one job per available core, but this
-        # project links ~6 separate juce_add_console_app targets that each independently
+        # project links ~9 separate juce_add_console_app/test targets that each independently
         # recompile the heavy JUCE GUI/audio-device modules from source (JUCE's CMake helpers
-        # don't share object files across targets) -- on the 3-vCPU/14GB macOS runner that many
-        # concurrent .mm compiles exhausts RAM and the build appears to hang (it's actually
-        # thrashing, not deadlocked). Cap macOS explicitly; Windows hasn't shown this.
-        run: cmake --build build --config Release --parallel ${{ runner.os == 'macOS' && 3 || '' }}
-
-      - name: Build (Linux, with disk-usage trace)
-        if: runner.os == 'Linux'
-        # Twice now the ubuntu build has died ~2 min after linking vst3_helper with the generic
-        # "runner has received a shutdown signal" / exit 143 -- no compiler error, same spot both
-        # times. That's not a code problem and doesn't match the concurrency cancellation we've
-        # seen elsewhere (no newer push existed either time). It matches GitHub's own low-disk-space
-        # auto-cancellation on hosted runners: this build links ~9 separate targets that each
-        # independently recompile full JUCE modules from source, which can add up. Log free space
-        # every 15s during the build so the NEXT failure (if it recurs) shows whether disk was the
-        # cause instead of us having to guess again.
-        run: |
-          ( while true; do echo "[disk] $(date -u +%H:%M:%S) $(df -h / | tail -n1)"; sleep 15; done ) &
-          monitor_pid=$!
-          trap 'kill "$monitor_pid" 2>/dev/null || true' EXIT
-          cmake --build build --config Release --parallel
+        # don't share object files across targets). On macOS (3 vCPU/14GB) that many concurrent
+        # .mm compiles exhausts RAM and the build appears to hang (it's actually thrashing, not
+        # deadlocked). On Linux (4 vCPU/16GB) the disk-usage trace we added to debug repeated
+        # mid-build "shutdown signal" kills ruled out disk (steady 86GB free throughout) and the
+        # log showed the real cause: "c++: fatal error: Killed signal terminated program cc1plus"
+        # -- the kernel OOM killer, on a heavy juce_gui_basics/.mm-adjacent translation unit.
+        # Windows hasn't shown either problem. Cap both to values already verified working on
+        # tehguitarist/Tommy, which hit the identical Linux OOM at unbounded parallelism.
+        run: cmake --build build --config Release --parallel ${{ (runner.os == 'macOS' && 3) || (runner.os == 'Linux' && 2) || '' }}
 
       - name: Run tests (Linux, headless display)
         if: runner.os == 'Linux'
