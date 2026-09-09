@@ -10,6 +10,12 @@ at the desk while the gear is still set up.
 --loop marks a no-pedal loopback, which changes what "pass" means: the response should be FLAT and
 the distortion negligible, whereas a pedal capture should not be either.
 
+⚠⚠ IT ALSO CHANGES THE EXPECTED POLARITY, AND THE FIRST VERSION OF THIS SCRIPT GOT THAT WRONG.
+Stage 2 is a single common-source JFET stage, which MUST invert (circuit.md stage 2), so a genuine
+pedal capture reads -1 and a loopback or bypassed capture reads +1. Flagging every inverted file as
+BAD would have condemned every real capture in the session. The expectation is taken from the mode
+token, so it is right without anyone having to remember.
+
 ⚠⚠ THE DISTORTION SECTION MEASURES ITS OWN FLOOR FIRST (circuit.md note #9's standing rule). The
 reference deconvolved against itself must read 0.0000 %, and the same reference plus this capture's
 measured noise gives the level below which a THD number means nothing. Without both, a rising
@@ -37,11 +43,24 @@ def main():
     ap.add_argument("--loop", action="store_true", help="no-pedal loopback: expect flat and clean")
     args = ap.parse_args()
 
+    # Expected polarity: +1 through a loop or a bypassed pedal, -1 through the active circuit.
+    try:
+        import captures as C
+        parsed = C.parse_capture(args.path)
+        is_ref = parsed["is_reference"]
+        pad = parsed["pad_db"]
+    except Exception:
+        parsed, is_ref, pad = None, args.loop, 0.0
+    is_ref = is_ref or args.loop
+    want_pol = +1 if is_ref else -1
+
     orig = A.load(A.ORIG)
     raw = A.load(args.path)
     cap, lag = A.align(raw, orig)
     ref = A.seg_of(orig, "sweep_clean", settled=False)
-    print(f"{os.path.basename(args.path)}   {len(raw)} samples, {len(raw)/A.FS:.2f} s\n")
+    tag = "reference (no pedal / bypassed)" if is_ref else "active pedal capture"
+    print(f"{os.path.basename(args.path)}   {len(raw)} samples, {len(raw)/A.FS:.2f} s"
+          + f"   [{tag}" + (f", source padded {pad:g} dB]" if pad else "]") + "\n")
 
     # --- 1. integrity -----------------------------------------------------------------------
     print("1. INTEGRITY")
@@ -53,8 +72,10 @@ def main():
     print(f"   {BAD if trunc else OK} content ends at {last_end:.1f} s, file holds "
           f"{len(raw)/A.FS:.1f} s" + ("  *** TRUNCATED" if trunc else ""))
     print(f"   {OK} align lag {lag} samples")
-    print(f"   {OK if pol > 0 else BAD} polarity {pol:+d} at {ang:.1f} deg"
-          + ("" if pol > 0 else "   *** INVERTED -- see circuit.md note #9b"))
+    print(f"   {OK if pol == want_pol else BAD} polarity {pol:+d} at {ang:.1f} deg "
+          f"(expected {want_pol:+d}: " + ("loop/bypass passes straight through)" if is_ref
+          else "one common-source stage must invert)")
+          + ("" if pol == want_pol else "   *** WRONG WAY ROUND -- see circuit.md note #9b"))
     print(f"   {BAD if nclip else OK} peak {20*np.log10(peak):.2f} dBFS, {nclip} samples at/over 0.999")
     print(f"   {BAD if not np.all(np.isfinite(cap)) else OK} finite, DC offset {np.mean(cap):+.2e}")
 
