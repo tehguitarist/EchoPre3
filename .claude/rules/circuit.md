@@ -1419,3 +1419,38 @@ volume settings are not enough leverage. **The bypassed capture through the owne
 still the one measurement that separates them**, and it is now a sharper test than before: we know
 what to look for is a single linear pole in the 20–35 Hz decade, not a transformer's level-dependent
 rolloff.
+
+### 20a. ⛔ Is the LF corner a VOLUME effect? P1 and P3 say maybe; P2, the only unit with leverage, says no
+
+Prompted by a good observation: P1 and P3 sit at nearly the same VOLUME (10:30 / 10:00) and their
+measured corners are nearly identical (33.8 / 34.4 Hz), while P2 sits far away (2:30) and reads much
+lower (23.5 Hz). That is exactly the pattern an in-pedal, volume-dependent pole would make, so it
+was tested directly: with the pedal EXACTLY as drawn, can the knob alone produce the corners?
+
+| unit | stated | x | Ra | plugin's corner | measured | knob position it would need |
+|---|---|---|---|---|---|---|
+| P1 | 10:30 | 0.35 | 61 k | 23.7 Hz | 33.8 Hz | **9:25** |
+| P2 | 2:30 | 0.75 | 281 k | 13.1 Hz | 23.5 Hz | **10:31** |
+| P3 | 10:00 | 0.30 | 45 k | 27.6 Hz | 34.4 Hz | **9:22** |
+
+⚠⚠ **THE PAIR THAT AGREES IS THE PAIR WITH NO LEVERAGE.** P1 and P3 are 30 minutes apart on the
+knob; two points that close cannot determine a slope, so *any* common effect — rig, architecture, or
+pedal — puts them at the same corner. All the discriminating power in this dataset sits in P2, and
+P2 refuses: for volume to be the whole story it would have to have been captured at **10:31 rather
+than 2:30**, a four-hour reporting error. Back-solving the taper exponent instead of the position:
+
+**p = 2.70 (P1) / 7.24 (P2) / 2.39 (P3).**
+
+📌 That independently reproduces note #7's M4 result (2.5 / 3.2 / 7.8) from a different estimator on
+a different band — including which unit is the outlier. Two arrivals at the same answer.
+
+⭐ **What the observation DOES earn: P1 and P3 agree the taper is slightly steeper than shipped**
+(p ≈ 2.4–2.7 against 2.0), from two units, two rigs and two trainers. Weak — they are close together
+so a single common error would look the same — but it is the right sign and worth carrying into the
+VOLUME sweep, which is the measurement that settles `p`. ⛔ Do NOT move `p` on it now: p = 2.0 is
+what puts the volume peak at the maker's stated 1–2 o'clock, and note #7's M4 confound is unchanged.
+
+⭐ **A free by-product: validation note #3's rotation direction is corroborated.** Testing the
+reversed wiring (x → 1−x) against the measured corners gives an RMS error of 17.5 Hz versus **9.3 Hz**
+for the shipped CW-is-louder sense, and it puts P1 and P3 nearly 21 Hz out. Not proof, but the
+reversed hypothesis is clearly worse on all three units. **CW = louder stands.**
