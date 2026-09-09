@@ -393,3 +393,59 @@ The algebra: sensitivity to the exponent goes as `ln(x)·dp`, sensitivity to pos
 📌 Output at 7:30 sits ~22 dB below 10:30, so the quietest sweep records near −63 dBFS: 37 dB raw
 SNR plus 56 dB of sweep processing gain. Fine for frequency response; its harmonics will be floor,
 which does not matter — nothing reads harmonics from the bottom of the volume range.
+
+
+## 🔧 Measuring the interface's input impedance (checklist §2c)
+
+**Series-resistor substitution.** Record a tone twice — once patched straight in, once through a
+known resistor in series with the tip — and the level drop gives `Zin` outright:
+
+```
+g   = 10^((B - A)/20)        A = direct patch dBFS, B = through-R dBFS
+Zin = R * g / (1 - g)
+```
+
+**Procedure**
+1. **Measure the resistor with the DMM first** and use that value, not the marked one. Its
+   resistance accuracy is ±(1.0 % + 2 digits) ≈ ±1.2 %, far better than a 5 % part.
+2. Play a **100 Hz** sine at a moderate level (≈ −20 dBFS: clear of the noise floor, nowhere near
+   clipping). Record ~5 s. Note the RMS in dBFS = `A`.
+3. Put the resistor in series with the **tip** conductor, **right at the input jack** so the cable
+   capacitance sits before it, not after. Record the same tone = `B`.
+4. Cross-check at **400 Hz**. The two must agree; if 400 Hz shows a bigger drop, stray capacitance is
+   intruding and the 100 Hz figure is the one to trust.
+
+**Which resistor** — anything from 100 kΩ to 470 kΩ. Expected drop against a 1 MΩ input:
+
+| R | drop if Zin = 470 k | 1 M | 2 M | Zin precision from ±0.05 dB |
+|---|---|---|---|---|
+| 100 kΩ | −1.68 dB | −0.83 | −0.42 | ±6.7 % |
+| 220 kΩ | −3.34 dB | −1.73 | −0.91 | ±3.3 % |
+| **470 kΩ** | −6.02 dB | −3.35 | −1.83 | **±1.8 %** |
+| 1 MΩ | −9.90 dB | −6.02 | −3.52 | ±1.2 % |
+
+✅ **Precision is not the constraint — do not overthink the choice.** The correction we apply is
+`Zin/(Zin+Zout)` with `Zout` ≈ 130 kΩ, so **±7 % on `Zin` moves it by only ±0.07 dB**, against the
+0.34 dB of sweep spread being corrected. Even the 100 kΩ case is comfortably good enough.
+
+⚠ **The real constraint is stray capacitance, and it pushes the other way.** The series R plus the
+capacitance after it makes a low-pass, which reads as a falsely LOW `Zin`. Corner frequencies:
+
+| R | 50 pF | 150 pF | 500 pF |
+|---|---|---|---|
+| 100 kΩ | 32 kHz | 11 kHz | 3.2 kHz |
+| 470 kΩ | 6.8 kHz | 2.3 kHz | 677 Hz |
+| 1 MΩ | 3.2 kHz | 1.1 kHz | **318 Hz** |
+
+⛔ A 1 MΩ resistor with a normal cable after it puts the corner at 318 Hz — **−0.5 dB at 220 Hz**,
+which would read as a much lower `Zin` than the truth. ➡ **220 kΩ or 470 kΩ at 100 Hz, resistor at
+the jack** is the sweet spot: good precision, corner safely above the tone.
+
+⚠ Check for hum pickup: record silence with the resistor inline. Several hundred kΩ in a high-Z
+circuit is an antenna. If the noise floor jumps, shield the joint or drop to 100 kΩ.
+
+📌 **Cost of skipping it and just assuming 1 MΩ:** if the input is really 470 kΩ, the mean error of
+0.78 dB is harmless (it is absorbed into `kOutputMakeup`, which is fitted anyway), but the **0.34 dB
+of spread across the volume sweep is not** — that is the measurement the taper fit depends on.
+⛔ Do NOT try to read `Zin` with the DMM's resistance range: on a powered input the meter's test
+current meets active circuitry, and powered down it meets protection diodes. Neither is the answer.
