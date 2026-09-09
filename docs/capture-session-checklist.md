@@ -221,6 +221,42 @@ re-verify at the end of the session, exactly as for the monitor knob.
 at −7.5 dBFS. At 2.0 V/FS it moves to −0.5 dBFS and only the single hottest cell reaches the load
 line at all — which is the region the whole session exists to capture.
 
+## ✅ 2g. A high headphone-amp setting is fine — and noise is not the risk. Distortion is.
+
+Measured on the first setup: **noise floor −95.8 dBFS.** That is comfortable everywhere:
+
+| cell | recorded | raw SNR | with the ESS processing gain |
+|---|---|---|---|
+| sweep −6 | −6 dBFS | 89.8 dB | 146 dB |
+| sweep −26 | −26 dBFS | 69.8 dB | 126 dB |
+| sweep clean (−41) | −41 dBFS | 54.8 dB | 111 dB |
+
+(A 20 s exponential sweep over 22 kHz carries **56 dB** of processing gain: `10·log10(T·BW)`.)
+Against what the measurements need — ~40 dB for 1/6-octave FR, ~70 dB to see H2 at −45 dBc with room
+to spare, ~60 dB for compression to 0.01 dB — every one is met with large margin.
+
+⭐ **And turning the amp UP is the right move, not a compromise.** A headphone volume control sits
+*ahead* of the amp stage, so at low settings the amp's own noise dominates and SNR is *worse*. High
+setting = better SNR.
+
+⭐⭐ **Keep this in proportion: −95.8 dB of RANDOM noise is a transformative improvement over the
+existing reference.** Note #15 established the NAM models' 4–9 dB harmonic error is **systematic**,
+so it does not average down no matter how much data you take. Noise does. Even at −95.8 dBFS this
+capture is in a different class.
+
+⚠⚠ **The real risk at a high output setting is SOURCE DISTORTION, not noise** — a headphone amp near
+its limit adds harmonics, and harmonics are exactly what we are measuring, so it contaminates the
+result directly rather than merely burying it.
+
+➡ **So: do the LOOP capture FIRST, analyse it, and only then commit to the 14-capture matrix.** It
+measures the source distortion and the noise floor together, it is already on the plan (§2d, §3), and
+it costs five minutes against an hour. Check the loop's THD is well under the ~0.5 % the pedal itself
+produces; if it is not, the line output via a proper balanced-to-unbalanced connection is the fix.
+
+📌 Also worth confirming whether the −95.8 dBFS was measured through the loop or with the pedal in
+circuit. The pedal will add its own; Johnson noise from its 139 kΩ output impedance alone is only
+−116 dBFS, so any meaningful rise is the JFET stage and worth knowing either way.
+
 ## ⭐ 3. Capture the clean loop AND the pedal bypassed — they are different tests
 
 - **Loop only (no pedal):** the M0 unity check, which has never run. It also **directly settles the
