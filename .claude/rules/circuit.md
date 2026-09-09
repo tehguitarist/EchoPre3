@@ -1454,3 +1454,18 @@ what puts the volume peak at the maker's stated 1–2 o'clock, and note #7's M4 
 reversed wiring (x → 1−x) against the measured corners gives an RMS error of 17.5 Hz versus **9.3 Hz**
 for the shipped CW-is-louder sense, and it puts P1 and P3 nearly 21 Hz out. Not proof, but the
 reversed hypothesis is clearly worse on all three units. **CW = louder stands.**
+
+### 2a. 📌 BRIGHT and DARK are the two REAL Echoplex voicings; MID is the maker's invention
+
+Confirmed by the owner 2026-09-09, and it matches the maker's published naming already quoted in
+note #2: **Early 1970s = BRIGHT · Late 1970s = DARK · Hybrid Early & Late = MID.** The "hybrid" is
+the maker's own estimation of a midway point, not a historical EP-3 setting.
+
+⭐ **This makes the owner's two-position unit a better reference than it first appeared.** Their
+pedal carries both authentic voicings; the position their capture cannot reach is the synthesised
+one. So the model's authenticity is fully testable against their captures, and only the invented
+position stays inferred from P1/P2 (scale MID by the measured cap RATIO of 2.24, not by an absolute
+τ — see the CLAUDE.md two-position block).
+⚠ It also means their BRIGHT is the same physical position as P1/P2's, so its shelf zero should land
+near the measured 1.86 kHz. **Fit it rather than assuming it** — note #2's label reasoning was
+confidently wrong once already.
