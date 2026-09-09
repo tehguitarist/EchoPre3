@@ -186,9 +186,9 @@ int main()
     // Phase must be UNWRAPPED before any slope is fitted: std::arg wraps to (-pi, pi], and at
     // 18 kHz a single sample of delay is already 135 deg, so a wrapped reading silently folds a
     // large error into a small one (it did -- the first version of this check reported 557 deg).
-    const double kLadder[] = {1000.0, 2000.0, 4000.0, 6000.0, 8000.0, 10000.0,
-                              12000.0, 14000.0, 16000.0, 18000.0};
-    constexpr int kNumLadder = (int)(sizeof(kLadder) / sizeof(kLadder[0]));
+    static constexpr double kLadder[] = {1000.0, 2000.0, 4000.0, 6000.0, 8000.0, 10000.0,
+                                          12000.0, 14000.0, 16000.0, 18000.0};
+    static constexpr int kNumLadder = (int) (sizeof(kLadder) / sizeof(kLadder[0]));
 
     auto dispersion = [&](int osIndex, double* out12, double* out18) {
         Setup s;

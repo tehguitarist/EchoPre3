@@ -520,7 +520,7 @@ int main()
     //     what makes this a test of the STRUCTURE rather than of one scalar.
     {
         std::printf("\n7b. MODE moves distortion as k(w)*k(2w), not as one scalar:\n");
-        constexpr int kN = 4096;
+        static constexpr int kN = 4096;
         constexpr double kAmp = 0.01; // small on purpose: the prediction is the SECOND-ORDER
                                       // truncation, and Bright at 20 kHz barely attenuates the
                                       // drive, so a hot probe would measure higher-order
@@ -755,7 +755,7 @@ int main()
                     s2 += y * std::sin(2 * th); c2 += y * std::cos(2 * th);
                     s3 += y * std::sin(3 * th); c3 += y * std::cos(3 * th);
                 }
-                return std::array<double, 3> { std::hypot(s1, c1), std::hypot(s2, c2), std::hypot(s3, c3) };
+                return std::array<double, 3> {{ std::hypot(s1, c1), std::hypot(s2, c2), std::hypot(s3, c3) }};
             };
             constexpr double kRef = 1.0e-4;
             const auto lo = run(kRef);
