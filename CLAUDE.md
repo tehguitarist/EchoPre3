@@ -1169,3 +1169,44 @@ high, execute routine work cheap) is what should persist.
   Confirms IDSS 1–5 mA, Vgs(off) −0.5…−6 V, Yfs 1000–5000 µmhos — a 5× spread on every amplitude
   param, and the typical-characteristics graphs show sample units spanning nearly that whole range.
   Sanity range only — the maker's "cherry picked" claim means don't assume this unit is typical.
+
+> ### ⛔⭐⭐ THE LF BASS EXCESS IS THE TRAINERS' RIGS (2026-09-09) — circuit.md note #19
+>
+> `analysis/lf_pole_attribution.py`. **No constant changed, and none should be.** Asked whether the
+> uniform "plugin has more bass than every capture" was a consistent circuit error worth fixing now.
+>
+> ⭐⭐ **The discriminator was free and unused: the three units sit at three VOLUME settings**, and the
+> pedal's own output high-pass moves with the knob while anything in the capture chain does not. Fit
+> each candidate as ONE global value across all seven and watch whether it needs a different value per
+> capture. As drawn the worst error is 2.59 dB. **The rig's input impedance and the drain impedance
+> both run to their sweep bounds and still fit 2–3× worse — the loading explanations are dead.** R10
+> needs a 3× different value per volume setting, so it is not one component.
+>
+> ⭐ **What survives is a PER-RIG high-pass AHEAD of the pedal: 29 Hz (P1) / 21 Hz (P2) / 20 Hz (P3),
+> the three modes within a rig agreeing to 5 %, residuals 0.09–0.38 dB — the models' own error
+> floor, with the pedal left exactly as drawn.** Physical candidate: the reamp transformer every NAM
+> training chain contains. Right sign, right decade, common to all three protocols, varies by box and
+> level, and ahead of the pedal so it is volume-independent — the axis that fits best.
+>
+> ⛔ **Do NOT change C10.** The two in-pedal candidates that fit at all need **38 % (C10) or 3.3× (the
+> input HP)** changes to components legible at high zoom. When two structurally different in-pedal
+> explanations each demand an implausible value and fit no better than one out-of-pedal explanation
+> that demands nothing, the common factor is outside the pedal. Same refusal as P2's cable
+> capacitance and the guitar source impedance, same reason: **the plugin's signal path has no
+> transformer in it.**
+>
+> ⚠⚠ **A low NAM `ESR` (≈3e-4 here) does not argue against this.** ESR measures the model against its
+> OWN training target — the recorded output of that rig. A perfect model of a rig containing a reamp
+> transformer has ESR ≈ 0. It confirms the models faithfully reproduce what was recorded, which is
+> what makes these corner fits trustworthy as measurements of the RIG; it is silent on whether the rig
+> was flat. It is also broadband and energy-weighted, so 2 dB at 25 Hz barely registers in it anyway.
+> ⛔ **Cable capacitance cannot do it either, on structure alone** — a shunt C at the output is a
+> LOW-pass. Removing bass needs a series element. Wrong axis.
+>
+> ➡ **Capture-session consequence: the bypassed pass (ask #2) is now the DIRECT test**, not a general
+> anchor. Capture bypassed through the identical reamp chain and its LF rolloff IS the rig's
+> high-pass, measured rather than inferred. If the owner's rig lands in the same 20–30 Hz decade that
+> is confirmation, and the right response is to **deconvolve the rig out of the reference**, not to
+> add a pole to the pedal. 📌 The VOLUME sweep is no longer load-bearing for the LF magnitude/phase
+> misses (notes #9d, #18) — those are blocked on the bypassed capture now. It remains load-bearing for
+> the taper, the 3.9 vs 1–2 dB fall-back, and M4's C10 corner.

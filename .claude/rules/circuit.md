@@ -1250,3 +1250,79 @@ target is met everywhere above 500 Hz, and what fails is the tail of the missing
 (note #9d) — already confounded across units and already blocked on the VOLUME sweep. ⛔ Nothing new
 to act on, and note #17 rules out the minimum-phase companion the handover suspected: there is no
 model-side magnitude dip at 4–8 kHz for phase to be carrying.
+
+### 19. ⛔⭐⭐ The LF bass excess is the TRAINERS' RIGS, not the pedal — do NOT bake it in
+
+`analysis/lf_pole_attribution.py`, raw `analysis/reports/lf_pole_attribution.json`. This closes the
+LF item that notes #7 (M4), #9d and #18 all left as "real, confounded, blocked on the VOLUME sweep".
+**No constant changed, and none should be.**
+
+**The question asked:** all seven captures have less bass than the plugin, uniformly in SIGN. If the
+real pedal has less bass, some circuit value must be wrong — so which, and can it be fixed now?
+
+⭐⭐ **The dataset has a free discriminator nobody had used: the three units sit at three VOLUME
+settings.** The pedal's own output high-pass (C10 into the volume network) moves with the knob;
+anything in the capture chain does not. So fit each candidate as ONE global value across all seven
+and watch whether it needs a *different* value per capture:
+
+| candidate | best single value | worst residual | per-capture spread |
+|---|---|---|---|
+| C10 smaller | 61.4 nF (drawn 100) | 0.74 dB | 1.45× |
+| R10 smaller | 33.0 kΩ (drawn 240) | 0.86 dB | **2.99×** |
+| resistive load at OUT (the rig's input Z) | 3.2 kΩ, runs to the bound | **1.96 dB** | 1.00× |
+| drain Norton impedance | 0.10 kΩ, runs to the bound | 1.39 dB | **66.8×** |
+| **an input-side high-pass (volume-INDEPENDENT)** | **24.0 Hz** | **0.69 dB** | 1.51× |
+
+As drawn the worst error is 2.59 dB. ⛔ **Two candidates are eliminated outright** — the rig's input
+impedance and the drain impedance both run to their sweep bounds and still fit 2–3× worse, so the
+loading explanations are dead. R10 needs a 3× different value per volume setting, so it is not one
+component.
+
+⭐⭐ **What survives is a PER-RIG high-pass ahead of the pedal, and the fit is at the models' own
+error floor with the pedal left exactly as drawn:**
+
+| rig | fitted corner (3 modes) | worst residual |
+|---|---|---|
+| P1 | 29.4 / 28.6 / 30.2 Hz | 0.38 / 0.19 / 0.18 dB |
+| P2 | 20.7 / 21.7 / 20.7 Hz | 0.09 / 0.10 / 0.10 dB |
+| P3 | 20.0 Hz | 0.13 dB |
+
+**Within a rig the three modes agree to 5 %; between rigs it is 29 / 21 / 20 Hz.** That is a per-rig
+constant. The obvious physical candidate is the **reamp transformer** every NAM training chain
+contains: right sign, right magnitude (passive reamp boxes roll off in the 20–40 Hz decade), common
+to all three protocols, level- and box-dependent so it varies rig to rig, and *ahead* of the pedal so
+it is volume-independent — which is exactly the axis that fits best.
+
+⛔ **Therefore do NOT change C10 (or anything else) to close this.** The two in-pedal candidates that
+fit at all need **38 % (C10) or 3.3× (the input HP)** changes to components legible at high zoom on
+`schematic.png` — far outside any tolerance. When two structurally different in-pedal explanations
+each demand an implausible value AND fit no better than one out-of-pedal explanation that demands
+nothing, the common factor is outside the pedal. Baking in ~2 dB at 25 Hz would import one trainer's
+reamp box as a permanent voicing — the same error already refused for P2's cable capacitance
+(stage 3) and the guitar source impedance (stage 1), for the same reason: **the plugin's signal path
+has no transformer in it.**
+
+⚠⚠ **A LOW NAM `ESR` DOES NOT ARGUE AGAINST THIS, and the reasoning is worth not re-deriving.** ESR
+measures the model against **its own training target** — the recorded output of that rig. A perfect
+model of a rig containing a reamp transformer has ESR ≈ 0. So the observed ESR ≈ 3e-4 confirms the
+models faithfully reproduce what was recorded, which is precisely what makes these corner fits
+*trustworthy as measurements of the rig*; it is silent on whether the rig was flat. ESR is also a
+broadband energy-weighted time-domain figure, so a 2 dB error at 25 Hz would barely register in it
+even as a model-fidelity metric. 📌 This sits with note #15: the references are deterministic and
+noise-free, so what is left is systematic — and here the systematic part is identified.
+
+⛔ **Cable capacitance cannot be the answer either, on structure alone.** A shunt capacitance at the
+output is a LOW-pass — it darkens the top octave (note #7's P2 finding, 542 pF at 3.2 kHz). Removing
+bass needs a *series* element. Wrong axis; no amount of it produces this.
+
+➡ **What this changes for the capture session.** The bypassed capture (`CLAUDE.md` ask #2) is now
+the direct test rather than a general anchor: capture bypassed **through the identical reamp chain**
+and its LF rolloff IS the rig's high-pass, measured rather than inferred. ⭐ If the owner's own rig
+turns out to have a corner in this same 20–30 Hz decade, that is confirmation — and the correct
+response is still to leave the model alone and *deconvolve the rig out of the reference*, not to add
+a pole to the pedal.
+
+📌 The VOLUME sweep is no longer load-bearing for THIS item (it is still load-bearing for the taper,
+the 3.9 vs 1–2 dB fall-back and the C10 corner of note #7's M4). Notes #9d and #18's "blocked on the
+VOLUME sweep" for the LF magnitude and phase misses should be read as **blocked on the bypassed
+capture** instead.
