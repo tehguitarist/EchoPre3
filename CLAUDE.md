@@ -1170,7 +1170,11 @@ high, execute routine work cheap) is what should persist.
   param, and the typical-characteristics graphs show sample units spanning nearly that whole range.
   Sanity range only — the maker's "cherry picked" claim means don't assume this unit is typical.
 
-> ### ⛔⭐⭐ THE LF BASS EXCESS IS THE TRAINERS' RIGS (2026-09-09) — circuit.md note #19
+> ### ⛔⭐⭐ THE LF BASS EXCESS (2026-09-09) — circuit.md note #19
+> ⚠⚠ **PARTLY SUPERSEDED LATER THE SAME DAY — read the block below this one before acting on
+> it.** The reamp-transformer mechanism named here was REFUTED by measurement (note #20), and
+> the claim that the VOLUME settings discriminate is an overclaim (note #19a). The elimination
+> of the loading explanations and of R10 stands.
 >
 > `analysis/lf_pole_attribution.py`. **No constant changed, and none should be.** Asked whether the
 > uniform "plugin has more bass than every capture" was a consistent circuit error worth fixing now.
@@ -1210,3 +1214,102 @@ high, execute routine work cheap) is what should persist.
 > add a pole to the pedal. 📌 The VOLUME sweep is no longer load-bearing for the LF magnitude/phase
 > misses (notes #9d, #18) — those are blocked on the bypassed capture now. It remains load-bearing for
 > the taper, the 3.9 vs 1–2 dB fall-back, and M4's C10 corner.
+
+> ### ⭐⭐ THE LF STORY, SETTLED AS FAR AS THIS DATASET ALLOWS (2026-09-09) — notes #19a, #20, #20a
+>
+> Instruments: `analysis/lf_pole_attribution.py`, `analysis/lf_mechanism_probe.py` (+ their JSON).
+> **NO DSP constant changed, and none should be until the capture lands.** Four rounds, each one
+> reversing or narrowing the last — the corrections matter more than the conclusion.
+>
+> **The observation.** All seven captures have less bass than the plugin, uniformly in SIGN: 1.6–3.5 dB
+> at 25 Hz, per-rig corner 20–30 Hz, the three modes within a rig agreeing to 5 %. Above 100 Hz P2 and
+> P3 are already within 0.12 dB, so the entire effect lives below ~80 Hz.
+>
+> **⛔ What is ELIMINATED (note #19).** The rig's input impedance loading the output and the drain
+> Norton impedance both run to their sweep bounds and still fit 2–3× worse. R10 needs a 3× different
+> value per volume setting, so it is not one component. ⛔ **Cable capacitance cannot do it on
+> structure alone** — a shunt C at the output is a LOW-pass; removing bass needs a series element.
+>
+> **⚠⚠ What was OVERCLAIMED and corrected (note #19a).** Note #19 said the three VOLUME settings
+> discriminate. They discriminate against the above and NOT against the one that matters. Profiling
+> the worst residual against a pinned C10, each rig allowed its own free pole, is **FLAT from 100 nF
+> to 70 nF — leaving C10 exactly as drawn costs 0.041 dB.** ➡ The correct statement is **"no
+> measurement here assigns any of this to the pedal"**, not "it is the rigs". Three volume settings
+> are not enough leverage because R10 = 240 kΩ sits across node E and compresses the swing the knob
+> produces. 📌 "Three independent rigs agree" is also weaker than it feels: three of three sharing a
+> sign is p ≈ 0.25. It rules out arbitrary scatter, correctly, but not *which* common cause.
+>
+> **⭐⭐ What MEASUREMENT then settled (note #20), refuting my own hypothesis.** Two properties of the
+> pole are readable from the captures we already hold, and `--self-test` passes first (plugin in the
+> capture's place → no pole found, spread 1.00×, residual 0.003–0.012 dB):
+> - **It is LINEAR.** Across the signal's four sweeps spanning 25 dB, the fitted corner moves
+>   **1.01× (P2) to 1.18× (P1)**. ⛔ That refutes note #19's reamp transformer outright — core
+>   saturation moves the corner with flux — and rules out any *nonlinear* neural artefact.
+>   ⚠ Exclude the −6 dBFS row: the pedal distorts there and the two sides do not distort identically
+>   while `Vov` and `kInputRef` are unsettled (P1's fitted order jumps to 1.8–2.1 there; P2's does not
+>   move, which is itself the tell).
+> - **It is ONE first-order pole.** 2-pole fits worse in all seven. Capture corners **33.8 / 23.5 /
+>   34.4 Hz** for P1 / P2 / P3.
+> - ⚠⚠ **A SHELF BEATING A LONE POLE IS THE EXPECTED SHAPE, NOT A FINDING.** The comparison is
+>   capture-MINUS-PLUGIN and the plugin has its own LF pole, so the difference of two first-order
+>   poles is already a shelf. The first cut fitted a free fractional exponent, got 0.30–0.66, and
+>   nearly recorded "gentler than any RC can be". **Read the shelf's POLE as the capture's corner and
+>   its ZERO as the plugin's.**
+> - ⭐ **Free validation of the output network:** that zero must track VOLUME, and it does — 17 / 10 /
+>   25 Hz fitted against 24.8 / 13.3 / 28 computed. The consistent downward bias is expected, since
+>   the plugin has TWO LF poles and a one-pole summary of the pair must sit below the output one.
+>
+> ➡ **NET: a real, linear, single first-order pole — an ordinary coupling capacitor, somewhere.**
+> With note #18's magnitude/phase agreement on its corner (a minimum-phase signature a neural
+> artefact need not have), the balance moves AWAY from both the transformer and the receptive field.
+> ⛔ It still does not say WHERE: as a per-rig pole ahead of the pedal it needs 29 / 21 / 20 Hz; as
+> the pedal's own corner scaled up, ×1.36 / 1.77 / 1.23. **Same 1.45× spread either way.**
+>
+> **⛔ Is it a VOLUME effect? (note #20a).** P1 and P3 sit 30 min apart on the knob and measure the
+> same corner; P2 sits far away and reads lower — exactly the pattern an in-pedal pole would make.
+> ⚠⚠ **But the pair that agrees is the pair with no leverage.** Two points that close cannot
+> determine a slope, so ANY common cause puts them together. All the leverage is in P2, which would
+> have to have been captured at **10:31 rather than 2:30**. Back-solved taper exponents **2.70 / 7.24
+> / 2.39** — independently reproducing note #7's M4 (2.5 / 3.2 / 7.8) from a different estimator on a
+> different band, outlier included.
+> - ⭐ **Earned anyway: P1 and P3 both want a taper slightly steeper than shipped** (p ≈ 2.4–2.7 vs
+>   2.0), two units, two rigs, two trainers. Weak, right sign, carry it into the VOLUME sweep. ⛔ Do
+>   not move `p` now — 2.0 is what puts the volume peak at the maker's stated 1–2 o'clock.
+> - ⭐ **Free by-product: validation note #3's rotation direction is corroborated.** Reversed wiring
+>   fits 17.5 Hz RMS against **9.3 Hz** for the shipped sense. **CW = louder stands.**
+
+> ### ⚠⚠ THE OWNER'S PEDAL IS A TWO-POSITION UNIT: BRIGHT + DARK, NO MID (confirmed 2026-09-09)
+>
+> Known in outline (`docs/build-plan.md` §7 calls it "the two-way pedal"); now pinned to *which* two.
+> This is the best possible pair and it costs less than it looks, but three things follow.
+>
+> ✅ **Nothing structural is lost.** **DARK is the unbypassed reference every differential needs**, and
+> one bypassed branch is enough for all of it: `K0 = 1 + gm·R5` comes from a single branch's plateau
+> (note #7 measured it twice and the two branches agreed to 0.37 dB), and every known-answer probe in
+> this file — magnitude (#7), harmonic (#10), compression (#11, #14) — needs only that two modes must
+> agree below the shelf zero. **All of them still work with two positions.**
+>
+> ⚠ **Do NOT assume their BRIGHT is C1 = 22 nF.** It is a different circuit variant, so its bypass cap
+> is unknown. **Fit its shelf zero from the capture** (note #2's two-parameter shelf, which returns
+> ≤ 0.25 dB residuals) and compare against the 1.86 kHz P1/P2 measured. If it comes back at ~4.2 kHz
+> their "bright" is actually the 10 nF branch, and the label reasoning that already failed once in
+> note #2 will have failed a second way.
+>
+> ⚠ **MID's τ = 38.263 µs cannot be validated by this capture and must stay inferred.** It rests on
+> P1/P2 alone. If their unit's own branch measures a τ offset from P1/P2's (note #2's ~7 % story),
+> **scale MID by the measured CAP RATIO rather than transplanting an absolute value** — the ratio is
+> the robust quantity (2.24 measured vs 2.20 drawn, and both branches imply the same R5 to 1.6 %),
+> the absolute is not.
+>
+> ⚠⚠ **AND A DECISION TO MAKE DELIBERATELY, NOT BY DRIFT: which unit is the model OF?** Every fitted
+> constant today (`gm`, both shelf τ, `Vov`'s bracket) comes from P1/P2. If the owner's unit disagrees
+> — and M6 puts genuine unit-to-unit spread at only 0.33 dB RMS on the mode differential, so a large
+> disagreement would be a variant difference rather than tolerance — **retuning to their unit means
+> the MID position becomes a mix of two different pedals.** Decide it once, in writing, before moving
+> any constant. ➡ Default recommendation: **model the owner's unit for everything their capture can
+> measure, and keep MID as P1/P2's branch scaled by their measured ratio**, with the mixing recorded.
+>
+> 📌 `CLAUDE.md`'s capture-session ask list is otherwise unchanged and still correct. Ask #5's "both
+> switch positions" now means *the* two positions, and the missing M0 no-plugin null render, the
+> bypassed pass, the VOLUME sweep and both `input_level_dbu` / `output_level_dbu` figures are all
+> still outstanding and all still load-bearing.
