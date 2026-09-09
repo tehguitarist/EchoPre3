@@ -363,3 +363,33 @@ flagged in both). So neither capture is defective; the discrepancy lives in the 
 level where it is at its own floor — the bypass figure sits *below* its own noise-only prediction of
 0.052 %. ⛔ Not worth chasing: the quietest sweep is the linear FR reference, and no harmonic result
 is read from it.
+
+
+## ⭐ The 7:30 bonus capture is worth taking — but for its CORNER, not its LEVEL
+
+`p4_V0730_bright.wav` / `p4_V0730_dark.wav` parse fine (x = 0.05, Ra = 1.25 kΩ at p = 2.0).
+
+⭐⭐ **What it genuinely adds: LF corner leverage.** The C10 corner moves with VOLUME, and 7:30 puts
+it at **67.6 Hz** — right where the sweep has plenty of energy and a corner is easy to fit — against
+12.9–39.8 Hz for the rest of the matrix. **Span 3.09× → 5.25×.** That is direct leverage on the one
+question the whole session exists to settle: is the extra ~20–35 Hz pole volume-DEPENDENT (the
+pedal's) or not (the chain's)? And the corner is **robust to knob-setting error**: ±10 minutes of
+rotation moves it only 65.1–69.6 Hz, about ±3 %.
+
+⚠⚠ **What it does NOT add, contrary to the obvious reading: taper leverage.** At 7:30 the network
+gain spans **27 dB** across the plausible exponent range (p = 1.6 → +69.2 dB, p = 2.7 → +42.2 dB),
+which looks like enormous discrimination. It is not, because **the same steepness amplifies the
+knob-position error by the same mechanism**: ±10 minutes there is worth **−6.75 / +4.60 dB**.
+
+| knob | taper signal (p 1.6→2.7) | position noise (±10 min) | ratio |
+|---|---|---|---|
+| **7:30** | 27 dB | ±5.7 dB | **≈4.7** |
+| **10:30** | ≈2.8 dB | ±0.18 dB | **≈15** |
+
+The algebra: sensitivity to the exponent goes as `ln(x)·dp`, sensitivity to position as `p·dx/x`, and
+`dx/x` blows up faster than `ln(x)` grows. ➡ **Fit the taper from the MIDDLE of the sweep and use
+7:30's corner, not its level.** ⛔ Do not treat a level mismatch at 7:30 as a taper error.
+
+📌 Output at 7:30 sits ~22 dB below 10:30, so the quietest sweep records near −63 dBFS: 37 dB raw
+SNR plus 56 dB of sweep processing gain. Fine for frequency response; its harmonics will be floor,
+which does not matter — nothing reads harmonics from the bottom of the volume range.
