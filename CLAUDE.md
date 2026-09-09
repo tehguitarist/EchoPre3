@@ -1426,3 +1426,73 @@ high, execute routine work cheap) is what should persist.
 > 7. **MID stays inferred** — P4 has no MID position. Scale it by the measured CAP RATIO (2.24), not
 >    by an absolute τ, and decide deliberately (CLAUDE.md's two-position block) which unit the model
 >    is OF before moving any constant.
+
+> ### ⚠⚠ THE MATRIX IS CAPTURED WITH THE SOURCE PADDED 9 dB — the pedal overruns the interface
+>
+> Discovered mid-session 2026-09-10, at 10:30. **The pedal's own boost puts it over the converter at
+> every VOLUME position from 9:00 up**, worst around the volume peak. Predicted and then confirmed:
+>
+> | | dark | bright |
+> |---|---|---|
+> | predicted recorded peak at 10:30 | +3.60 dBFS | +6.08 dBFS |
+> | worst over the whole matrix (≈13:30) | +4.66 | **+7.14** |
+>
+> The owner independently estimated "at least 3 dB over", which is the dark figure — ⭐ **the model
+> predicted the owner's rig before the capture existed.** BRIGHT is the harder case because the mode
+> shelf's HF lift reaches ~16 dB.
+>
+> ⛔ **It is NOT a gain-knob problem.** BRIGHT needs ~11.4 V peak and the SSL's instrument input stage
+> tops out at 6.16 V (+15 dBu), so **no gain setting can accept it.** The converter limit (0 dBFS =
+> 5.68 V peak at `output_level_dbu` = +14.29) and the analog limit are only 0.7 dB apart.
+>
+> ⭐ **The fix is a DIGITAL pad on the playback, not the output knob** — the analog calibration stays
+> at 1.7745 V / −5 dBFS / 220 Hz and the offset is exact and repeatable. Turning the knob would force
+> a re-measurement and introduce an unknown.
+>
+> ### 📌 `_pad<N>` FILENAME SUFFIX — the drive is now a dimension of the dataset
+> `p4_V1030_bright_pad9.wav` = 9 dB of digital attenuation on the played signal. **No suffix means
+> pad 0**, so every pre-existing capture keeps its meaning. `_pad7p5` for 7.5 dB (`p` = decimal point).
+> ⭐ `render_args()` feeds the figure to OfflineRender's **`--input-scale`** (which scales the SIGNAL
+> ahead of the processor and is unbounded — `--input-trim` is a [−12,+12] plugin control and would be
+> the wrong knob), so **plugin-vs-capture comparisons are MATCHED-DRIVE automatically**. That is what
+> circuit.md note #8 makes binding for anything harmonic, and it no longer has to be remembered.
+> ⇒ `input_level_dbu` is **+3.20 dBu** for the padded matrix and **+12.20 dBu** for the pad-0 pair.
+>
+> ### ⭐⭐ THE LOAD LINE LIVES IN THE PAD-0 7:30 CAPTURES, AND ONLY THERE
+> `p4_V0730_{bright,dark}.wav` are at FULL drive and clean (−10.83 / −16.37 dBFS peak). **The VOLUME
+> control sits AFTER the JFET stage**, so the drive into the transistor is identical at every knob
+> position — 7:30 exercises the load line completely while recording ~16 dB quieter. ⛔ **Do not
+> overwrite them**; the padded matrix has NO load-line coverage (triode onset moves to −1.5 dBFS
+> against a −1 dBFS hottest cell).
+> ⚠ **Caveat to carry, not to solve:** the drain load varies 9.8–17.9 kΩ with VOLUME and moves the
+> triode onset by ~4 dB, so 7:30 samples the load line at ONE end of that range. That is also a
+> testable prediction for later.
+>
+> ### ✅ THE REFERENCE CAPTURES DO NOT NEED REDOING — measured, not assumed
+> A digital pad only changes level, so the question is whether the chain is level-dependent. The four
+> sweeps span 35 dB and answer it directly. Bypass reference, shape re midband:
+>
+> | level change | shape difference |
+> |---|---|
+> | 10 dB down | 0.018 dB RMS |
+> | 20 dB down | 0.075 dB RMS |
+> | 35 dB down | 0.246 dB RMS |
+>
+> The error tracks a **fixed measurement floor** (it grows as the level falls) rather than a real
+> level dependence. At 9 dB the contribution is **~0.02 dB**. ⚠ When deconvolving, use the
+> reference's −6 or −16 dBFS sweep, never its quietest.
+>
+> ### ⚠⚠ A BUG IN `check_capture.py` THAT WOULD HAVE CONDEMNED EVERY REAL CAPTURE
+> It flagged any inverted file as BAD. **Stage 2 is a single common-source JFET stage and MUST
+> invert** (circuit.md stage 2), so a genuine pedal capture reads **−1** and only a loop or bypassed
+> capture reads **+1**. The expectation is now taken from the mode token. Verified across all files:
+> every P4 pedal capture −1, both references +1, and P2 +1 — which is note #9b's known rig fault,
+> recovered here from a third route.
+>
+> ### 📌 `analysis/captures/clipped/` — quarantine, with a README
+> `p4_V0900_bright` (11 k clipped samples) and `p4_V1030_bright` (291 k) from before the pad, plus
+> `aborted_take_Audio-Bus256.wav`, a 136 s partial that landed under the DAW's default BUS name.
+> ⛔ Clipped captures are **not partially usable**: flat-topped peaks look exactly like the pedal
+> saturating, and saturation is what the load-line work measures — the artefact mimics the signal.
+> ⚠ **An unparseable filename in `captures/` makes `find_captures()` RAISE and takes every analysis
+> script down with it.** The DAW names exports after the bus, not the take; rename on export.
