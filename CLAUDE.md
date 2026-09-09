@@ -1313,3 +1313,94 @@ high, execute routine work cheap) is what should persist.
 > switch positions" now means *the* two positions, and the missing M0 no-plugin null render, the
 > bypassed pass, the VOLUME sweep and both `input_level_dbu` / `output_level_dbu` figures are all
 > still outstanding and all still load-bearing.
+
+> ### ⭐⭐ CAPTURE SESSION IN PROGRESS (2026-09-10). The RIG IS MEASURED AND CLEAN. Raw WAVs, not NAM.
+>
+> Owner is capturing their own unit (P4, the two-position BRIGHT/DARK variant) as this is written.
+> Checklist and full reasoning: `docs/capture-session-checklist.md`. Instrument:
+> `analysis/check_capture.py <file> [--loop]` — run it on each capture; it checks truncation,
+> alignment, polarity, clipping, banded FR, noise, per-order distortion and calibration, and it
+> **measures its own distortion floor first** (note #9's rule) because raw THD on the quietest sweep
+> read 1.72 % purely from a fixed-amplitude artefact being divided by a small fundamental.
+>
+> ⭐⭐⭐ **THE HEADLINE: THESE ARE RAW CAPTURES OF THE TEST SIGNAL, NOT NAM MODELS.** Every floor this
+> project has fought — the 4–9 dB harmonic floor, the 0.145 dB compression floor, the 1.9–20.2 dB
+> per-band LF THD floor — is NAM model error, and note #15 established it is **systematic**, so it
+> never averaged down. It is simply gone. `Vov` was pinned no tighter than a factor of 1.3–1.5
+> (note #16) **because of that floor and nothing else.**
+>
+> ### ⭐⭐ THE TWO REFERENCE CAPTURES ARE IN AND BOTH PASS — and they settle notes #19/#19a/#20
+>
+> `loop_V0000_none.wav` (no pedal in circuit) and `p4_V1030_bypass.wav` (pedal in, bypassed).
+>
+> ⭐⭐ **THE RIG HAS NO LOW-FREQUENCY POLE.** 20–40 Hz reads −0.006..+0.065 dB (loop) and
+> −0.053..+0.018 dB (bypass), and bypass-minus-loop is −0.047 dB at 20 Hz. ➡ **The real, linear,
+> single ~20–35 Hz pole present in ALL SEVEN NAM captures is NOT in this signal path.** So when the
+> P4 pedal captures are analysed: **an LF pole there belongs to the PEDAL** — change `C10` (or
+> whatever carries it) with evidence at last — **or there is none, and it was the other three
+> trainers' rigs.** Either way note #19a's "unidentifiable" is resolved by this dataset.
+> 📌 The 7:30 captures are the leverage for exactly this — see below.
+>
+> ✅ **The bypass is genuine TRUE BYPASS: nulls at −70.8 dB against the loop, 0.008 dB of insertion
+> loss.** No buffer, no bypass-path component to model. ⇒ checklist §2c's input-loading correction
+> applies ONLY to the ACTIVE captures, where the source becomes the pedal's ~130 kΩ.
+>
+> ⚠⚠ **USE THE BYPASS CAPTURE AS THE DECONVOLUTION REFERENCE, NOT THE BARE LOOP.** They are not
+> interchangeable: bypass-minus-loop is +0.37 dB at 18 kHz, best described as **the loop carrying one
+> extra pole at 48.4 kHz** (0.079 dB residual). A bypassed pedal cannot ADD treble, so the loop path
+> had a cable the bypass path did not. **The bypass path shares its cabling with every pedal
+> capture; the loop does not.** Deconvolving against the loop imports 0.37 dB of HF error.
+> The loop's only remaining job is the M0 unity check, which it passes.
+>
+> ⚠ **The chain has real HF droop that MUST be deconvolved** — about −0.53..−0.75 dB over 8–20 kHz on
+> the bypass reference. That is the same size as the project's entire 1 dB target, so it is not
+> optional. Ordinary converter filtering; harmless once removed.
+>
+> ⭐⭐ **CALIBRATION — `kOutputMakeup` CAN FINALLY BE ANCHORED.** `output_level_dbu` = **+14.30 dBu**
+> (loop) and **+14.29 dBu** (bypass), 0.01 dB apart, so the play side did not drift between takes.
+> Record full scale ≈ **4.02 V RMS**. `input_level_dbu` = **+12.20 dBu** (`kInputRef` = 4.4626 V/FS).
+> ⚠ The input figure assumes the play side is set to **1.7745 V RMS at −5 dBFS / 220 Hz** — confirm
+> with the owner before trusting it; the meter (Jaycar QM1529) is only specified to 400 Hz, which is
+> why 220 Hz rather than 1 kHz, and its accuracy at that reading is ±0.135 dB.
+> 📌 Noise floor −99.5 / −99.8 dBFS RMS. H2 clearance over the pedal's expected output is 16–71 dB on
+> every cell but the quietest sweep, which is the linear FR reference and reads no harmonics.
+>
+> ### 📌 `analysis/captures.py` CHANGED — behaviour a future session must not be surprised by
+> - Mode token now accepts **`none`** (nothing in circuit) and **`bypass`** (pedal in, footswitch
+>   bypassed) beside bright/dark/mid. Naming the loop "dark" was actively misleading.
+> - ⚠⚠ **`find_captures()` now EXCLUDES reference captures by default.** Every comparison script
+>   renders the plugin per capture and diffs it, which is meaningless for a file with no pedal in it
+>   and would fail SILENTLY as a mysterious outlier. Pass `include_reference=True`, or use
+>   `find_reference_captures()`.
+> - `render_args()` **raises** on mode `none` rather than inventing a setting, and emits `--bypass`
+>   for mode `bypass` (so that pair should null).
+>
+> ### ⭐ The 7:30 bonus capture: read its CORNER, never its LEVEL
+> `p4_V0730_{bright,dark}` (x = 0.05, Ra = 1.25 kΩ at p = 2.0) puts the C10 corner at **67.6 Hz**,
+> against 12.9–39.8 Hz for the rest of the matrix — **span 3.09× → 5.25×**, and easy to fit where the
+> sweep has energy. That corner is robust to knob error (±10 min → 65.1–69.6 Hz, ±3 %).
+> ⚠⚠ **Its LEVEL is NOT taper leverage, despite looking like the best in the set.** The 27 dB spread
+> across plausible exponents is matched by ±5.7 dB of knob-position sensitivity, giving a worse ratio
+> (≈4.7) than 10:30's (≈15). Sensitivity to the exponent goes as `ln(x)·dp`, to position as `p·dx/x`,
+> and `dx/x` blows up faster than `ln(x)` grows. ➡ **Fit the taper from the MIDDLE of the sweep.**
+> ⛔ A level mismatch at 7:30 is not a taper error.
+>
+> ### ➡ NEXT SESSION — the order to work in, once the captures land
+> 1. `check_capture.py` on every file. Confirm the owner's play-side setting and the interface's
+>    **rated input impedance** (checklist §2c: at 1 MΩ it is −0.76 dB mean and **0.34 dB of spread
+>    across the volume sweep**, which would otherwise corrupt the taper fit).
+> 2. **Deconvolve `p4_V1030_bypass.wav` out of every pedal capture**, then apply the §2c loading
+>    correction. Only then compare anything.
+> 3. **The LF pole**, using the 7:30 corner — the question this session was built to answer.
+> 4. **`kOutputMakeup`**, from `output_level_dbu` = +14.29 dBu. It has been exactly 1.0 and
+>    unanchored since the project began and this is its only possible route.
+> 5. **The VOLUME taper** (`p` = 2.0 shipped; note #20a's P1 and P3 both wanted 2.4–2.7), the
+>    **3.92 dB vs the maker's 1–2 dB fall-back**, and the **volume peak position** (predicted at
+>    Ra = 176 k = 35 % of the pot, i.e. 1–2 o'clock).
+> 6. **`Vov`** — fitted to 0.126–0.165 (note #16) but never applied, because the NAM harmonic floor
+>    pinned it only to ~1.4× and because it swaps the stage's clipping MECHANISM (cutoff vs triode).
+>    ⭐ With raw captures reaching the load line at last, **measure which one clips first** instead of
+>    inferring it. That was note #16's stated condition for applying the fit.
+> 7. **MID stays inferred** — P4 has no MID position. Scale it by the measured CAP RATIO (2.24), not
+>    by an absolute τ, and decide deliberately (CLAUDE.md's two-position block) which unit the model
+>    is OF before moving any constant.
