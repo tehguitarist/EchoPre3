@@ -32,18 +32,45 @@ nothing else**. A raw capture removes the floor outright.
 - **No plugins, no dither, no normalisation** on the return. 32-bit float if the DAW offers it.
 - Do not trim the head or tail — the analysis aligns on the leading marker.
 
-## ⚠ 1. The DMM is probably not accurate at 1 kHz
+## ⚠ 1. Your DMM stops at 400 Hz — calibrate at 220 Hz, not 1 kHz
 
-Most handheld meters specify AC accuracy only to **400 Hz**; at 1 kHz many read several percent low,
-which is 0.2–0.4 dB straight into `kInputRef`.
+Jaycar **QM1529**, manual page 10, AC Voltage table: **"Frequency Range: 40~400Hz"**. 1 kHz is 2.5×
+outside spec, and outside spec on a rectifier-based AC front end means it reads LOW by an unstated
+amount. It is not on the datasheet at all, only the manual.
 
-- **Check the meter's AC bandwidth spec first.** If it stops at 400 Hz, do the level set with a
-  **200 Hz** tone instead. The RMS-to-full-scale relationship does not depend on frequency, and both
-  the interface and the pedal's input network are flat there.
-- The target is **0.7928 V RMS at −12 dBFS**, not a rounded 0.78. That is what makes
-  `kInputRef` = 4.4626 V/FS exactly: full scale = 3.156 V RMS = 4.4626 V peak.
-- ⇒ `input_level_dbu` = **+12.20 dBu**. Write it down; **none of the seven existing `.nam` files
-  records this field**, and recovering P1's cost the project a great deal.
+- ⇒ **Use a 220 Hz sine for the level set.** Inside spec with margin, and deliberately NOT a
+  multiple of 50 Hz, so mains pickup cannot sit on the measurement. The interface is flat to within
+  hundredths of a dB from 20 Hz up, so a level measured at 220 Hz is the 1 kHz figure — declaring
+  `input_level_dbu` from it is exact, not a fudge.
+- ✅ **The meter is almost certainly average-responding, and that does not matter here.** Such meters
+  are calibrated to read correct RMS *for a sine*, which is exactly what we are feeding it. Just keep
+  the tone a clean sine — no square waves, no noise, nothing clipped.
+- 📌 The meter has no frequency counter, so it cannot confirm the tone. You are generating it
+  digitally, so you already know it.
+
+### ⭐ Measure HIGH in the 2 V range, not at −12 dBFS
+
+AC accuracy is **±(1.0% of reading + 10 digits)**, and on the 2 V range a digit is 1 mV — so the
+10-digit term is a **fixed ±10 mV** regardless of level. Measuring a small voltage wastes it:
+
+| tone level | target V RMS | range | total error | in dB |
+|---|---|---|---|---|
+| −12 dBFS | 0.7926 | 2 V | 2.26 % | ±0.194 |
+| −6 dBFS | 1.5815 | 2 V | 1.63 % | ±0.141 |
+| **−5 dBFS** | **1.7745** | **2 V** | **1.56 %** | **±0.135** |
+| −4 dBFS | 1.9910 | 2 V | 1.50 % | ±0.130 |
+
+⛔ **Do not go past −4 dBFS.** The 2 V range tops out at 1.999 V; one step above and it autoranges to
+20 V, where a digit is 10 mV and the fixed term becomes **±100 mV** — ten times worse.
+
+➡ **Play a 220 Hz sine at −5 dBFS and set the interface output until the meter reads 1.775 V RMS.**
+That fixes `kInputRef` = 4.4626 V/FS (0 dBFS = 3.1555 V RMS = 4.4626 V peak) and
+`input_level_dbu` = **+12.20 dBu**.
+
+✅ **±0.135 dB is comfortably good enough** — `Vov` is currently pinned only to a factor of 1.3–1.5,
+i.e. ±2.8 dB, so the meter is nowhere near the limiting uncertainty. Don't buy a better one for this.
+⛔ And the DC ranges, which are three times more accurate, are not an option: interface outputs are
+AC-coupled, so there is no DC to measure.
 
 ## ⚠⚠ 2. The record side will clip at unity — and a DI input may clip anyway
 
