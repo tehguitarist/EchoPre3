@@ -1367,3 +1367,55 @@ common cause, and there are three (the rigs' shared protocol, the shared archite
 act on.** The bypassed capture through the owner's own chain settles it in one pass — if that chain
 is flat to 10 Hz and the pedal capture still rolls off near 25 Hz, the pole IS the pedal's and the
 value change gets made with evidence behind it.
+
+### 20. ⭐⭐ The LF pole is LINEAR and FIRST-ORDER — my reamp-transformer story is refuted
+
+`analysis/lf_mechanism_probe.py`, raw `analysis/reports/lf_mechanism_probe.json`. Asked whether the
+LF story can be advanced at all without new captures. It can: two properties of the extra pole are
+measurable from what we hold, and neither needs the level calibration that blocks everything else.
+**No constant changed.** ✅ `--self-test` passes first (plugin in the capture's place → no pole
+found, corner spread 1.00×, residual 0.003–0.012 dB), so the instrument does not manufacture a pole.
+
+**TEST 1 — LEVEL INVARIANCE.** The signal carries four full-range sweeps at −41/−26/−16/−6 dBFS.
+Measured as capture-minus-plugin so the pedal's own compression cancels, the fitted corner moves by
+**1.01× (P2) to 1.18× (P1) over 25 dB of drive.** ⛔ **The extra loss is LINEAR.** That refutes
+note #19's reamp-transformer mechanism outright — core saturation moves the LF corner with flux,
+i.e. with level — and it equally rules out any *nonlinear* neural artefact. ⚠ The −6 dBFS row is
+excluded from the statistic: the pedal is audibly distorting there and the two sides do not distort
+identically while `Vov` and `kInputRef` are unsettled. P1's rows visibly misbehave there (fitted
+order jumps to 1.8–2.1 where the clean rows sit at 0.4–0.5); P2's do not move at all.
+
+**TEST 2 — ORDER.** Against the plugin at −26 dBFS, RMS residual:
+
+| capture | 1-pole | 2-pole | **shelf** | capture's corner | plugin's implied corner | depth |
+|---|---|---|---|---|---|---|
+| P1 bright / dark / mid | 0.156 / 0.143 / 0.100 | 0.217 / 0.209 / 0.172 | **0.061 / 0.031 / 0.034** | 35.1 / 34.4 / 31.8 Hz | 17.1 / 16.5 / 12.6 Hz | −6.2 / −6.4 / −8.0 dB |
+| P2 bright / dark / mid | 0.052 / 0.052 / 0.043 | 0.086 / 0.088 / 0.076 | **0.015 / 0.018 / 0.019** | 23.8 / 24.0 / 22.8 Hz | 10.6 / 10.3 / 9.3 Hz | −7.1 / −7.4 / −7.8 dB |
+| P3 mid | 0.142 | 0.160 | **0.022** | 34.4 Hz | 25.0 Hz | −2.8 dB |
+
+⚠⚠ **A SHELF BEATING A LONE POLE IS THE EXPECTED RESULT, NOT A FINDING — and reading it as one was
+the trap here.** The comparison is capture-MINUS-PLUGIN and the plugin has its own LF high-pass, so
+the difference of two first-order poles is *already* a first-order shelf, flat above and levelling
+off below at `20·log10(fc_plugin/fc_capture)`. The first pass fitted a free fractional exponent,
+got 0.30–0.66, and nearly recorded "the rolloff is gentler than any RC can be". It is not: the shelf
+is one pole against one pole. ➡ **Read the shelf's POLE as the capture's own corner and its ZERO as
+the plugin's.** 2-pole is worse than 1-pole in all seven, so nothing steeper is present either.
+
+⭐ **And the zero is a free validation of the output network.** The implied plugin corner must track
+VOLUME, and it does, in the right order and roughly the right spacing: 17 / 10 / 25 Hz fitted
+against 24.8 / 13.3 / 28 Hz computed for P1 / P2 / P3. The consistent downward bias is expected —
+the plugin's LF is TWO poles (the 7.2 Hz input high-pass as well as C10's), so a single-pole
+approximation of it must sit below the output pole alone.
+
+➡ **NET: the extra loss is a real, linear, single first-order pole.** With note #18's finding that
+magnitude and phase independently agree on its corner (a minimum-phase signature a neural artefact
+need not have), the balance moves AWAY from both note #19's transformer and note #19a's
+receptive-field candidate, and TOWARD an ordinary RC — a coupling capacitor, somewhere.
+
+⛔ **It still does not say WHERE.** Both readings leave the same residual spread: as an extra
+volume-independent pole per rig, 29 / 21 / 20 Hz (1.45× spread); as the pedal's own corner scaled
+up, ×1.36 / 1.77 / 1.23 (1.44× spread). Note #19a's profile said this and it is unchanged — three
+volume settings are not enough leverage. **The bypassed capture through the owner's own chain is
+still the one measurement that separates them**, and it is now a sharper test than before: we know
+what to look for is a single linear pole in the 20–35 Hz decade, not a transformer's level-dependent
+rolloff.
