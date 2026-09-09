@@ -14,6 +14,19 @@ capture with no pedal in circuit) is actively misleading, so they get their own 
     loop_V0000_none.wav    no pedal in circuit at all -- the M0 loop check
     p4_V1030_bypass.wav    pedal in circuit, footswitch bypassed (VOLUME noted, though inert)
 
+An optional trailing `_pad<N>` records N dB of DIGITAL attenuation applied to the played signal:
+
+    p4_V1030_bright_pad9.wav    the same capture, driven 9 dB below the session's nominal
+
+⚠⚠ THIS IS NOT COSMETIC. The pedal's own boost puts BRIGHT near the volume peak roughly 7 dB over
+full scale at the owner's calibration, and the interface's instrument input cannot accept it at ANY
+gain setting -- so the loud half of the matrix has to be captured with the SOURCE attenuated.
+Attenuating digitally rather than with the output knob keeps the analog calibration untouched and
+makes the offset exact. render_args() feeds the same figure to OfflineRender's --input-scale, so
+the plugin sees the same drive and the comparison is MATCHED-DRIVE automatically -- which
+circuit.md note #8 makes binding for anything harmonic ("A/B at matched DRIVE, not matched digital
+level"). No suffix means pad 0, so every existing capture keeps its meaning.
+
 ⚠⚠ REFERENCE CAPTURES ARE EXCLUDED FROM find_captures() BY DEFAULT. They must not flow into the
 comparison scripts, every one of which renders the plugin per capture and diffs it -- meaningless
 for a file with no pedal in it. Pass include_reference=True to get them.
@@ -43,7 +56,8 @@ MODE_INDEX = {label: i for i, label in enumerate(MODE_LABELS)}
 REFERENCE_MODES = ("none", "bypass")
 
 _CAPTURE_RE = re.compile(
-    r"^(?P<unit>[a-z0-9]+)_V(?P<clock>\d{3,4})_(?P<mode>bright|dark|mid|none|bypass)$",
+    r"^(?P<unit>[a-z0-9]+)_V(?P<clock>\d{3,4})_(?P<mode>bright|dark|mid|none|bypass)"
+    r"(?:_pad(?P<pad>\d+(?:p\d+)?))?$",
     re.IGNORECASE,
 )
 
@@ -59,7 +73,9 @@ def parse_capture(filename):
     stem = os.path.splitext(os.path.basename(filename))[0]
     m = _CAPTURE_RE.match(stem)
     if not m:
-        raise ValueError(f"Capture filename does not match <unit>_V<HHMM>_<mode>.wav: {filename}")
+        raise ValueError(
+            f"Capture filename does not match <unit>_V<HHMM>_<mode>[_pad<N>].wav: {filename}"
+        )
 
     unit = m.group("unit").lower()
     clock = int(m.group("clock"))
@@ -76,6 +92,9 @@ def parse_capture(filename):
         "mode_index": MODE_INDEX.get(mode),
         "sw": mode,
         "is_reference": mode in REFERENCE_MODES,
+        # dB of digital attenuation applied to the PLAYED signal, 0 when the suffix is absent.
+        # "p" stands in for the decimal point, so _pad7p5 is 7.5 dB.
+        "pad_db": float((m.group("pad") or "0").replace("p", ".")),
     }
 
 
@@ -155,8 +174,14 @@ def render_args(parsed, extra_args=None):
         )
     if parsed["mode"] == "bypass":
         args = ["--volume", f"{parsed['volume']:.6f}", "--mode", "dark", "--bypass"]
-        return args + list(extra_args) if extra_args else args
-    args = ["--volume", f"{parsed['volume']:.6f}", "--mode", parsed["mode"]]
+    else:
+        args = ["--volume", f"{parsed['volume']:.6f}", "--mode", parsed["mode"]]
+
+    # Drive the plugin as hard as the pedal was driven. --input-scale scales the SIGNAL ahead of
+    # the processor and is unbounded, which is what this needs; --input-trim is a [-12, +12]
+    # plugin control and would be the wrong knob (offline_render.cpp says so at its range check).
+    if parsed.get("pad_db"):
+        args += ["--input-scale", f"{-parsed['pad_db']:.4f}"]
     if extra_args:
         args += list(extra_args)
     return args
