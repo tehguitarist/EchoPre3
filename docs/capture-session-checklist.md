@@ -449,3 +449,44 @@ circuit is an antenna. If the noise floor jumps, shield the joint or drop to 100
 of spread across the volume sweep is not** — that is the measurement the taper fit depends on.
 ⛔ Do NOT try to read `Zin` with the DMM's resistance range: on a powered input the meter's test
 current meets active circuitry, and powered down it meets protection diodes. Neither is the answer.
+
+
+## ⚠⚠ PAD REVISED TO 12 dB (2026-09-10) — and where the load line survives
+
+9 dB was not enough: 13:30 still clipped, and a 10:30 bright retake landed at **−0.01 dBFS with 6
+samples over**. The model's own table (worst case +7.14 dBFS at 13:30 bright) **under-predicts the
+real pedal by ~4 dB** — which is expected and not a fault: **`kOutputMakeup` is exactly 1.0 and
+unanchored**, so the plugin has never had its absolute output level calibrated. ➡ **Set the pad from
+the meter, never from the model's table.** That 4 dB is itself the first crude measurement of the
+constant this session exists to pin.
+
+⇒ **`_pad12` for the ENTIRE matrix**, every position and both modes. `input_level_dbu` = **+0.20 dBu**
+for that group. One pad across the matrix, so the taper fit compares like with like.
+
+### ⛔ At pad 12 the matrix has NO load-line coverage at all
+Triode onset is −7.5 dBFS unpadded and the hottest cell is −1 dBFS, so a pad eats the 6.5 dB of
+coverage 1:1. **Pad 12 leaves −5.5 dB: the stage never leaves its linear region.** That is fine —
+the matrix exists for the taper, the FR and the LF pole, all linear. But it makes the pad-0 captures
+the ONLY nonlinear data in the session:
+
+| file | peak | what it is |
+|---|---|---|
+| `p4_V0730_bright.wav` | −10.83 dBFS | ⭐ load line, bright |
+| `p4_V0730_dark.wav` | −16.37 dBFS | ⭐ load line, dark |
+| `p4_V0900_dark.wav` | −2.46 dBFS | ⭐ load line at a SECOND drain load |
+
+⭐⭐ **`p4_V0900_dark` is more valuable than it looks.** The drain load runs 9.8–17.9 kΩ across the
+rotation and moves the triode onset by ~4 dB, so 7:30 alone samples one end of it. 9:00 gives a
+second point, which turns that caveat into a measurement. ⛔ **Do not overwrite any of these three.**
+📌 **Optional, one capture, completes the set: `p4_V0900_bright_pad4.wav`.** 9:00 bright clipped at
+pad 0, but pad 4 still leaves +2.5 dB of coverage — the only way to get bright at a second drain load.
+
+### 📌 FOLDER LAYOUT: everything lives in `captures/`, distinguished by the SUFFIX
+The `hotdrive/` folder has been folded back in. Now that `_pad<N>` is in the filename the folder was
+redundant, and worse: ⚠⚠ **`p4_V1030_bypass.wav` had been moved into it, which hid the deconvolution
+reference from `find_reference_captures()` entirely.** A capture the harness cannot see is a capture
+that silently does not exist. Only `clipped/` stays separate, because those files must never be
+loaded at all.
+
+⚠ **The captures are NOT in git** (`.gitignore` excludes `*.wav`), so nothing here is recoverable
+from version control. Back up `captures/` before any reorganisation.

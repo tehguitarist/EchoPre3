@@ -1427,7 +1427,12 @@ high, execute routine work cheap) is what should persist.
 >    by an absolute τ, and decide deliberately (CLAUDE.md's two-position block) which unit the model
 >    is OF before moving any constant.
 
-> ### ⚠⚠ THE MATRIX IS CAPTURED WITH THE SOURCE PADDED 9 dB — the pedal overruns the interface
+> ### ⚠⚠ THE MATRIX IS CAPTURED WITH THE SOURCE PADDED **12 dB** — the pedal overruns the interface
+> ⚠ **REVISED from 9 dB later the same day: 9 was not enough (13:30 still clipped, and a 10:30 bright
+> retake landed at −0.01 dBFS). The model UNDER-PREDICTS the real pedal's output by ~4 dB, because
+> `kOutputMakeup` is exactly 1.0 and unanchored — the plugin's absolute level has never been
+> calibrated. Set the pad from the METER, not from any predicted table. `input_level_dbu` = +0.20 dBu
+> for the padded matrix.** Everything below still describes why the pad exists; only the figure moved.
 >
 > Discovered mid-session 2026-09-10, at 10:30. **The pedal's own boost puts it over the converter at
 > every VOLUME position from 9:00 up**, worst around the volume peak. Predicted and then confirmed:
@@ -1458,7 +1463,21 @@ high, execute routine work cheap) is what should persist.
 > circuit.md note #8 makes binding for anything harmonic, and it no longer has to be remembered.
 > ⇒ `input_level_dbu` is **+3.20 dBu** for the padded matrix and **+12.20 dBu** for the pad-0 pair.
 >
-> ### ⭐⭐ THE LOAD LINE LIVES IN THE PAD-0 7:30 CAPTURES, AND ONLY THERE
+> ### ⭐⭐ THE LOAD LINE LIVES IN THREE PAD-0 CAPTURES, AND ONLY THERE
+> ⚠ At pad 12 the matrix has **NO load-line coverage** (a pad eats the 6.5 dB 1:1, leaving −5.5), so
+> the stage never leaves its linear region there. The nonlinear dataset is exactly:
+> **`p4_V0730_bright` (−10.83 dBFS), `p4_V0730_dark` (−16.37), `p4_V0900_dark` (−2.46)** — all pad 0,
+> all clean. ⛔ **Do not overwrite them.** ⭐⭐ `p4_V0900_dark` matters more than it looks: the drain
+> load runs 9.8–17.9 kΩ across the rotation and moves triode onset ~4 dB, so 9:00 gives a SECOND
+> drain-load point and turns that caveat into a measurement. 📌 One optional capture completes it —
+> `p4_V0900_bright_pad4.wav`, which still leaves +2.5 dB of coverage.
+> 📌 Folder layout: everything lives in `captures/`, distinguished by the `_pad` suffix; only
+> `clipped/` is separate. ⚠⚠ An earlier `hotdrive/` folder had swallowed `p4_V1030_bypass.wav`,
+> hiding the deconvolution reference from `find_reference_captures()` — a capture the harness cannot
+> see is one that silently does not exist. ⚠ `*.wav` is gitignored: captures are NOT recoverable from
+> version control.
+>
+> ### (superseded heading kept for the reasoning below)
 > `p4_V0730_{bright,dark}.wav` are at FULL drive and clean (−10.83 / −16.37 dBFS peak). **The VOLUME
 > control sits AFTER the JFET stage**, so the drive into the transistor is identical at every knob
 > position — 7:30 exercises the load line completely while recording ~16 dB quieter. ⛔ **Do not
