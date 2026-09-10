@@ -35,6 +35,7 @@ The `V<HHMM>` clock token reuses analyze.py's clock-to-x convention (0700=min ..
 1700=max), since the folder-name clock positions in the NAM data are exactly that scale.
 """
 import os
+import sys
 import glob
 import re
 
@@ -108,7 +109,21 @@ def find_captures(directory=CAPTURE_DIR, include_reference=False):
     """
     if not os.path.isdir(directory):
         return []
-    out = [(p, parse_capture(p)) for p in sorted(glob.glob(os.path.join(directory, "*.wav")))]
+    out, bad = [], []
+    for p in sorted(glob.glob(os.path.join(directory, "*.wav"))):
+        try:
+            out.append((p, parse_capture(p)))
+        except ValueError:
+            bad.append(os.path.basename(p))
+    # ⚠⚠ SKIP, LOUDLY -- not raise, and not silently. One unparseable name used to take every
+    # analysis script in the tree down with it (a DAW take suffix like "_1" is enough), which
+    # blocks a whole session over one file. But a capture the harness cannot see is one that
+    # silently does not exist, which is how the bypass reference got lost inside hotdrive/. The
+    # warning goes to stderr on EVERY run so it cannot pass unnoticed.
+    if bad:
+        print(f"⚠ captures.py: ignoring {len(bad)} unparseable filename(s) in {directory}: "
+              + ", ".join(bad) + "\n  (expected <unit>_V<HHMM>_<mode>[_pad<N>].wav -- rename on "
+              "export; the DAW names files after the BUS, not the take)", file=sys.stderr)
     if not include_reference:
         out = [(p, d) for p, d in out if not d["is_reference"]]
     return out

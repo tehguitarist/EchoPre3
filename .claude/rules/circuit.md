@@ -1469,3 +1469,94 @@ position stays inferred from P1/P2 (scale MID by the measured cap RATIO of 2.24,
 ⚠ It also means their BRIGHT is the same physical position as P1/P2's, so its shelf zero should land
 near the measured 1.86 kHz. **Fit it rather than assuming it** — note #2's label reasoning was
 confidently wrong once already.
+
+### 21. ⭐⭐ P4's RAW CAPTURES (2026-09-10) — the taper, the fall-back and kOutputMakeup all settle
+
+Instruments: `analysis/p4_corners.py`, `analysis/unit_compare.py`, `analysis/p4_component_fit.py`,
+`analysis/volume_sweep.py` (+ their JSON in `analysis/reports/`). **Every one passes a `--self-test`
+that puts plugin renders where the captures go**, recovering the shelf zero to 0.04 %, the taper to
+p = 2.00 exactly, C10 to 100.0 nF, the load capacitance to 0 pF and the LF corner ratio to 1.000.
+**No DSP constant changed yet** — this note is the measurement; the decisions are in CLAUDE.md.
+
+Twenty-one P4 captures, one pedal, one rig, one session, both calibration figures written down.
+The complete VOLUME rotation 7:30 → 17:00 in DARK and BRIGHT, all pad 12, plus three pad-0 takes.
+`check_capture.py` passes all of them: no truncation, no clipping, polarity −1 on every active
+capture and +1 on both references, noise floor −102 to −105 dBFS.
+
+**⭐⭐ THE TAPER IS p ≈ 2.3, MEASURED, AND IT IS THE SINGLE PARAMETER THAT EXPLAINS EVERYTHING.**
+Six knob positions within one rig, 7:30 excluded:
+
+| band | statistic | p = 2.0 as drawn | p fitted |
+|---|---|---|---|
+| midband control law, 1 kHz | worst / RMS | 2.076 / 0.956 dB | **p = 2.33** → 0.267 / 0.160 dB |
+| LF corner, 15–400 Hz | worst / RMS | 1.035 / 0.139 dB | **p = 2.28** → 0.406 / 0.041 dB |
+
+⭐ **Two independent bands, one parameter, agreeing to 2 %** — and note #20a's weak signal was
+right about the direction: P1 and P3 back-solved 2.4–2.7 and the note said "right sign, carry it
+into the VOLUME sweep". The sweep says 2.28–2.33.
+
+**⛔⭐⭐ C10 IS AS DRAWN, AND A THREE-POSITION FIT SAID OTHERWISE — a degeneracy, caught by adding
+knob positions.** At three positions C10 = 85.7 nF looked decisive (RMS 0.191 → 0.021, a 9×
+improvement, and the joint fit left the taper at p = 2.01 as if the two were cleanly separated). At
+six positions the taper alone beats it (0.041 vs 0.063 RMS) and the joint fit returns **C10 =
+97.8 nF, i.e. nominal**. ⚠ **The three-position result was not wrong arithmetic — it was two
+parameters that a three-point span cannot separate**, wearing the appearance of a sharp fit
+*including a joint fit that appeared to confirm it*. Note #17's "a bound the fit sits on is not a
+fit" has a sibling: **a joint fit that leaves the second parameter at its start value has not
+necessarily separated them; it may just have no leverage on either.** Add data before believing it.
+⛔ The out-of-pedal alternative is refuted outright: a per-rig high-pass fits **1.014 / 0.110 dB**,
+2.7× worse in RMS, and jointly with C10 it collapses to its 1 Hz lower bound. And note #19's whole
+premise is now moot — **the rig is measured and has no LF pole at all** (bypass-minus-loop is
+−0.047 dB at 20 Hz).
+
+**⭐⭐ THE 3.9 dB vs 1–2 dB FALL-BACK DISCREPANCY IS CLOSED, AND THE CIRCUIT WAS RIGHT.**
+Measured peak-to-full-CW: **3.86 dB**. As-drawn prediction: **3.91 dB**. Agreement **0.05 dB**.
+The peak sits at **13:30 measured / 13:28 fitted at p = 2.33**, inside the maker's stated 1–2
+o'clock. ➡ Note #1's "~2 dB unexplained, invariant to every assumption tested" had nothing to
+explain: **the maker's published 1–2 dB is simply marketing copy and is refuted.** That is now the
+THIRD of the maker's four published control points to fail (after the +3 dB peak level and the
+implied stage gain), leaving only the peak POSITION, which this sweep independently confirms.
+
+**⭐⭐ `kOutputMakeup` HAS AN ANCHOR AT LAST: +1.332 dB = ×1.1658**, sd 0.160 dB over six knob
+positions, taper-corrected. It has been exactly 1.0 and unanchored since the project began.
+⚠⚠ **It is only meaningful because the two calibration figures DIFFER and the difference was
+undone.** Play side +12.20 dBu = 4.4626 V/FS; record side +14.29 dBu = 5.6767 V/FS; so a capture's
+digital gain is **2.090 dB away from the pedal's actual voltage gain**, and getting that backwards
+is a 4.2 dB error in the control law (it happened, first attempt). The check that caught it is free
+and must be re-run whenever the rig changes: **a loop is a wire and this bypass is true bypass, so
+both must read exactly 0.000 dB of voltage gain.** They read **−0.026 and −0.015 dB**.
+⚠ `kOutputMakeup` and `gm` are BOTH level scalars in the DARK path, so they are not independent.
+What separates them is that `gm` also sets the mode differential, which is rig-free and already
+measured — so fit `gm` from the differential FIRST and let the makeup absorb the remainder.
+**If `gm` moves, re-measure the makeup.**
+
+**⚠⚠ ~99 pF LOADS THE PEDAL'S OUTPUT, AND THE BYPASS DECONVOLUTION CANNOT REMOVE IT.** Fitting one
+global load capacitance across the DARK rotation takes the 3–19 kHz error from **2.036 / 0.992 dB
+to 0.361 / 0.071 dB**. The reason deconvolution misses it is structural and worth not re-deriving:
+in bypass the source driving the cable is the interface's own low output impedance, but in an
+active capture it is the pedal's **59–102 kΩ** (circuit.md stage 3), so the pole exists in one path
+and not the other. ➡ **This is a CAPTURE-side correction, not a model change** — the 2026-09-08
+decision to ship no load capacitance stands, because the plugin's output goes to a DAW digitally.
+Correct the capture, or stop comparing above ~8 kHz. It is P2's 542 pF cable pole again at 1/5 the
+size, and MEASURED this time rather than inferred.
+📌 It is also why BRIGHT cannot be used for the HF fit: the model's `K0` is wrong for this unit and
+that error lives in exactly the same band, so the fit returns 0 pF at a 4.6 dB residual. The guard
+works; DARK is the only valid HF probe until `gm` is settled.
+
+**⛔ 7:30 IS UNUSABLE FOR ITS CORNER TOO — this reverses CLAUDE.md's "read its CORNER, never its
+LEVEL".** Its two takes fit LF corners **68.79 and 63.19 Hz, 8.9 % apart**, and mode shelves whose
+K0 spans 4.82–6.08 across takes and sweeps, where 9:00's two takes agree to **0.1 %** and its shelf
+to 0.05. At Ra = 1.25 kΩ the network is on its steepest slope, so the physical knob-setting error at
+the very bottom of the rotation is larger than the ±10 min the level warning assumed. ⭐ The tell was
+the RESIDUAL, exactly as this file's own rule says: 0.13–0.31 dB at 7:30 against 0.024–0.044 dB
+everywhere else. Exclude it from everything except the fact that it is clean and reaches the load
+line.
+
+**✅ The linear fits are drive-independent, checked rather than assumed.** The 9:00 DARK LF corner
+reads 48.41 / 49.07 / 48.77 / 49.18 Hz at pad 12 and 48.66 / 49.13 / 49.25 / 49.32 Hz at pad 0 —
+across a gate swing from **0.009 V to 2.013 V**, a 47 dB span that ends past triode onset. Spread
+1.9 %. So using a quiet sweep for the corners is safe, and using a hot one would have been too.
+
+**⭐ The known-answer probe is 7× cleaner than the best NAM model.** Below the shelf zero every mode
+has `Zs = R5`, so the mode differential must read 0.00 dB: the raw captures read **≤ 0.08 dB** at
+100–200 Hz, against 0.20 dB (P2) and 0.60 dB (P1). Note #15's systematic NAM floor is gone.

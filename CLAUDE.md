@@ -1515,3 +1515,94 @@ high, execute routine work cheap) is what should persist.
 > saturating, and saturation is what the load-line work measures — the artefact mimics the signal.
 > ⚠ **An unparseable filename in `captures/` makes `find_captures()` RAISE and takes every analysis
 > script down with it.** The DAW names exports after the bus, not the take; rename on export.
+
+> ### ⭐⭐ P4 IS A MEASURABLY DIFFERENT UNIT (2026-09-10) — and the OWNER'S DECISION is recorded here
+>
+> Instruments and all numbers: `.claude/rules/circuit.md` note #21, plus `analysis/unit_compare.py`
+> and `analysis/reports/unit_compare.json`. **No DSP constant has moved yet.**
+>
+> **⭐ P4's BRIGHT IS the 22 nF branch — fitted, not assumed.** Shelf zero **1919–1950 Hz**, implied
+> cap 22.7–23.0 nF, against P1/P2's 1792–1884 Hz. The two-position block said this had to be fitted
+> because P4 is a different circuit variant with an unknown bypass cap; it is the same branch.
+> 📌 P4's zero sits ~4 % above drawn where P1/P2 sit ~7–9 % above, so note #2's "consistently 7 %
+> low" is P1/P2's parts bin rather than a systematic R5 error — weak evidence for cap tolerance over
+> R5, from one extra unit.
+>
+> **⭐⭐ P4's JFET IS ~25 % WEAKER, and this is the one parameter where the units genuinely differ:**
+>
+> | unit | K0 | implied gm | shelf zero | fit residual |
+> |---|---|---|---|---|
+> | **P4 (owner), 9:00** | **5.19** | **1165 µS** | 1950 Hz | 0.027 dB |
+> | **P4 (owner), 10:30** | **5.06** | **1127 µS** | 1919 Hz | 0.042 dB |
+> | P1 | 6.31 | 1475 µS | 1884 Hz | 0.216 dB |
+> | P2 | 6.91 | 1640 µS | 1792 Hz | 0.057 dB |
+> | **shipped model** | 6.59 | 1553 µS | 1864 Hz | — |
+>
+> Agreement on the whole differential CURVE, level removed (M6's band is 0.33 dB RMS / 0.80 peak):
+> **P4 9:00 vs P4 10:30 = 0.049 dB RMS / 0.178 peak** (the same pedal twice — a repeatability floor
+> this project has never had), P1 vs P2 = 0.232 / 0.812, **P4 vs P1/P2 = 0.405–0.631 / 1.46–2.05**.
+> So P4 sits ~2× outside the two-NAM-unit band and ~10× outside its own repeatability. It is a real
+> unit difference: **the model is currently ~1.9 dB too bright at 10 kHz against the owner's pedal**
+> in BRIGHT, and unaffected in DARK.
+> ⚠ Attribution caveat: K0 is the product `gm·R5`, and P4's shelf zero implies its `R5·C` is ~5 %
+> smaller. If that whole 5 % is R5 rather than cap tolerance, P4's `gm` is 18 % below P1's rather
+> than 22 %. This dataset cannot split R5 from C (note #2's degeneracy), but the sign and rough size
+> hold either way.
+>
+> ### ⛔⭐⭐ THE DECISION, MADE BY THE OWNER 2026-09-10 — write it here, do not let it drift
+> CLAUDE.md's two-position block says to decide **once, in writing, before moving any constant**
+> which unit the model is OF. Decided:
+>
+> **Voice to the NEWER three-position units (P1/P2). Use P4 as the comprehensive MEASUREMENT
+> baseline and extrapolate from it.** The reasoning is that P4 has a measured, near-flat rig, both
+> calibration figures written down, a complete knob rotation in one session, and no NAM model error
+> — so it is by far the best instrument — while the intended product is the newer variant.
+>
+> ➡ **What that means parameter by parameter, because the two roles are separable and it matters
+> which is which:**
+> - ⭐ **`gm` and the shelf τ come from P1/P2** (the voicing). They are pinned by the mode
+>   differential, which is rig-free, so P4's superior rig buys nothing here. Keep gm ≈ 1553 µS.
+> - ⭐ **Everything structural comes from P4**: the taper (p ≈ 2.3), C10 (as drawn), `kOutputMakeup`,
+>   the load line, the LF corner, the output-loading correction. These are shared between variants
+>   and P4 is the only unit that can measure them at all.
+> - ⚠⚠ **`kOutputMakeup` is the one that couples the two roles.** It and `gm` are both level scalars
+>   in the DARK path. The measured **+1.332 dB** is against the model AS CURRENTLY VOICED (gm =
+>   1553). P4's own weaker JFET makes it ~0.46 dB quieter than a P1/P2-gm unit, so a model voiced to
+>   P4 would need ~+1.79 dB instead. **Fit `gm` first from the differential, then the makeup.**
+> - ⚠ **MID stays inferred and is now doubly so** — P4 has no MID position, and the model's MID will
+>   carry P1/P2's τ alongside P1/P2's gm, which is at least self-consistent under this decision.
+> - 📌 Recording the mixing explicitly: under this decision **no position is a blend of two pedals**,
+>   because both the gain parameters and both shelf τ come from P1/P2 together. That is a cleaner
+>   outcome than the two-position block feared.
+>
+> ### 📌 THE DRIVE EACH CAPTURE ACTUALLY DELIVERS — pad 12 does NOT reach playing level
+> Raised by the owner and confirmed. Gate volts by pad and sweep (`kInputRef` 4.4626, 0.90 divider;
+> triode onset 1.691 V; real playing −12..−6 dBFS = 1.01..2.01 V at the gate):
+>
+> | pad | sweep_clean | sweep_−26 | sweep_−16 | sweep_−6 | the −6 cell equals a user playing at |
+> |---|---|---|---|---|---|
+> | 0 | 0.036 V | 0.201 V | 0.637 V | **2.013 V** (past triode) | **−6.0 dBFS** |
+> | 4.5 | 0.021 V | 0.120 V | 0.379 V | 1.199 V | −10.5 dBFS |
+> | 12 | 0.009 V | 0.051 V | 0.160 V | 0.506 V | **−18.0 dBFS** |
+>
+> ⚠⚠ **So the pad-12 matrix tops out 6–12 dB BELOW real playing and cannot fit anything nonlinear.**
+> The nonlinear dataset is exactly the pad-0 takes at their `sweep_-6` / `sweep_-16` cells
+> (`p4_V0730_bright`, `p4_V0730_dark`, `p4_V0900_dark`) plus **`p4_V0900_bright_pad4p5`**, whose
+> −6 cell lands at −10.5 dBFS equivalent — the mid-drive point the matrix otherwise lacks.
+> ✅ **The LINEAR fits are unaffected, and that was checked rather than assumed**: the 9:00 DARK LF
+> corner moves 1.9 % across a 47 dB drive span ending past triode (note #21).
+>
+> ### ⚠⚠ THREE HARNESS DEFECTS FIXED, one of which reported a stale render as a measurement
+> - **The plugin-render cache was keyed on a display TAG, not on the render arguments**, so once a
+>   capture's settings changed it silently served the previous render. `volume_sweep.py --self-test`,
+>   where both sides ARE the same render and the answer must be exactly 0.000, reported **−1.382 dB**
+>   — which reads as a real measurement. It is keyed on a hash of the argument list now.
+> - **`captures.py::find_captures()` raised on any unparseable filename** and took every analysis
+>   script down with it; a DAW take suffix (`p4_V1330_dark_pad12_1.wav`) was enough. It now SKIPS
+>   such files and prints a warning naming them to stderr on every run — loud, because a capture the
+>   harness cannot see is one that silently does not exist.
+> - ⚠ **`check_capture.py`'s "H2 clearance" column is meaningless on an ACTIVE capture** and reads
+>   BAD when the pedal agrees with the model. It subtracts the measured H2 from the model's expected
+>   H2, which is a headroom check for a REFERENCE capture, where the measured H2 is chain noise. On a
+>   pedal capture the measured H2 *is* the pedal's. Ignore that column on active captures; the H2 dBc
+>   figures themselves are fine. (Not yet fixed.)
