@@ -1,0 +1,219 @@
+{
+  "kInputRef_v_per_fs": 4.4626,
+  "record_v_per_fs": 5.676654866684152,
+  "volts_correction_db": 2.090090587632318,
+  "band_hz": [
+    200.0,
+    2000.0
+  ],
+  "rows": {
+    "p4_V0730_bright": {
+      "pedal_gain_db": -7.896331636393111,
+      "plugin_gain_db": -18.538006460594882,
+      "makeup_db": 10.641674824201772,
+      "x": 0.05,
+      "volume_clock": 730,
+      "mode": "bright",
+      "pad_db": 0.0
+    },
+    "p4_V0730_bright_pad12": {
+      "pedal_gain_db": -18.64452729008798,
+      "plugin_gain_db": -18.535261675946373,
+      "makeup_db": -0.10926561414160574,
+      "x": 0.05,
+      "volume_clock": 730,
+      "mode": "bright",
+      "pad_db": 12.0
+    },
+    "p4_V0730_dark": {
+      "pedal_gain_db": -11.446112868037169,
+      "plugin_gain_db": -19.91860480771393,
+      "makeup_db": 8.472491939676761,
+      "x": 0.05,
+      "volume_clock": 730,
+      "mode": "dark",
+      "pad_db": 0.0
+    },
+    "p4_V0730_dark_pad12": {
+      "pedal_gain_db": -17.960860966152737,
+      "plugin_gain_db": -19.91680767487002,
+      "makeup_db": 1.9559467087172848,
+      "x": 0.05,
+      "volume_clock": 730,
+      "mode": "dark",
+      "pad_db": 12.0
+    },
+    "p4_V0800_bright": {
+      "pedal_gain_db": -1.1244928300665333,
+      "plugin_gain_db": -5.51938829428936,
+      "makeup_db": 4.394895464222827,
+      "x": 0.1,
+      "volume_clock": 800,
+      "mode": "bright",
+      "pad_db": 0.0
+    },
+    "p4_V0800_dark": {
+      "pedal_gain_db": -2.332805119377939,
+      "plugin_gain_db": -6.899986641461656,
+      "makeup_db": 4.567181522083717,
+      "x": 0.1,
+      "volume_clock": 800,
+      "mode": "dark",
+      "pad_db": 0.0
+    },
+    "p4_V0900_bright_pad12": {
+      "pedal_gain_db": 4.6354272484642625,
+      "plugin_gain_db": 5.100567126160893,
+      "makeup_db": -0.4651398776966307,
+      "x": 0.2,
+      "volume_clock": 900,
+      "mode": "bright",
+      "pad_db": 12.0
+    },
+    "p4_V0900_bright_pad4p5": {
+      "pedal_gain_db": 4.690771856881697,
+      "plugin_gain_db": 5.099716247925429,
+      "makeup_db": -0.4089443910437325,
+      "x": 0.2,
+      "volume_clock": 900,
+      "mode": "bright",
+      "pad_db": 4.5
+    },
+    "p4_V0900_dark": {
+      "pedal_gain_db": 3.4834072169354773,
+      "plugin_gain_db": 3.717223994799535,
+      "makeup_db": -0.23381677786405763,
+      "x": 0.2,
+      "volume_clock": 900,
+      "mode": "dark",
+      "pad_db": 0.0
+    },
+    "p4_V0900_dark_pad12": {
+      "pedal_gain_db": 3.454974374248069,
+      "plugin_gain_db": 3.719021128099344,
+      "makeup_db": -0.2640467538512752,
+      "x": 0.2,
+      "volume_clock": 900,
+      "mode": "dark",
+      "pad_db": 12.0
+    },
+    "p4_V1030_bright_pad12": {
+      "pedal_gain_db": 10.20309286181093,
+      "plugin_gain_db": 10.097206341387444,
+      "makeup_db": 0.10588652042348556,
+      "x": 0.35,
+      "volume_clock": 1030,
+      "mode": "bright",
+      "pad_db": 12.0
+    },
+    "p4_V1030_dark_pad12": {
+      "pedal_gain_db": 8.973093846943174,
+      "plugin_gain_db": 8.715660342462977,
+      "makeup_db": 0.257433504480197,
+      "x": 0.35,
+      "volume_clock": 1030,
+      "mode": "dark",
+      "pad_db": 12.0
+    },
+    "p4_V1030_dark_pad4p5": {
+      "pedal_gain_db": 8.735698600070645,
+      "plugin_gain_db": 8.715102342973058,
+      "makeup_db": 0.020596257097587056,
+      "x": 0.35,
+      "volume_clock": 1030,
+      "mode": "dark",
+      "pad_db": 4.5
+    },
+    "p4_V1200_bright_pad12": {
+      "pedal_gain_db": 11.233796006196716,
+      "plugin_gain_db": 11.532084125790101,
+      "makeup_db": -0.2982881195933853,
+      "x": 0.5,
+      "volume_clock": 1200,
+      "mode": "bright",
+      "pad_db": 12.0
+    },
+    "p4_V1200_dark_pad12": {
+      "pedal_gain_db": 10.02704752814935,
+      "plugin_gain_db": 10.150538127812625,
+      "makeup_db": -0.1234905996632758,
+      "x": 0.5,
+      "volume_clock": 1200,
+      "mode": "dark",
+      "pad_db": 12.0
+    },
+    "p4_V1330_bright_pad12": {
+      "pedal_gain_db": 11.877162122328748,
+      "plugin_gain_db": 11.845303547590124,
+      "makeup_db": 0.03185857473862441,
+      "x": 0.65,
+      "volume_clock": 1330,
+      "mode": "bright",
+      "pad_db": 12.0
+    },
+    "p4_V1330_dark_pad12": {
+      "pedal_gain_db": 10.601017186955865,
+      "plugin_gain_db": 10.46375754923503,
+      "makeup_db": 0.1372596377208346,
+      "x": 0.65,
+      "volume_clock": 1330,
+      "mode": "dark",
+      "pad_db": 12.0
+    },
+    "p4_V1500_bright_pad12": {
+      "pedal_gain_db": 11.28552477458668,
+      "plugin_gain_db": 11.450787768084178,
+      "makeup_db": -0.16526299349749785,
+      "x": 0.8,
+      "volume_clock": 1500,
+      "mode": "bright",
+      "pad_db": 12.0
+    },
+    "p4_V1500_dark_pad12": {
+      "pedal_gain_db": 9.99097228556576,
+      "plugin_gain_db": 10.069241769325524,
+      "makeup_db": -0.0782694837597635,
+      "x": 0.8,
+      "volume_clock": 1500,
+      "mode": "dark",
+      "pad_db": 12.0
+    },
+    "p4_V1700_bright_pad12": {
+      "pedal_gain_db": 8.017100359500823,
+      "plugin_gain_db": 7.935120007079068,
+      "makeup_db": 0.08198035242175461,
+      "x": 1.0,
+      "volume_clock": 1700,
+      "mode": "bright",
+      "pad_db": 12.0
+    },
+    "p4_V1700_dark_pad12": {
+      "pedal_gain_db": 6.728951714191645,
+      "plugin_gain_db": 6.5535740095266615,
+      "makeup_db": 0.17537770466498337,
+      "x": 1.0,
+      "volume_clock": 1700,
+      "mode": "dark",
+      "pad_db": 12.0
+    }
+  },
+  "known_answer_checks_db": {
+    "loop_V0000_none.wav": -0.0255321143357512,
+    "p4_V1030_bypass.wav": -0.01510336795363676
+  },
+  "makeup_db_mean": 0.00016006231566737897,
+  "makeup_linear": 1.0000184280248943,
+  "makeup_sd_db": 0.17450822052162743,
+  "makeup_spread_db": 0.4243094705226498,
+  "makeup_n_knobs": 6,
+  "makeup_bright_db_mean": -0.11347796664620002,
+  "makeup_bright_linear": 0.9870203381632726,
+  "makeup_bright_sd_db": 0.2231491408073013,
+  "makeup_bright_spread_db": 0.5429286547936671,
+  "makeup_bright_n_knobs": 6,
+  "makeup_pooled_db_mean": -0.05573871993289392,
+  "makeup_pooled_linear": 0.9936033887003585,
+  "makeup_pooled_sd_db": 0.1991913397214883,
+  "makeup_pooled_spread_db": 0.471665978657293,
+  "makeup_pooled_n_knobs": 6
+}

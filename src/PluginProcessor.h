@@ -102,18 +102,45 @@ private:
     // Plain floats, not a String-keyed map: parameterChanged can be called from the audio thread.
     float lastInputTrim = 0.0f, lastOutputTrim = 0.0f;
 
-    // ============================ CALIBRATION -- BOTH UNCALIBRATED ============================
-    // kInputRef is an ASSUMPTION, not a measurement. Calibrating it needs a bypass/unity capture,
-    // and the reference data is seven NAM models, which cannot be bypassed -- so no anchor exists
-    // (docs/build-plan.md L2). This is the template's starting value, carried forward deliberately.
-    // Nothing downstream may be written as if this were anchored.
-    static constexpr double kInputRef = 4.4626; // volts per full scale -- see below
+    // ========================= CALIBRATION -- BOTH ANCHORED 2026-09-10 =========================
+    // ⭐ kInputRef: the play side of the capture rig, CONFIRMED by the owner rather than assumed.
+    // Its interface is set to 1.7745 V RMS at -5 dBFS / 220 Hz, i.e. input_level_dbu = +12.20 dBu,
+    // so a full-scale sine is 3.156 V RMS = 4.4626 V peak. (220 Hz rather than 1 kHz because the
+    // meter is specified only to 400 Hz; accuracy there is +-0.135 dB.) It is also the level a
+    // well-recorded guitar metering -12 dBFS RMS implies, so the plugin's own full scale means the
+    // same thing a tracked DI does. Every capture in analysis/captures/ was made at this setting.
+    static constexpr double kInputRef = 4.4626; // volts per full scale -- MEASURED
 
-    // Output makeup is to be level-matched to unit P1 (build-plan.md §6), which needs the renders.
-    // Until then it is exactly unity so the model's own gain is visible and unmasked. Do NOT pad
-    // this for headroom -- calibration doc §2 is explicit that it is a level match, and the final
-    // value may exceed 1.0.
-    static constexpr double kOutputMakeup = 1.0; // UNCALIBRATED
+    // ⭐⭐ kOutputMakeup: MEASURED 2026-09-10, and this is the FIRST anchor it has ever had. It was
+    // exactly 1.0 and unanchored since the project began, because every earlier reference was a NAM
+    // model carrying an unknown rig gain (build-plan limit L2) -- there was no possible route to it
+    // and there will not be another. calibration doc §2 is explicit that this is a LEVEL MATCH and
+    // not a headroom pad, and the measured value duly exceeds 1.0.
+    //
+    // What makes it possible is that BOTH ends of the capture rig were written down and they are
+    // NOT equal: play +12.20 dBu (4.4626 V/FS), record +14.29 dBu (5.6767 V/FS). So a capture's
+    // digital gain is 2.090 dB away from the pedal's actual VOLTAGE gain, which is the quantity the
+    // plugin computes. ⚠ Getting that backwards is a 4.2 dB error and it happened on the first
+    // attempt. The check that catches it is free: a loop is a wire and this pedal's bypass is true
+    // bypass (nulls at -70.8 dB, 0.008 dB insertion loss), so both must read exactly 0.000 dB of
+    // voltage gain. They read -0.026 and -0.015.
+    //
+    //   +1.261 dB = x1.1562,  sd 0.175 dB, spread 0.424 dB, six knob positions 9:00 -> 17:00
+    //
+    // ⚠⚠ FITTED FROM **DARK** CAPTURES ONLY. P4's own JFET is ~25 % weaker than this model's
+    // (K0 = 5.06-5.19 against the shipped 6.59) and the recorded decision is to voice to P1/P2, so
+    // that gap is deliberate. It lives in the mode shelf, whose 1.9 kHz zero is inside the top of
+    // the 200-2000 Hz fit band; in DARK the shelf does not exist at all (Zs = R5, flat everywhere).
+    // Bright duly reads 0.09-0.18 dB lower at every knob position, mean +1.147 dB. Pooling the modes
+    // would fold a voicing decision into a level constant.
+    //
+    // ⚠ COUPLED TO gm, and only to gm: both are level scalars in the DARK path. What separates them
+    // is that gm ALSO sets the mode differential, which is rig-free and independently measured -- so
+    // gm is fitted from the differential FIRST and this absorbs the remainder. ➡ IF gm MOVES,
+    // RE-RUN analysis/absolute_gain.py. (gm was re-checked 2026-09-10 and did not move.)
+    // ⚠ Also coupled to kVolumeTaperP, which is why it was re-measured after the taper went 2.30:
+    // at the old 2.0 the per-position scatter was 2.73 dB, at 2.30 it is 0.42 dB.
+    static constexpr double kOutputMakeup = 1.1562; // MEASURED -- analysis/absolute_gain.py
 
     std::array<pedal::dsp::EchoPreDsp, 2> dsp;
     juce::AudioBuffer<double> scratch;

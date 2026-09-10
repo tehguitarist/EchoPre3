@@ -87,18 +87,46 @@ def main():
         rows.append((name, pedal, plug, pedal - plug, d["volume"]))
         print(f"   {name:26s} {pedal:+9.3f} {plug:+10.3f} {pedal - plug:+10.3f} {d['volume']:6.3f}")
 
-    # 7:30 is excluded from the summary: at Ra = 1.25 kOhm the network is on its steepest slope, so
-    # a few minutes of knob error is worth many dB. Its two takes disagree by 6.3 dB (dark) and
-    # 9.6 dB (bright) where 9:00's two takes agree to 0.002 dB -- CLAUDE.md's "read its CORNER,
-    # never its LEVEL", confirmed rather than assumed.
+    # ⛔ 7:30 AND 8:00 (x <= 0.1) are excluded: the 1 kHz control law moves +-6.75 dB and +-2.98 dB
+    # per +-10 min of knob error there, against +-1.02 at 9:00, so a few minutes of setting error is
+    # worth many dB. 7:30's two takes disagree by 6.5 dB (dark) and 10.8 dB (bright) where 9:00's
+    # agree to 0.03 dB -- measured, not assumed.
+    #
+    # ⭐⭐ AND THE ANCHOR IS FITTED FROM **DARK ONLY**, which is not fussiness either. P4's own JFET is
+    # ~25 % weaker than the model's (K0 = 5.06-5.19 against the shipped 6.59, circuit.md note #21),
+    # and the recorded decision is to VOICE to P1/P2 rather than to P4 -- so that difference is
+    # deliberate and permanent. It lives entirely in the mode shelf, whose zero is at 1.9 kHz, i.e.
+    # inside the top of this 200-2000 Hz band. In DARK the shelf does not exist at all (Zs = R5, flat
+    # at every frequency), so dark is the only mode in which this band measures a pure level.
+    # It shows up exactly as predicted: at every knob position from 9:00 up, bright reads 0.09-0.18 dB
+    # LOWER makeup than dark, because the plugin's larger K0 makes it too loud in bright's own band.
+    # Averaging the two modes would fold a known voicing decision into a level constant.
+    #
+    # Duplicate takes at one knob position are averaged first, so a position captured twice does not
+    # get double weight in the mean.
+    def summarise(sel, label, key):
+        by_knob = {}
+        for name, _pedal, _plug, mk, x in sel:
+            by_knob.setdefault(round(x, 4), []).append(mk)
+        per = np.array([float(np.mean(v)) for v in by_knob.values()])
+        if per.size == 0:
+            return
+        report[f"{key}_db_mean"] = float(np.mean(per))
+        report[f"{key}_linear"] = float(10 ** (np.mean(per) / 20))
+        report[f"{key}_sd_db"] = float(np.std(per, ddof=1)) if per.size > 1 else 0.0
+        report[f"{key}_spread_db"] = float(np.max(per) - np.min(per))
+        report[f"{key}_n_knobs"] = int(per.size)
+        print(f"   {label:44s} {np.mean(per):+7.3f} dB = x{10 ** (np.mean(per) / 20):.4f}"
+              f"   sd {np.std(per, ddof=1) if per.size > 1 else 0.0:.3f}"
+              f"   spread {np.max(per) - np.min(per):.3f}   n={per.size}")
+
     usable = [r for r in rows if r[4] > 0.1]
-    if usable:
-        mk = np.array([r[3] for r in usable])
-        report["makeup_db_mean"] = float(np.mean(mk))
-        report["makeup_linear"] = float(10 ** (np.mean(mk) / 20))
-        report["makeup_spread_db"] = float(np.max(mk) - np.min(mk))
-        print(f"\n   excluding 7:30 (knob-slope sensitive):  mean makeup {np.mean(mk):+.3f} dB "
-              f"= x{10 ** (np.mean(mk) / 20):.4f},  spread {np.max(mk) - np.min(mk):.3f} dB")
+    print()
+    dark = [r for r in usable if report["rows"][r[0]]["mode"] == "dark"]
+    bright = [r for r in usable if report["rows"][r[0]]["mode"] == "bright"]
+    summarise(dark, "kOutputMakeup  <- DARK only, x > 0.1", "makeup")
+    summarise(bright, "(bright, for comparison -- do NOT use)", "makeup_bright")
+    summarise(usable, "(both modes pooled -- do NOT use)", "makeup_pooled")
 
     json.dump(report, open(OUT, "w"), indent=2, default=float)
     print(f"\nwrote {OUT}")
