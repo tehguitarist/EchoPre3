@@ -126,7 +126,10 @@ def main():
                 L = (ZL_TRUE / (ZL_TRUE + z)) * ((ZI + z) / ZI)
                 line[f] = v + G_TRUE + 20 * np.log10(abs(L))
         else:
-            line = sweep_db(f"{D}/{name}_take2.wav", fs, segs, ref)
+            # ⚠ The 10 kOhm LINE-INPUT take. Named `_load10k`, not `_take2`: it is a different
+            # measurement CONFIGURATION, and under the old name find_captures() served it to other
+            # scripts as an ordinary repeat of the same setting (captures.py::find_captures).
+            line = sweep_db(f"{D}/{name}_load10k.wav", fs, segs, ref)
         data[name] = (inst, line, x)
 
     bi, bl, _ = data[BYPASS]

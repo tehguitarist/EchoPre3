@@ -29,14 +29,23 @@ public:
      *  JfetStage::kSolveIters; FeatureProfile A/Bs it. */
     void setSolveIters(int n);
 
-    /** Test hook: closed-form solve vs the iterative reference. Production is always closed form. */
+    /** Test hook: closed-form solve vs the iterative reference. ⚠ The closed form is exact only at
+     *  the SQUARE law, and the stage ships an exponent of 1.60, so production is now the iterative
+     *  path and this selects the oracle rather than the fast path -- see JfetStage::solveDrain. */
     void setUseClosedForm(bool b);
 
-    /** Measurement hook: the JFET stage's one amplitude parameter, Vov. Sweeping it is how it gets
-     *  fitted against a calibrated capture; production leaves it at JfetParams' shipped value. */
+    /** Measurement hooks: the JFET stage's amplitude parameter |Vp| (which is also, exactly, the
+     *  cutoff onset in gate volts), its transfer-law exponent, and the older Vov spelling kept
+     *  because analysis scripts sweep it by name. Production leaves all three at JfetParams'
+     *  shipped values. */
     void setVov(double v);
+    void setVp(double v);
+    void setExponent(double m);
     void setGm(double g);
-    /** Operating point implied by the current (gm, vov). Measurement/diagnostic only. */
+    /** Quiescent overdrive implied by the current triple. Measurement/diagnostic only. */
+    double quiescentOverdrive() const;
+
+    /** Operating point implied by the current (gm, |Vp|, m). Measurement/diagnostic only. */
     void operatingPoint(double& id0, double& idss, double& vdsQ, double& vpMag) const;
 
     bool isBusesLayoutSupported(const BusesLayout&) const override;

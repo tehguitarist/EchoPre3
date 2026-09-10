@@ -3,7 +3,7 @@
 //   ./build/OfflineRender_artefacts/Release/OfflineRender <in.wav> <out.wav> \
 //         [--os 1|2|4|8] [--volume 0..1] [--mode bright|dark|mid] \
 //         [--input-trim dB] [--output-trim dB] [--input-scale dB] [--bypass 0|1] [--block N]
-//         [--vov V] [--gm S]
+//         [--vp V] [--exponent M] [--vov V] [--gm S]
 //
 // The CLI contract is fixed by the callers already in the tree: comprehensive_report.py,
 // farina_validate.py, hf_thd_flatness_check.py, knob_tolerant_null.py and
@@ -81,7 +81,9 @@ int main(int argc, char* argv[])
     StringArray positional;
     int osFactor = 8;
     double volume = 0.5, inputTrim = 0.0, outputTrim = 0.0, inputScaleDb = 0.0;
-    double vov = 0.0; // 0 = leave the shipped JfetParams::vov alone
+    double vov = 0.0;  // 0 = leave the shipped value alone
+    double vpArg = 0.0; // 0 = leave the shipped JfetParams::vp alone
+    double mArg = 0.0;  // 0 = leave the shipped JfetParams::mExp alone
     double gmOverride = 0.0; // 0 = leave the shipped JfetParams::gm alone
     int modeIndex = 1; // Dark -- the APVTS default
     bool bypass = false;
@@ -110,6 +112,10 @@ int main(int argc, char* argv[])
             inputScaleDb = v.getDoubleValue();
         else if (a == "--vov")
             vov = v.getDoubleValue();
+        else if (a == "--vp")
+            vpArg = v.getDoubleValue();
+        else if (a == "--exponent" || a == "--mexp")
+            mArg = v.getDoubleValue();
         else if (a == "--gm")
             gmOverride = v.getDoubleValue();
         else if (a == "--output-trim")
@@ -135,7 +141,7 @@ int main(int argc, char* argv[])
 
     if (positional.size() != 2)
         return fail("usage: OfflineRender <in.wav> <out.wav> [--os N] [--volume x] [--mode m] "
-                    "[--vov V] [--gm S] ...");
+                    "[--vp V] [--exponent M] [--vov V] [--gm S] ...");
 
     const int osIndex = osFactorToIndex(osFactor);
     if (osIndex < 0)
@@ -196,43 +202,50 @@ int main(int argc, char* argv[])
     if (auto* p = dynamic_cast<AudioParameterChoice*>(proc.apvts.getParameter("render_oversampling")))
         p->setValueNotifyingHost(p->convertTo0to1((float)osIndex));
 
-    // --vov and --gm override the JFET stage's two square-law parameters. Both are MEASUREMENT
-    // flags, not plugin controls: every other quantity in the device model (Id0, beta, |Vp|, IDSS,
-    // the quiescent drain voltage) is derived from the PAIR, so neither can be swept from outside
-    // the stage. Set before prepareToPlay so the derived operating point is in place for block one.
+    // --vp, --exponent, --vov and --gm override the JFET stage's device parameters. All are
+    // MEASUREMENT flags, not plugin controls: every other quantity (Vov, Id0, beta, IDSS, the
+    // quiescent drain voltage) is derived from the triple, so none can be swept from outside the
+    // stage. Set before prepareToPlay so the derived operating point is in place for block one.
     //
-    // ⚠⚠ THEY ARE ONE FAMILY AND SWEEPING EITHER ALONE WALKS THE BIAS POINT (circuit.md #22a).
-    // Id0 = gm*vov/2, so raising vov at a fixed gm raises the current and drops the drain. At the
-    // shipped gm = 1553 uS, vov = 0.93 implies IDSS = 10.4 mA (over the datasheet's 5 mA) and
-    // Vds_q = 3.5 V; vov = 1.2 puts Vds_q NEGATIVE. That is what made the earlier vov sweep read
-    // non-monotone in its tail -- it was measuring a collapsing operating point, not a curvature.
-    // At P4's own measured gm = 1146 uS the SAME vov = 0.93 is healthy (IDSS exactly 5 mA,
-    // Vds_q = 8.4 V), which is the whole reason this flag exists.
+    // ⚠ ORDER MATTERS: the exponent first, then gm, then the amplitude parameter. |Vp| is stored
+    // directly so it does not care, but --vov is converted through (1 + gm*R5/m) and would use a
+    // stale pair if it were applied first.
+    //
+    // ⭐ THE OLD BIAS-COLLAPSE TRAP IS GONE BY CONSTRUCTION, not by this guard. Under the previous
+    // (gm, Vov) parameterisation Id0 = gm*Vov/m grew without bound, so at the shipped gm a Vov of
+    // 1.2 put Vds_q NEGATIVE and an hour of renders measured a collapsing operating point rather
+    // than a curvature (circuit.md note #22a). Stored on |Vp|, Id0 = gm*|Vp|/(m + gm*R5) is bounded
+    // above by |Vp|/R5 for ANY gm. The guard below stays as belt-and-braces, and because --vov can
+    // still be driven to a silly value by hand.
+    if (mArg > 0.0)
+        proc.setExponent(mArg);
     if (gmOverride > 0.0)
         proc.setGm(gmOverride);
+    if (vpArg > 0.0)
+        proc.setVp(vpArg);
     if (vov > 0.0)
         proc.setVov(vov);
 
-    // ⭐ Report the implied operating point whenever either is overridden, and REFUSE an impossible
-    // one. A sweep must not be able to spend an hour rendering points whose bias has collapsed and
-    // then be read as a curvature measurement -- that already happened once. Vds_q <= 0 is not a
-    // marginal setting, it is not an amplifier; Vds_q/vov below ~6 is legal but is entering triode
-    // at idle, so it is flagged rather than refused. IDSS is printed against the datasheet's
-    // 1-5 mA so a physically-out-of-range point is visible in the sweep's own log.
-    if (gmOverride > 0.0 || vov > 0.0)
+    // ⭐ Report the implied operating point whenever any of them is overridden, and REFUSE an
+    // impossible one, so a sweep's own log carries the reason a tail point is untrustworthy.
+    // Vds_q <= 0 is not a marginal setting, it is not an amplifier; Vds_q/Vov below ~6 is legal but
+    // is entering triode at idle, so it is flagged rather than refused. IDSS is printed against the
+    // datasheet's 1-5 mA so a physically out-of-range device is visible.
+    if (gmOverride > 0.0 || vov > 0.0 || vpArg > 0.0 || mArg > 0.0)
     {
         double id0 = 0.0, idss = 0.0, vdsQ = 0.0, vpMag = 0.0;
         proc.operatingPoint(id0, idss, vdsQ, vpMag);
+        const double vovNow = proc.quiescentOverdrive();
         std::cerr << "operating point: gm " << (gmOverride > 0.0 ? gmOverride : 0.0) * 1e6
-                  << " uS (0 = shipped), Vov " << (vov > 0.0 ? vov : 0.0)
-                  << " V (0 = shipped), Id0 " << id0 * 1e6 << " uA, IDSS " << idss * 1e3
-                  << " mA, |Vp| " << vpMag << " V, Vds_q " << vdsQ << " V" << std::endl;
+                  << " uS (0 = shipped), m " << (mArg > 0.0 ? mArg : 0.0)
+                  << " (0 = shipped), Vov " << vovNow << " V, Id0 " << id0 * 1e6
+                  << " uA, IDSS " << idss * 1e3 << " mA, |Vp| " << vpMag << " V, Vds_q " << vdsQ
+                  << " V" << std::endl;
         if (vdsQ <= 0.0)
-            return fail("this (gm, Vov) pair puts the quiescent drain-source voltage at "
-                        + String(vdsQ, 3) + " V -- the stage is not an amplifier there. gm and Vov "
-                        "are one square-law family (Id0 = gm*Vov/2); sweep them together.");
-        if (vdsQ < 6.0 * (vov > 0.0 ? vov : 0.4469))
-            std::cerr << "WARNING: Vds_q/Vov = " << vdsQ / (vov > 0.0 ? vov : 0.4469)
+            return fail("this parameter set puts the quiescent drain-source voltage at "
+                        + String(vdsQ, 3) + " V -- the stage is not an amplifier there.");
+        if (vdsQ < 6.0 * vovNow)
+            std::cerr << "WARNING: Vds_q/Vov = " << vdsQ / vovNow
                       << " (< 6) -- the drain is near triode at IDLE, so harmonics measured here "
                          "carry the bias point, not the curvature." << std::endl;
         if (idss > 5.05e-3 || idss < 0.95e-3)

@@ -79,6 +79,7 @@ REFERENCE_MODES = ("none", "bypass")
 _CAPTURE_RE = re.compile(
     r"^(?P<unit>[a-z0-9]+)_V(?P<clock>\d{3,4})_(?P<mode>bright|dark|mid|none|bypass)"
     r"(?:_pad(?P<pad>\d+(?:p\d+)?))?"
+    r"(?:_load(?P<load>\d+(?:p\d+)?)k)?"
     r"(?:_take(?P<take>\d+)|_(?P<dawtake>\d+))?$",
     re.IGNORECASE,
 )
@@ -129,16 +130,37 @@ def parse_capture(filename):
         # silently win whichever way the dict happened to iterate.
         "take": int(m.group("take")) if m.group("take")
                  else (int(m.group("dawtake")) + 1 if m.group("dawtake") else 1),
+        # ⚠⚠ THE LOAD AT THE JACK, in ohms; None (unloaded -- the interface's 1 MOhm instrument
+        # input, which is open by comparison) when the suffix is absent. `_load10k` = a 10 kOhm line input. This is a CONFIGURATION of the
+        # measurement, not a repeat, and it changes three things at once: the output network's
+        # transfer, the drain load the stage works against, and the recorded level (the line input
+        # needed full gain, ~31 dB down). The two line-input takes used to be named `_take2`, and
+        # find_captures() handed them to a harmonic fit alongside the instrument-input takes as if
+        # they were repeats of the same setting -- see the exclusion in find_captures().
+        # ⚠ None, NOT float("inf"), for an unloaded capture. Several scripts json.dump() this dict
+        # straight into a report, and Python writes a bare `Infinity` there -- which is not valid
+        # JSON and which JSON.parse() in the dashboard rejects outright. It had already put 28 of
+        # them into comprehensive_data.json before this was caught. `None` round-trips as `null`.
+        "load_ohms": (float(m.group("load").replace("p", ".")) * 1e3
+                      if m.group("load") else None),
     }
 
 
-def find_captures(directory=CAPTURE_DIR, include_reference=False):
+def find_captures(directory=CAPTURE_DIR, include_reference=False, include_loaded=False):
     """Return sorted [(path, parsed_dict), ...] for the PEDAL captures under directory.
 
     ⚠ Reference captures (mode "none"/"bypass") are excluded unless include_reference=True. Every
     comparison script renders the plugin per capture and diffs the two, which is meaningless for a
     file recorded with no pedal in circuit -- and it would fail SILENTLY, as a mysterious outlier
     rather than an error. Ask for them explicitly when you want them.
+
+    ⚠⚠ Captures made into a NON-DEFAULT LOAD (`_load10k`) are excluded for the same reason and it
+    is the sharper one. Every render here drives an unloaded output, so a loaded capture differs
+    from the plugin in the output network's transfer AND in the drain load the stage works against
+    -- and it still parses, still has a mode and a volume, and still sits in the same directory.
+    It was found the only way such a thing is found: two of them turned up inside a harmonic fit
+    with absolute levels 31 dB from their neighbours. output_impedance.py wants them; ask for them
+    by name (or with include_loaded=True), never by sweeping a directory.
     """
     if not os.path.isdir(directory):
         return []
@@ -159,6 +181,8 @@ def find_captures(directory=CAPTURE_DIR, include_reference=False):
               "export; the DAW names files after the BUS, not the take)", file=sys.stderr)
     if not include_reference:
         out = [(p, d) for p, d in out if not d["is_reference"]]
+    if not include_loaded:
+        out = [(p, d) for p, d in out if d["load_ohms"] is None]
     return out
 
 

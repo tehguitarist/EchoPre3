@@ -1989,3 +1989,198 @@ RECORDED VOICING DECISION, not a defect.** P4's K0 is 5.06–5.19 against the sh
 is voiced to P1/P2, and the whole difference lives in the mode shelf's own band. **Do not move `gm`
 to close it.** ➡ Read DARK as the model's error and BRIGHT's HF as the unit difference.
 ⚠ 7:30 and 8:00 miss in every mode — knob-slope error (note #23), not model error.
+
+### 26. ⭐⭐ THE TRANSFER LAW IS NOT SQUARE (2026-09-10). m = 1.60, and |Vp| replaces Vov.
+
+`analysis/onset_fit.py` (new), `analysis/reports/onset_fit.json`, code and reasoning in
+`src/dsp/JfetStage.h`. This closes note #24's one remaining substantive modelling gap — "the model's
+H2-versus-drive CURVE has the wrong SHAPE, not the wrong scale" — and the answer is that the device
+law itself was wrong, not any of its constants.
+
+⭐⭐ **THE INSTRUMENT IS WHAT MADE IT TRACTABLE, AND IT IS REUSABLE.** In DARK the source one-port is
+the bare resistor with **no state** (note #12's algebra collapses to it), so the whole stage is
+MEMORYLESS. One period of gate sine through the solve is therefore the EXACT steady-state spectrum:
+no oversampling, no discretisation, no filter state. That oracle reproduces the shipped plugin at
+8× to **0.01 dB** — which is the known-answer check note #9 demands — and it runs in 6 ms per cell
+against ~40 s for a render, so a two-parameter family can actually be explored.
+
+**THE OBSERVATION.** Against P4's DARK tone ladder no `Vov` removes the residual, because the two
+ends of the drive range want different values:
+
+| cells | what they pin | Vov they want, at P4's gm |
+|---|---|---|
+| below cutoff | small-signal curvature | ~0.90 |
+| past cutoff | clipping onset | ~0.63 |
+
+⛔ **Drain-side mechanisms are eliminated outright, and the dataset does it for free.** The residual
+at a given GATE DRIVE is the same across the whole rotation — 15× in drain load (0.50 kΩ at 7:30
+against 7.53 kΩ at 9:00) moves it by ≤ 0.07 dB. Anything acting through the load line must scale
+with that impedance. ⛔ **A softened cutoff is refuted by measurement too**: a subthreshold
+(soft-plus) knee was swept from 0 to 0.22 V of slope at every Vov and is best at exactly zero.
+
+⭐ **WHY AN EXPONENT, AND WHY THE FIT IS WELL POSED.** Three parameters, three independent
+observables, no shared leverage:
+
+- **Cutoff onset is exactly |Vp| in gate volts**, whatever gm and m are — at cutoff the device
+  passes nothing, so the source sits at −R5·Id0 and the gate must reach −(Vov + R5·Id0) = −|Vp|.
+  Every subset of the captures puts it at **1.90–2.02 V**.
+- **Small-signal curvature then pins m**: H2/H1 goes as (m−1)(m + gm·R5) / (m·|Vp|·K0²).
+- **gm is already measured**, from the rig-free mode differential.
+
+⛔ **AND THE SQUARE LAW CANNOT BE RESCUED BY MOVING gm.** Freeing gm with m pinned at 2 leaves the
+residual **36 % worse** than freeing m (RMS 1.36 dB against 1.00) and demands **K0 = 6.79 against
+P4's measured 5.126** — a 2.4 dB error in the mode plateau, seven times M6's entire unit-to-unit
+band, from a fit whose own residual is 0.03 dB. With m free, gm wants to stay within 0.04 dB of
+where it was measured. So the two are not degenerate.
+
+**⭐⭐ THE EVIDENCE THAT IT IS STRUCTURE.** Note #22 is the cautionary case: a free parameter always
+improves the observable it was fitted to, and `Vov` was once fitted confidently off a floor. Two
+things separate this:
+
+1. **Fitted on H2 at 220 Hz only**, then scored against five observables that were not fitted. All
+   five improve, and their OFFSETS go to zero rather than merely shrinking:
+
+   | observable | shipped square law | m = 1.60 | (offset / shape-RMS, dB) |
+   |---|---|---|---|
+   | H2 @220 Hz (fitted) | −8.28 / 2.55 | **+0.15 / 0.63** | |
+   | H3 @220 Hz | −11.04 / 6.29 | **+0.66 / 1.35** | a different ORDER |
+   | H2 @3150 Hz | −9.06 / 2.52 | **−0.36 / 0.62** | a 14× different FREQUENCY |
+   | H3 @3150 Hz | −11.10 / 6.39 | **−0.21 / 1.47** | |
+   | compression @220 Hz | +0.61 / 0.42 | **+0.10 / 0.09** | read on the FUNDAMENTAL |
+   | compression @3150 Hz | +0.74 / 0.44 | **+0.21 / 0.11** | |
+
+2. ⭐ **It makes the OTHER parameter agree across disjoint subsets**, which a spent degree of freedom
+   does not do. Fitting the pad-0 captures and the padded ones separately — no shared cells,
+   different knob positions, different drives:
+
+   | | pad-0 only | padded only | apart |
+   |---|---|---|---|
+   | m pinned at 2.0 | \|Vp\| = 2.237 | 2.960 | **32 %** |
+   | m free | 2.023 (m 1.65) | 1.904 (m 1.53) | **6 %** |
+
+   Across all nine subsets tried — per frequency, per pad, per volume half, per drive region, and
+   H3 alone — **m returns 1.46–1.71 and |Vp| 1.70–2.02**.
+
+📌 **The residual profiled against a PINNED m has a real minimum, not a plateau** (which is what
+`dsp.md` says to check before believing a fit): 1.4 → 1.96 dB RMS, 1.5 → 1.25, 1.55 → 1.07,
+**1.60 → 1.00**, 1.65 → 1.04, 1.7 → 1.13, 1.8 → 1.40, 2.0 → 1.98. So m is identified to ~±0.1.
+
+⚠ **WHAT THIS IS NOT.** `m` is an empirical transfer-law exponent, not a derived physics constant.
+Shichman-Hodges' m = 2 is itself an approximation to the gradual-channel solution, and real JFET
+transfer curves are routinely fitted with exponents from ~1.5 to ~2.5; this unit sits at the low
+end. **Nothing here claims to know why.** The triode branch `beta*(Vov_i^m − (Vov_i − Vds_i)^m)` is
+the unique generalisation that keeps the solve's guarantees (it reduces to Shichman-Hodges at m = 2,
+meets saturation with dI/dVds = 0 so the map stays C1, and keeps both partials non-negative so the
+root stays unique) — forced, not chosen to look smooth.
+
+#### 26a. ⭐ |Vp| REPLACES Vov AS THE PARAMETER, AND IT RETIRES NOTE #22a's TRAP BY CONSTRUCTION
+
+Self-bias gives `Vov = |Vp| / (1 + gm·R5/m)`, hence `Id0 = gm·|Vp| / (m + gm·R5)` — **bounded above
+by |Vp|/R5 however large gm gets.** Under the old (gm, Vov) parameterisation `Id0 = gm·Vov/m` grew
+without limit, which is exactly how a Vov sweep at a fixed gm walked the quiescent drain NEGATIVE
+and had an hour of renders read as a curvature measurement. ➡ **The bias point can no longer
+collapse at all**, so `OfflineRender`'s guard is belt-and-braces rather than load-bearing.
+
+⚠⚠ **AND A RECORDED CLAIM IS WRONG: THE STAGE CLIPS AT CUTOFF FIRST, NOT TRIODE.** `JfetStage`'s
+`triodeOnsetGateVolts()` solved for the gate-SOURCE drive and converted to gate volts with the
+**small-signal K0** — but at triode onset the stage is nowhere near small signal, and the real
+conversion is `vGate = w + R5·i` with the large-signal current. It read **1.691 V** where the true
+onset at the shipped drain load is ~2.4 V. 📌 **And 1.691 V is very nearly the true CUTOFF onset**
+(1.696 V under the old constants), so "triode is entered first, at −7.5 dBFS" — repeated through
+notes #16 and #22 and into the capture-session planning — was a mis-converted triode figure that
+coincided with the correct cutoff figure. Fixed, and `cutoffOnsetGateVolts()` now exists and is
+exactly `|Vp|`, with no solve at all.
+
+#### 26b. THE SOLVE: one unknown, Halley, and a bracket that was inverted
+
+The closed form is gone from production: it is exact only for a SQUARE law, where substituting the
+source one-port and the load line leaves a quadratic in the drain current. At m ≠ 2 the same
+substitution leaves a transcendental equation.
+
+⭐ **But in SATURATION the whole stage collapses to one scalar equation** in the instantaneous
+overdrive: `u + c·u^m = P` with `c = Rd·beta` and `P = Vov + vGate − vOff + Rd·Id0`, after which
+`i = (A − u)/Rd` needs no further `pow`. That function is convex and increasing for m > 1 and the
+bracket (0, P] is free. Against a 300-step bisection over −14 V to +14 V of gate drive at five
+values of Rd:
+
+| iterations | 2 | 3 | 4 |
+|---|---|---|---|
+| Newton | 9.6e-08 | 8.9e-11 | 7.6e-17 |
+| **Halley** | 6.9e-11 | **1.6e-18** | 1.6e-18 |
+
+⭐ Halley gets h, h′ and h″ out of the SAME single `pow`, so its extra order of convergence is free.
+**Three Halley steps is exact.** Two were measured and rejected: 6.9e-11 A is inaudible, but it
+costs 1 point of chain CPU to buy a solve that can be asserted at machine precision, and every
+measurement this project makes compares the model against something else.
+
+⚠⚠ **THE WORST CASE IS AT THE CUTOFF KNEE, NOT AT FULL DRIVE** — every iteration count fails worst
+at a gate of about −1.78 V, just inside cutoff, where P is small, the linear-root start is 2.3×
+above the root and h″ goes as u^(m−2) → ∞. The first version of this solve was checked over
+0.05–4.016 V and read exact.
+
+⚠⚠ **A REAL BUG, CAUGHT BY THE BISECTION ORACLE:** the triode fallback bracketed `[iSat, B/R]`,
+which is the shape the saturation branch suggests and is INVERTED whenever the saturation root
+exceeds the drain-bottomed current — which is what every loud half-cycle does. It returned `iSat`
+and the stage read **980 µA against the oracle's 458** at a 0 dBFS peak. Both ends are upper bounds;
+the bracket is `[−Id0, min(iSat, B/R)]`.
+
+⚠ **AND A TEST WAS BRIEFLY VACUOUS.** `JfetStageTest` 8c(b) sweeps an iteration count, but the fast
+solve's counts are compile-time constants, so sweeping `setSolveIters()` moved only the oracle: it
+printed 0.0000 dB in every row, which reads as a converged solve and was a test comparing the
+shipped path with itself. It now compares the shipped solve against a **different algorithm** run to
+convergence, plus a dense per-sample sweep — **and it measures that reference's OWN floor first**,
+because on this comparison the reference is the less accurate side (the generic Newton is 7e-11 A
+short at the +12 V step where the shipped solve is exact). Same asymmetric-comparison trap that
+failed a correct shelf design and a correct droop restore.
+
+📌 **CPU: 6.7–7.5 % of realtime at the 4× default and 12.8–14.4 % at 8×**, against 2.3 % for the
+square law's closed form. It is all `std::pow` — three per sample. `exp2((m−1)·log2(u))` was
+benchmarked at 6.3 ns against `pow`'s 9.2 ns, about 1.4 points of chain CPU, and NOT taken: it costs
+a digit or two of the machine-precision agreement, and `build.md`'s rule is that the profile decides.
+
+#### 26c. ⚠⚠ WHAT IT COSTS AGAINST THE OWNER'S OWN PEDAL — a voicing consequence, now measured
+
+The device parameters are measured on P4; the recorded decision voices the model to P1/P2, whose gm
+is 36 % higher. Transplanting P4's (m, |Vp|) onto their gm re-solves the bias to **Vov = 0.4328 V,
+Id0 = 420 µA, IDSS = 4.65 mA, Vds_q = 11.25 V** — every one inside the datasheet. ⭐ It is coherent
+as a PARTS BIN: one pinch-off and one exponent, with **IDSS the only thing that differs** between
+units (P1 → 4.31 mA, shipped mean → 4.65, P2 → 5.03), which is exactly what "cherry picked to
+cream-of-the-crop specs" selects on.
+
+➡ The consequence, measured over 64 probe cells (both modes, 220 and 3150 Hz, every knob position):
+
+| model | vs P4 at P4's own gm | vs P4 at the SHIPPED gm |
+|---|---|---|
+| square law, as shipped before | mean −7.96 dB, sd 2.73 | mean −3.36, sd 1.36 |
+| **m = 1.60, \|Vp\| = 1.942** | **mean −0.44 dB, sd 0.63** | **mean +1.26, sd 1.53** |
+
+**At the unit's own gm the device model is now within half a dB with a 0.63 dB scatter.** The
++1.26 dB at the shipped gm is the voicing decision, not model error: small-signal H2/H1 goes as
+(m−1)/(Vov·K0²), and moving to P1/P2's gm raises K0 while LOWERING Vov, the two partly cancelling to
+**−2.39 dB** predicted against +1.9 to +2.8 dB measured at the sub-cutoff cells.
+⚠ **NOT 4.4 dB**, which is what K0² alone gives and what a first draft of `JfetStage.h` said — that
+figure belongs to transplanting P4's *Vov* rather than its *|Vp|*, and is wrong for what was built.
+➡ Same class as BRIGHT's 6.5–10 kHz miss (note #25). **If the owner would rather the plugin match
+their own pedal's distortion, the change is one constant (`gm`) and the decision is theirs.**
+
+⭐ **Compression came along for free and was never fitted**: at 10:30, DARK, the top cell now reads
+**−0.326 dB against the pedal's −0.285** (delta +0.04) where the square law read −0.802 (delta
++0.52); at 3150 Hz the delta goes +0.51 → +0.10.
+
+#### 26d. 📌 A HARNESS FAULT: `_take2` MEANT "10 kΩ LINE INPUT", AND NOTHING SAID SO
+
+Three probe captures were named `p4_..._take2` but are the LINE-INPUT takes `output_impedance.py`
+uses to measure Zout. `find_captures()` served them to a harmonic fit as ordinary repeats of the
+same setting. They differ in three ways at once: the output network's transfer, the drain load the
+stage works against, and the recorded level (the line input needed full gain, ~31 dB down).
+⭐ **Caught only because their absolute H2 sat 31 dB from their neighbours'** — the dBc figures they
+contribute look perfectly reasonable. Renamed to `_load10k`, `parse_capture()` now returns
+`load_ohms`, and `find_captures()` **excludes non-default loads by default**, the same way it
+already excludes reference captures. ✅ `output_impedance.py` re-runs unchanged: 99.6 k / 60.7 k
+measured against 101.5 / 59.4 modelled.
+
+⚠ **And the new field must be `None`, not `float("inf")`.** Several scripts `json.dump()` the parsed
+settings dict straight into a report, and Python writes a bare `Infinity` there — which is not valid
+JSON and which `JSON.parse()` in the dashboard rejects outright. It had already put 28 of them into
+`comprehensive_data.json` before it was caught. `None` round-trips as `null`. ➡ **Anything added to
+`parse_capture()`'s return value is serialised by callers you did not write; keep it JSON-safe.**

@@ -230,7 +230,13 @@ struct JfetParams
     // 📌 Reasons 1, 2 and 4 are unchanged. ➡ The +12.2 dBu capture session settles this: it puts the
     // reference's digital levels 1:1 onto the plugin's and reaches the load-line region, so it
     // measures the clipping mechanism directly instead of inferring it from a parameter.
-    double ro = 1.4407e6; // Ohm -- 1/(lambda*Id) at lambda = 2 mV/V, with the fitted Id = 347 uA.
+    // Ohm -- 1/(lambda*Id) at lambda = 2 mV/V, with the fitted Id0 = 419 uA (was 1.4407e6 at the
+    // old structure's Id0 = 347 uA). lambda is an assumption, not a measurement; only the Id0 it is
+    // divided by moved. 📌 It is worth 0.3 % of R6 || ro (21.67 k -> 21.60 k), i.e. 0.03 dB, so it
+    // does not disturb the output impedance this was validated against (measured 99.8 k / 60.8 k
+    // against the model's 101.5 / 59.4 -- circuit.md note #22). Re-derived rather than left stale
+    // because leaving it would make the operating point internally inconsistent for no benefit.
+    double ro = 1.1921e6;
 
 
     // ============================ THE DEVICE, AS THE DEVICE (2026-09-08) ============================
@@ -277,22 +283,102 @@ struct JfetParams
     // saturation and the drain never enters the linear path. JfetStageTest 8a asserts it to 1e-11 dB.
     //
     // ONE amplitude parameter now, not five. Everything else is derived from it and the measured gm.
-    double vov = 0.4469; // V -- overdrive at the quiescent point. THE amplitude parameter.
-                         //
-                         // ⚠ STILL NOT MEASURED, and the reason has not changed: it is degenerate
-                         // 1:1 with the trainers' reamp level, and the one unit whose level IS known
-                         // (P1, -12 dBu) has nonlinear data sitting on its own floor. circuit.md note
-                         // #10 puts it near 0.150 from P1's H2 deficit; this ships the datasheet-
-                         // capped 0.447 end. What HAS changed is that applying 0.150 is no longer
-                         // blocked by this file: the truncation is gone (note #12) and the load line
-                         // is implemented (here), which were reasons 4 and 3 of the four. The
-                         // remaining two are irreducible without a calibrated capture that clears
-                         // its floor -- which the +12.2 dBu session is designed to produce.
-                         //
-                         // Derived, via the one-parameter self-bias family |Vp|/Vov = 1 + gm*R5/2:
-                         //   Id0  = gm*Vov/2      = 347 uA     beta = Id0/Vov^2 = gm/(2*Vov)
-                         //   |Vp| = 3.7956*Vov    = 1.696 V    IDSS = Id0*3.7956^2 = 5.00 mA
-                         //   Vds_q = VA - Id0*(R6 + R5) = 13.12 V
+    // ⭐⭐ MEASURED 2026-09-10 against P4's probe captures -- analysis/onset_fit.py, circuit.md
+    // note #26. These two replace the single `vov`, and BOTH the parameterisation and the exponent
+    // changed for the same reason: no member of the square-law family can describe this pedal.
+    //
+    // THE OBSERVATION. In DARK the source one-port is the bare resistor with no state, so the whole
+    // stage is MEMORYLESS and one period of gate sine through the solve IS the exact steady-state
+    // spectrum -- an oracle that reproduces this plugin at 8x oversampling to 0.01 dB. Against P4's
+    // DARK tone ladder the shipped square law leaves a residual that no `vov` removes:
+    //
+    //     cells below cutoff (curvature)       want Vov ~ 0.90 at P4's own gm
+    //     cells past cutoff  (clipping onset)  want Vov ~ 0.63 at P4's own gm
+    //
+    // A factor of 1.5 apart. That IS the "H2-versus-drive curve has the wrong SHAPE, not the wrong
+    // scale" that circuit.md note #24 recorded and could not localise.
+    //
+    // ⭐ WHY AN EXPONENT, AND WHY THE FIT IS WELL POSED RATHER THAN TWO KNOBS ON A CURVE. The three
+    // parameters are each pinned by a different, independent observable:
+    //
+    //   * CUTOFF ONSET IS EXACTLY |Vp| IN GATE VOLTS, whatever gm and m are. At cutoff the device
+    //     passes nothing, so the source sits at -R5*Id0 and the gate must reach -(Vov + R5*Id0),
+    //     which is -|Vp| by definition. Every subset of the captures puts it at 1.90-2.02 V.
+    //   * SMALL-SIGNAL CURVATURE then pins m: H2/H1 goes as (m-1)*(m + gm*R5) / (m*|Vp|*K0^2).
+    //   * gm is already measured, from the MODE differential, which is rig-free and linear.
+    //
+    // ⛔ AND THE SQUARE LAW CANNOT BE RESCUED BY MOVING gm. Freeing gm with m pinned at 2 leaves the
+    // residual 36 % worse than freeing m instead (RMS 1.36 dB against 1.00) AND demands K0 = 6.79
+    // against P4's measured 5.126 -- a 2.4 dB error in the mode plateau, seven times M6's whole
+    // unit-to-unit band, from a fit whose own residual is 0.03 dB. With m free, gm wants to stay
+    // within 0.04 dB of where it was measured.
+    //
+    // ⭐⭐ THE EVIDENCE THAT THIS IS STRUCTURE AND NOT A SPENT DEGREE OF FREEDOM. A free parameter
+    // always improves the observable it was fitted to, and this project has been caught by exactly
+    // that before (note #22's `Vov` fit off a floor, note #21's C10 at three knob positions). Two
+    // things separate them here:
+    //
+    //   1. FITTED ON H2 AT 220 Hz ONLY, then scored against five observables that were not fitted.
+    //      All five improve, and their OFFSETS go to zero rather than merely shrinking:
+    //
+    //        observable          shipped SH      m = 1.60      (offset / shape-RMS, dB)
+    //        H2 @220  (fitted)   -8.28 / 2.55   +0.15 / 0.63
+    //        H3 @220            -11.04 / 6.29   +0.66 / 1.35    a different ORDER
+    //        H2 @3150            -9.06 / 2.52   -0.36 / 0.62    a 14x different FREQUENCY
+    //        H3 @3150           -11.10 / 6.39   -0.21 / 1.47
+    //        compression @220    +0.61 / 0.42   +0.10 / 0.09    read on the FUNDAMENTAL
+    //        compression @3150   +0.74 / 0.44   +0.21 / 0.11
+    //
+    //   2. IT MAKES THE OTHER PARAMETER AGREE ACROSS DISJOINT SUBSETS, which a spent degree of
+    //      freedom does not do. Fitting the pad-0 captures and the padded ones separately -- no
+    //      shared cells, different knob positions, different drives:
+    //
+    //        m pinned at 2.0:  |Vp| = 2.237 (pad-0)  vs  2.960 (padded)   -- 32 % apart
+    //        m free:           |Vp| = 2.023          vs  1.904            --  6 % apart (m 1.65/1.53)
+    //
+    //      Across all nine subsets tried -- per frequency, per pad, per volume half, per drive
+    //      region, and H3 alone -- m returns 1.46-1.71 and |Vp| 1.70-2.02.
+    //
+    // 📌 The residual profiled against a PINNED m has a real minimum, not a plateau (which is what
+    //    dsp.md says to check before believing a fitted parameter): 1.4 -> 1.96 dB RMS, 1.5 -> 1.25,
+    //    1.55 -> 1.07, 1.60 -> 1.00, 1.65 -> 1.04, 1.7 -> 1.13, 1.8 -> 1.40, 2.0 -> 1.98. So m is
+    //    identified to about +-0.1, and Shichman-Hodges is refuted at twice the residual.
+    //
+    // ⚠ WHAT THIS IS NOT. `m` is an empirical TRANSFER-LAW exponent, not a derived physics constant.
+    // Shichman-Hodges' m = 2 is itself an approximation to the gradual-channel solution, and real
+    // JFET transfer curves are routinely fitted with exponents from ~1.5 to ~2.5; this unit lands at
+    // the low end. Nothing here claims to know why, and the triode branch below is the unique
+    // generalisation that keeps the solve's guarantees, not a physical derivation either.
+    double mExp = 1.60; // transfer-law exponent. 2.0 would be Shichman-Hodges.
+
+    // ⭐⭐ |Vp| IS THE PARAMETER NOW, NOT Vov, AND THE SWAP REMOVES A TRAP RATHER THAN RENAMING ONE.
+    // Self-bias gives Vov = |Vp| / (1 + gm*R5/m), hence Id0 = gm*|Vp| / (m + gm*R5) -- which is
+    // BOUNDED ABOVE by |Vp|/R5 however large gm gets. Under the old (gm, Vov) parameterisation
+    // Id0 = gm*Vov/m grew without limit, and that is precisely how a Vov sweep at a fixed gm walked
+    // the quiescent drain to a NEGATIVE voltage and had an hour of renders read as a curvature
+    // measurement (circuit.md note #22a). OfflineRender grew a guard for it. Parameterised on |Vp|
+    // the bias point CANNOT collapse, so that guard is now belt-and-braces rather than load-bearing.
+    //
+    // ⚠⚠ MEASURED ON P4, SHIPPED AT P1/P2's gm -- a deliberate MIXING, per CLAUDE.md's two-position
+    // block, and this is what it costs. P4 is the only unit whose harmonic data clears its own
+    // floor; the recorded decision voices the model to the newer P1/P2 units, whose gm is 36 %
+    // higher. Transplanting the device's own (m, |Vp|) onto their gm re-solves the bias to
+    // Vov = 0.4328 V, Id0 = 420 uA, IDSS = 4.65 mA, Vds_q = 11.25 V -- every one inside the
+    // datasheet. ⭐ It is coherent as a PARTS BIN: one pinch-off and one exponent, with IDSS the only
+    // thing that differs between units, which is exactly what "cherry picked to cream-of-the-crop
+    // specs" selects on. P1 implies 4.31 mA, the shipped mean 4.65, P2 5.03.
+    // ➡ The consequence is a PREDICTION, and it has been MEASURED: the model makes about 2.4 dB LESS
+    // H2 than the owner's own P4 at the same small-signal drive. Small-signal H2/H1 goes as
+    // (m-1) / (Vov * K0^2), and moving to P1/P2's gm raises K0 from 5.126 to 6.591 while LOWERING
+    // Vov from 0.5427 to 0.4321 -- the two partly cancel, leaving 20*log10(0.7597) = -2.39 dB.
+    // Measured against P4's DARK ladder at the sub-cutoff cells: +1.9 to +2.8 dB, mean +2.3.
+    // ⚠ NOT 4.4 dB, which is what K0^2 alone gives and what an earlier draft of this comment said.
+    // That figure belongs to a different transplant -- carrying P4's Vov across instead of its |Vp|
+    // -- and it is wrong for the one actually implemented, because Vov is DERIVED from gm here.
+    // Same class as BRIGHT's 6.5-10 kHz miss (circuit.md note #25), same cause: it is the recorded
+    // decision to voice the model to the newer units, not a defect.
+    double vp = 1.942; // V -- pinch-off magnitude. THE amplitude parameter.
+                       // ⭐ Cutoff onset in GATE VOLTS is exactly this number, by construction.
 
     // AC impedance at the DRAIN NODE, which is what turns drain current into drain volts and
     // therefore what sets the load line's slope.
@@ -304,14 +390,18 @@ struct JfetParams
     // value once per block (setDrainLoad), which is the same cadence VOLUME already updates at.
     double zLoad = 20.6e3; // Ohm
 
-    /** Quiescent drain current, Id0 = gm*Vov/2. */
-    double id0() const { return 0.5 * gm * vov; }
-    /** Transconductance parameter, beta = Id0/Vov^2 = gm/(2*Vov). */
-    double betaSq() const { return 0.5 * gm / vov; }
+    /** Quiescent overdrive, from the self-bias solve Vov = |Vp| - Id0*R5 with Id0 = gm*Vov/m. */
+    double vov() const { return vp / (1.0 + gm * circuit::kR5 / mExp); }
+    /** Quiescent drain current, Id0 = gm*Vov/m. Bounded above by |Vp|/R5 for ANY gm -- see `vp`. */
+    double id0() const { return gm * vov() / mExp; }
+    /** Transfer-law scale, beta = Id0/Vov^m. (The name predates the exponent; the role is the same.) */
+    double betaSq() const { return id0() / std::pow(vov(), mExp); }
     /** Quiescent drain-source voltage. The drain sinks Id0 through R6 and the source rises through R5. */
     double vdsQuiescent() const { return circuit::kVA - id0() * (circuit::kR6 + circuit::kR5); }
-    /** Pinch-off magnitude implied by the self-bias family. */
-    double vpMagnitude() const { return vov * (1.0 + 0.5 * gm * circuit::kR5); }
+    /** Pinch-off magnitude. The stored parameter now, not a derived one. */
+    double vpMagnitude() const { return vp; }
+    /** IDSS implied by the family -- the datasheet sanity check (2N5457: 1-5 mA). */
+    double idss() const { return id0() * std::pow(vp / vov(), mExp); }
 
 };
 /** MODE positions, ordered by physical lever position top-to-bottom to match the APVTS choice list
@@ -354,14 +444,33 @@ public:
 
     /** Test/probe hooks. Production never calls these. */
     void setSolveIters(int n) noexcept { solveIters = (n > 0) ? n : kSolveIters; }
+    static constexpr int shippedSolveIters() noexcept { return kSolveIters; }
 
-    /** Select the closed-form solve (production) or the safeguarded-Newton one it replaced. The
-     *  iterative path is retained ONLY as the independent oracle JfetStageTest checks the closed form
-     *  against, and as FeatureProfile's CPU comparison -- it is not a fallback and nothing selects it
-     *  at runtime. Keeping it costs a branch that predicts perfectly and buys a continuously-checked
-     *  reference implementation of the same equations, arrived at by a completely different method. */
-    void setUseClosedForm(bool shouldUseClosedForm) noexcept { useClosedForm = shouldUseClosedForm; }
-    bool closedFormIsEnabled() const noexcept { return useClosedForm; }
+    /** Which of the three solves to run. Production is always Shipped; the other two exist so a test
+     *  can check the shipped one against an implementation that shares none of its structure.
+     *
+     *  ⚠ THE ROLES SWAPPED WHEN THE EXPONENT LANDED. The closed form is exact only for the SQUARE
+     *  law -- substituting the source one-port and the load line into it leaves a quadratic in the
+     *  drain current -- and the stage ships m = 1.60, where the same substitution leaves a
+     *  transcendental equation. So the closed form is now the m = 2 reference and the fast
+     *  power-law solve is production. GenericNewton is the safeguarded Newton over the composite
+     *  piecewise map, kept as the converged oracle both are checked against. */
+    enum class Solver
+    {
+        Shipped,             // closed form at m == 2, otherwise solvePowerLaw()
+        ClosedFormSquareLaw, // force the closed form; only meaningful at m == 2
+        GenericNewton        // solveIterative(), run at setSolveIters()
+    };
+
+    void setSolver(Solver s) noexcept { solver = s; }
+    Solver getSolver() const noexcept { return solver; }
+
+    /** Back-compatible spelling: false selects the generic Newton oracle, true the shipped path. */
+    void setUseClosedForm(bool shouldUseClosedForm) noexcept
+    {
+        solver = shouldUseClosedForm ? Solver::Shipped : Solver::GenericNewton;
+    }
+    bool closedFormIsEnabled() const noexcept { return solver != Solver::GenericNewton; }
     void sourcePortCoeffs(double& rd, double& c1, double& c2) const noexcept
     {
         rd = srcRd; c1 = srcC1; c2 = srcC2;
@@ -436,13 +545,24 @@ public:
      *  previous sample is far worse. */
     inline double solveDrain(double vGate) noexcept
     {
-        const double i = useClosedForm ? solveClosedForm(vGate) : solveIterative(vGate);
+        // ⚠⚠ THE CLOSED FORM IS EXACT ONLY FOR m == 2, AND THE STAGE NO LONGER SHIPS m == 2.
+        // Substituting the source one-port and the load line into a SQUARE law leaves a quadratic in
+        // i with an algebraic root; at any other exponent it leaves a transcendental equation and
+        // there is nothing to solve in closed form. So the roles of the two solvers have swapped:
+        // the safeguarded Newton is production, and solveClosedForm() is retained as the independent
+        // oracle JfetStageTest checks it against at m = 2 -- which is still worth keeping, because
+        // it is the same equations reached by a completely different method.
+        const double i = (solver == Solver::GenericNewton)      ? solveIterative(vGate)
+                       : (solver == Solver::ClosedFormSquareLaw
+                          || params.mExp == 2.0)                  ? solveClosedForm(vGate)
+                                                                  : solvePowerLaw(vGate);
 
         const double vs = srcRd * i + srcOffset();
         lastVds = params.vdsQuiescent() - i * params.zLoad - vs;
         lastW = vGate - vs;
         double dV = 0.0, dD = 0.0;
-        const double resid = i - (deviceCurrent(params.vov + lastW, lastVds, params.betaSq(), dV, dD)
+        const double resid = i - (deviceCurrent(params.vov() + lastW, lastVds, params.betaSq(),
+                                                params.mExp, dV, dD)
                                   - params.id0());
         // Reported in AMPS OF CURRENT ERROR, not as the raw residual: dF/di runs to ~40 here, so the
         // bare residual overstates the error by that factor and reads alarming when the answer is exact.
@@ -486,7 +606,7 @@ public:
     {
         const double rd = srcRd;
         const double off = srcOffset();
-        const double vov = params.vov;
+        const double vov = params.vov();
         const double beta = params.betaSq();
         const double id0 = params.id0();
         const double A = vov + vGate - off;
@@ -549,12 +669,155 @@ public:
         return -id0;
     }
 
+    /** ⭐⭐ THE PRODUCTION SOLVE at the shipped exponent: ONE unknown in the common case, and it is
+     *  the CHANGE OF VARIABLE that makes it cheap rather than any tuning.
+     *
+     *  Newton on the drain current over the composite piecewise map -- which is what solveIterative()
+     *  below does, and what shipped first here -- needs eight iterations, because dF/di runs from 1
+     *  in cutoff to ~40 in strong saturation and the safeguarded step has to bisect its way across
+     *  that. But in SATURATION the whole stage collapses to a single scalar equation in the
+     *  instantaneous overdrive u = Vov_i. Substituting the source one-port vs = Rd*i + vOff and
+     *  i = beta*u^m - Id0 into u = Vov + vGate - vs gives
+     *
+     *      u + c*u^m = P,      c = Rd*beta,     P = Vov + vGate - vOff + Rd*Id0
+     *
+     *  and then i = (A - u)/Rd with A = Vov + vGate - vOff, which needs NO further pow.
+     *
+     *  ⭐ That function is convex and strictly increasing for m > 1, and the bracket (0, P] is free
+     *  -- h(0) = -P < 0 and h(P) = c*P^m > 0. Measured from the linear-root start, worst relative
+     *  error over gate drives from 0.05 V to 4.016 V and over Rd from 3600 ohm (Dark) down to
+     *  55 ohm (Bright at 384 kHz):
+     *
+     *  Measured against a 300-step bisection of the same equations, over gate drives from -14 V to
+     *  +14 V at five values of Rd from 3600 ohm (Dark) down to 55 ohm (Bright at 384 kHz), worst
+     *  absolute error in the drain current:
+     *
+     *      iterations       2          3          4
+     *      Newton           9.6e-08    8.9e-11    7.6e-17
+     *      Halley           6.9e-11    1.6e-18    1.6e-18
+     *
+     *  ⭐ THREE HALLEY STEPS IS EXACT -- 1.6e-18 A is rounding -- against the generic solve's eight
+     *  Newton steps on a harder problem. Both methods cost one std::pow per iteration, and Halley
+     *  gets h, h' and h'' out of that same pow, so its extra order of convergence is free.
+     *
+     *  📌 Two Halley steps were measured and rejected: 6.9e-11 A is 135 dB below the quiescent
+     *  current and inaudible by any measure, but it costs 1 percentage point of chain CPU at the 4x
+     *  default (5.3 % against 6.3 %) to buy an EXACT solve, and every measurement this project makes
+     *  compares the model against something else. A model that answers its own equations exactly can
+     *  be asserted at machine precision, so a future structural error shows up immediately instead
+     *  of hiding inside a tolerance that had to be justified.
+     *
+     *  📌 CPU, measured, so it does not have to be re-derived: this solve costs 6.7-7.5 % of
+     *  realtime at the 4x default and 12.8-14.4 % at 8x, against 2.3 % for the square law's closed
+     *  form. It is all std::pow -- three per sample. Replacing them with exp2((m-1)*log2(u)) was
+     *  benchmarked at 6.3 ns against pow's 9.2 ns, i.e. about 1.4 points of chain CPU, and NOT
+     *  taken: it costs a digit or two of the machine-precision agreement above, and build.md's rule
+     *  is that FeatureProfile decides what to optimise. At 7 % it does not flag this.
+     *
+     *  ⚠⚠ AND THE WORST CASE IS AT THE CUTOFF KNEE, NOT AT FULL DRIVE. Every iteration count above
+     *  fails worst at a gate of about -1.78 V, just inside cutoff (|Vp| = 1.942 V), where P is small,
+     *  the linear-root start is 2.3x above the root, and h'' goes as u^(m-2) -> infinity. A sweep
+     *  that probes only loud inputs will not find it: the first version of this solve was checked at
+     *  0.05-4.016 V and read exact.
+     *
+     *  ⚠ P <= 0 IS CUTOFF AND MUST BE TESTED FIRST. It is not an edge case -- it is what every loud
+     *  negative half-cycle does, and the scalar equation has no positive root there at all.
+     *
+     *  Triode falls back to a safeguarded Newton on i, because there the drain voltage is a second
+     *  coupled unknown and the collapse above does not happen. It is worth leaving generic: triode
+     *  is empty at ordinary playing levels and is entered for at most ~20 % of a period even at
+     *  0 dBFS into the largest drain load. */
+    inline double solvePowerLaw(double vGate) noexcept
+    {
+        const double rd = srcRd;
+        const double off = srcOffset();
+        const double vov = params.vov();
+        const double id0 = params.id0();
+        const double beta = params.betaSq();
+        const double m = params.mExp;
+        const double zl = params.zLoad;
+
+        const double A = vov + vGate - off;
+        const double P = A + rd * id0;
+        if (P <= 0.0) // cutoff: the device passes nothing, whatever the drain is doing
+            return -id0;
+
+        const double B = params.vdsQuiescent() - off;
+        const double R = zl + rd;
+
+        // --- saturation, the common case: one unknown, u + c*u^m = P ---------------------------
+        const double c = rd * beta;
+        double u = A - rd * (params.gm * (vGate - off) / (1.0 + params.gm * rd)); // linear root
+        if (!(u > 0.0) || u > P)
+            u = 0.5 * P; // only reachable from a pathological start; the bracket is (0, P]
+        for (int n = 0; n < kSatIters; ++n)
+        {
+            // ⭐ HALLEY, not Newton, and it is free: h, h' and h'' all come out of the SAME single
+            // std::pow, so a cubically-convergent step costs exactly what a quadratic one does.
+            // Two Halley steps reach the same accuracy as three Newton steps (worst relative error
+            // 1.2e-12 against 7.3e-12 over the whole drive range and both extremes of Rd), and the
+            // pow count is what the solve costs: measured 6.29 % -> 5.29 % of realtime at the 4x
+            // default, 13.33 % -> 11.61 % at 8x.
+            const double up = std::pow(u, m - 1.0);
+            const double h = u + c * u * up - P;
+            const double hp = 1.0 + c * m * up;
+            const double hpp = c * m * (m - 1.0) * up / u;
+            const double den = 2.0 * hp * hp - h * hpp;
+            // ⚠ Halley's denominator is not sign-definite the way Newton's h' >= 1 is, so fall back
+            // to the Newton step rather than dividing by something near zero. h'' > 0 and h' >= 1,
+            // so this can only trigger for a large positive h, i.e. a start far above the root.
+            u -= (den > 0.0) ? (2.0 * h * hp / den) : (h / hp);
+            if (!(u > 0.0))
+                u = 0.5 * P;
+            else if (u > P)
+                u = P;
+        }
+        const double iSat = (A - u) / rd;
+        if (B - R * iSat >= u) // Vds_i >= Vov_i: saturation is the valid branch
+            return iSat;
+
+        // --- triode ---------------------------------------------------------------------------
+        // F(i) = i + Id0 - beta*(u^m - w^m),  u = A - Rd*i,  w = u - Vds_i = (A - B) + zLoad*i.
+        // F is strictly increasing (both partials of the law are non-negative), so the root is
+        // unique and the bracket is free.
+        //
+        // ⚠⚠ BOTH ENDS OF THE BRACKET ARE UPPER BOUNDS AND THE SATURATION ROOT IS ONE OF THEM. In
+        // triode the device passes LESS than the saturation law would at the same overdrive, so the
+        // true root lies BELOW iSat -- and below B/R, where the drain has bottomed and the current
+        // is zero. Taking [iSat, B/R] as the bracket, which is the shape the saturation branch
+        // suggests, is inverted whenever iSat > B/R, which is exactly what a loud half-cycle does:
+        // it returned iSat and the stage read 980 uA against the oracle's 458 at a 0 dBFS peak.
+        // Caught by section 6, which solves the same circuit by bisection.
+        double lo = -id0, hi = (iSat < B / R) ? iSat : B / R;
+        if (!(hi > lo))
+            hi = lo + 1.0e-9;
+        double i = 0.5 * (lo + hi);
+        for (int n = 0; n < kTriodeIters; ++n)
+        {
+            const double uu = A - rd * i;
+            const double w = (A - B) + zl * i;
+            if (!(uu > 0.0))
+                return -id0;
+            const double wc = (w > 0.0) ? w : 0.0;
+            const double upow = std::pow(uu, m - 1.0);
+            const double wpow = (wc > 0.0) ? std::pow(wc, m - 1.0) : 0.0;
+            const double f = i + id0 - beta * (uu * upow - wc * wpow);
+            (f > 0.0 ? hi : lo) = i;
+            const double next = i - f / (1.0 + beta * m * (rd * upow + zl * wpow));
+            // ⚠ NON-STRICT, for the reason solveIterative() records: the root sits exactly ON a
+            // bracket end whenever the drain bottoms, which is what loud half-cycles do, and strict
+            // tests reject a converged iterate and bisect away from the answer.
+            i = (next >= lo && next <= hi) ? next : 0.5 * (lo + hi);
+        }
+        return i;
+    }
+
     inline double solveIterative(double vGate) noexcept
     {
         const double rd = srcRd;
         const double off = srcOffset();
         const double gm = params.gm;
-        const double vov = params.vov;
+        const double vov = params.vov();
         const double beta = params.betaSq();
         const double id0 = params.id0();
         const double vdsQ = params.vdsQuiescent();
@@ -589,7 +852,7 @@ public:
             const double vovI = vov + (vGate - vs);
             const double vdsI = vdsQ - i * zl - vs;
             double dIdVov = 0.0, dIdVds = 0.0;
-            const double I = deviceCurrent(vovI, vdsI, beta, dIdVov, dIdVds);
+            const double I = deviceCurrent(vovI, vdsI, beta, params.mExp, dIdVov, dIdVds);
             const double f = i - (I - id0);
 
             (f > 0.0 ? hi : lo) = i; // F increases, so a positive residual puts the root to the left
@@ -620,26 +883,39 @@ public:
      *  operation (the solve settles where the two curves meet, which is above it), but the clamp
      *  keeps the triode parabola on its monotone side during Newton's intermediate iterates, where
      *  nothing physical constrains the trial value. */
-    static inline double deviceCurrent(double vovInst, double vdsInst, double beta,
+    static inline double deviceCurrent(double vovInst, double vdsInst, double beta, double m,
                                        double& dIdVov, double& dIdVds) noexcept
     {
-        if (vovInst <= 0.0) // cutoff -- and the parabola meets zero WITH zero slope, so this is C1
+        if (vovInst <= 0.0) // cutoff -- the law meets zero WITH zero slope for m > 1, so this is C1
         {
             dIdVov = 0.0;
             dIdVds = 0.0;
             return 0.0;
         }
         const double vds = (vdsInst > 0.0) ? vdsInst : 0.0;
-        if (vds >= vovInst) // saturation
+        const double uPow = std::pow(vovInst, m - 1.0); // one pow; u^m is u * u^(m-1)
+        if (vds >= vovInst)                             // saturation
         {
-            dIdVov = 2.0 * beta * vovInst;
+            dIdVov = m * beta * uPow;
             dIdVds = 0.0;
-            return beta * vovInst * vovInst;
+            return beta * vovInst * uPow;
         }
-        // triode
-        dIdVov = 2.0 * beta * vds;
-        dIdVds = (vdsInst > 0.0) ? 2.0 * beta * (vovInst - vds) : 0.0;
-        return beta * (2.0 * vovInst * vds - vds * vds);
+        // Triode. I = beta*(Vov_i^m - (Vov_i - Vds_i)^m).
+        //
+        // ⭐ This is the ONLY generalisation of Shichman-Hodges' triode branch that keeps every
+        // property the solve leans on, and it is forced rather than chosen:
+        //   * at m = 2 it expands to exactly beta*(2*Vov_i*Vds_i - Vds_i^2), the shipped expression;
+        //   * at the boundary Vds_i = Vov_i it meets the saturation value with dI/dVds = 0, so the
+        //     composite map stays C1 and there is no corner for oversampling to alias off;
+        //   * both partials stay non-negative (w = Vov_i - Vds_i <= Vov_i, so u^(m-1) >= w^(m-1)),
+        //     which is what makes F strictly increasing and the root unique -- the guarantee the
+        //     safeguarded Newton below is built on.
+        // It is not a smooth-looking interpolation picked to fit.
+        const double w = vovInst - vds;
+        const double wPow = std::pow(w, m - 1.0);
+        dIdVov = m * beta * (uPow - wPow);
+        dIdVds = (vdsInst > 0.0) ? m * beta * wPow : 0.0;
+        return beta * (vovInst * uPow - w * wPow);
     }
 
     /** Instantaneous drain-source voltage and effective gate-source drive at the last solved sample.
@@ -649,26 +925,48 @@ public:
     double lastDrainSourceVolts() const noexcept { return lastVds; }
     double lastGateDrive() const noexcept { return lastW; }
 
-    /** Gate swing at which the drain enters triode, i.e. where the load line meets the device curve.
-     *  Solved directly rather than measured: Vds_q - i*(zLoad + R5) = Vov + w with i = gm*w at the
-     *  boundary's small-signal slope is not exact, so this iterates the real pair. */
+    /** Gate swing at which the drain enters TRIODE -- where the load line meets the device curve.
+     *
+     *  ⚠⚠ THIS USED TO REPORT THE ANSWER IN THE WRONG UNITS, and the wrong number is on the record.
+     *  It solved for the gate-SOURCE drive w and then converted to gate volts by multiplying by the
+     *  SMALL-SIGNAL K0 -- but at triode onset the stage is nowhere near small signal, and the real
+     *  conversion is vGate = w + R5*i with i the large-signal current. The old form read 1.691 V
+     *  where the true onset at the shipped drain load is about 2.4 V.
+     *  📌 And 1.691 V is very nearly the CUTOFF onset (1.696 V under the old constants), so the
+     *  recorded claim "triode is entered first, at -7.5 dBFS" was a mis-converted triode figure that
+     *  coincided with the correct cutoff figure. Cutoff is entered first, at every VOLUME position.
+     *  Bisected on the real pair, and returned in GATE VOLTS. */
     double triodeOnsetGateVolts() const
     {
-        const double vov = params.vov, id0 = params.id0(), beta = params.betaSq();
-        // Vds - Vov_i is monotone decreasing in w, so bisect rather than iterate a damped map.
+        const double id0 = params.id0(), beta = params.betaSq(), m = params.mExp;
         auto slack = [&](double w) {
-            const double vovI = vov + w;
-            const double i = beta * vovI * vovI - id0;
-            return params.vdsQuiescent() - i * (params.zLoad + circuit::kR5) - i * 0.0 - vovI;
+            const double vovI = params.vov() + w;
+            const double i = beta * std::pow(vovI, m) - id0;
+            const double vs = circuit::kR5 * i;
+            return (params.vdsQuiescent() - i * params.zLoad - vs) - vovI;
         };
-        double lo = 0.0, hi = 5.0;
+        // Vds - Vov_i decreases monotonically in w. Report infinity when the drain never gets there,
+        // which is what a small drain load (VOLUME near its stop) actually does.
+        if (slack(20.0) > 0.0)
+            return std::numeric_limits<double>::infinity();
+        double lo = 0.0, hi = 20.0;
         for (int n = 0; n < 200; ++n)
         {
-            const double m = 0.5 * (lo + hi);
-            (slack(m) > 0.0 ? lo : hi) = m;
+            const double mid = 0.5 * (lo + hi);
+            (slack(mid) > 0.0 ? lo : hi) = mid;
         }
-        return 0.5 * (lo + hi) * degenerationDC();
+        const double w = 0.5 * (lo + hi);
+        const double i = beta * std::pow(params.vov() + w, m) - id0;
+        return w + circuit::kR5 * i;
     }
+
+    /** Gate swing at which the device reaches CUTOFF, in gate volts.
+     *
+     *  ⭐ It is exactly |Vp|, with no solve and no dependence on gm, on m, or on the drain load. At
+     *  cutoff the device passes nothing, so the source sits at -R5*Id0 and the gate has to reach
+     *  -(Vov + R5*Id0) = -|Vp| by the definition of the self-bias point. That is what makes |Vp| the
+     *  parameter the captures measure directly rather than infer (see JfetParams::vp). */
+    double cutoffOnsetGateVolts() const { return params.vp; }
 
     /** Drain Norton impedance, R6 || ro. Stamped into OutputNetwork, never applied here.
      *  ro*k(s) is frequency dependent in principle, but ro (1.44 MOhm at the fitted Id) is 65x R6, so
@@ -893,8 +1191,14 @@ private:
     // deep in triode -- which is exactly where the solve is hardest and where a cheaper count would
     // have been wrong by 10 dB while looking fine everywhere else.
     static constexpr int kSolveIters = 8;
+
+    // Iterations for the production (power-law) solve. Both are set on MEASURED convergence, not on
+    // a residual: see solvePowerLaw()'s table for saturation, and JfetStageTest 8c(b), which scores
+    // the count on H2/H3 against a 40-iteration reference at a 0 dBFS peak deep in triode.
+    static constexpr int kSatIters = 3;
+    static constexpr int kTriodeIters = 8;
     int solveIters = kSolveIters;
-    bool useClosedForm = true;
+    Solver solver = Solver::Shipped;
 
     // Operating point at the last solved sample, for tests and probes only.
     double lastVds = 0.0, lastW = 0.0;

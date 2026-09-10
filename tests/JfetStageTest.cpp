@@ -123,8 +123,12 @@ int main()
     std::printf("  tau: bright %.2f us (zero %.0f Hz), mid %.2f us (zero %.0f Hz)\n",
                 params.tauBright * 1.0e6, 1.0 / (2.0 * M_PI * params.tauBright),
                 params.tauMid * 1.0e6, 1.0 / (2.0 * M_PI * params.tauMid));
-    std::printf("  Vov = %.4f V, so the square law's own scale is %.3f V of gate swing\n",
-                params.vov, params.vov * (1.0 + params.gm * circuit::kR5));
+    std::printf("  transfer-law exponent m = %.3f (2.0 would be Shichman-Hodges)\n", params.mExp);
+    std::printf("  |Vp| = %.4f V -- the amplitude parameter, AND exactly the cutoff onset in gate V\n",
+                params.vp);
+    std::printf("  implied: Vov %.4f V, Id0 %.1f uA, IDSS %.3f mA, Vds_q %.3f V (Vds_q/Vov %.1f)\n",
+                params.vov(), params.id0() * 1.0e6, params.idss() * 1.0e3, params.vdsQuiescent(),
+                params.vdsQuiescent() / params.vov());
 
     // 1. The shelf, per mode. Normalise by gm so the numbers are the 1/k(s) response itself.
     //    DC must sit at 1/K0 and HF must reach unity: the degeneration is fully bypassed above the
@@ -323,18 +327,25 @@ int main()
     if (stepOut >= 0.0)
         fail("stage does not invert -- a common-source stage must");
 
-    // 3. Even dominance, measured through the stage rather than on a bare shaper. A JFET is square
-    //    law, so H2 must sit well above H3, and the separation must FALL as drive rises (the cubic
-    //    the feedback loop makes grows faster than the quadratic). Probed in units of Vov, since that
-    //    is the device's own scale: at a 0 dBFS input the stage sees w ~ 0.24*Vov.
+    // 3. Even dominance, measured through the stage rather than on a bare shaper. The transfer law
+    //    is a power law with 1 < m < 2, so its leading curvature is EVEN: H2 must sit well above H3,
+    //    and the separation must FALL as drive rises (the cubic the feedback loop makes grows faster
+    //    than the quadratic).
+    //
+    //    ⚠⚠ PROBED IN UNITS OF |Vp|, THE CUTOFF ONSET -- NOT of Vov*K0. Even dominance is a
+    //    SMALL-SIGNAL property and this is the assertion that checks it, so the probe has to stay
+    //    below the clipping onset. Cutoff onset in gate volts is exactly |Vp| (JfetParams::vp), and
+    //    the old probe at 0.75*Vov*K0 sat ABOVE it -- so it was reading a hard-clipped stage, where
+    //    H3 overtaking H2 is the correct answer rather than a fault. Section 4 below is what tests
+    //    the clipping region, and it asserts the opposite ordering on purpose.
     {
-        std::printf("\nHarmonic structure (square-law signature), probed in units of Vov:\n");
+        std::printf("\nHarmonic structure (power-law signature), probed in units of |Vp|:\n");
         stage.setMode(dsp::Mode::Dark);
         stage.prepare(kFs);
         double lastSep = 1.0e9;
         for (const double frac : { 0.25, 0.50, 0.75 })
         {
-            const double amp = frac * params.vov * k0; // gate volts giving w ~ frac*Vov
+            const double amp = frac * params.vp; // gate volts, as a fraction of the cutoff onset
             constexpr int kN = 8192;
             double a[4] = {}, b[4] = {};
             stage.reset();
@@ -354,7 +365,7 @@ int main()
             for (int k = 1; k <= 3; ++k)
                 h[k] = std::hypot(a[k], b[k]);
             const double h2 = db(h[2] / h[1]), h3 = db(h[3] / h[1]);
-            std::printf("  A = %.2f*Vov at the gate (%.3f V):  H2 %7.2f dBc,  H3 %7.2f dBc,  sep %5.2f dB\n",
+            std::printf("  A = %.2f*|Vp| at the gate (%.3f V):  H2 %7.2f dBc,  H3 %7.2f dBc,  sep %5.2f dB\n",
                         frac, amp, h2, h3, h2 - h3);
             if (h2 <= h3)
                 fail("H3 has overtaken H2 -- a square-law device cannot do that");
@@ -378,10 +389,9 @@ int main()
         std::printf("\n4. Operating point and the load line:\n");
         stage.setMode(dsp::Mode::Dark);
         stage.prepare(kFs);
-        std::printf("    Id0 %.1f uA | Vds_q %.3f V | |Vp| %.4f V | IDSS %.2f mA | zLoad %.1f k\n",
+        std::printf("    Id0 %.1f uA | Vds_q %.3f V | |Vp| %.4f V | IDSS %.3f mA | zLoad %.1f k\n",
                     params.id0() * 1.0e6, params.vdsQuiescent(), params.vpMagnitude(),
-                    params.id0() * std::pow(1.0 + 0.5 * params.gm * circuit::kR5, 2.0) * 1.0e3,
-                    params.zLoad / 1.0e3);
+                    params.idss() * 1.0e3, params.zLoad / 1.0e3);
 
         const double onset = stage.triodeOnsetGateVolts();
         std::printf("    drain enters triode at a %.3f V gate swing\n", onset);
@@ -390,7 +400,11 @@ int main()
 
         // The channel ceiling must be far ABOVE the load line's, or the load line is not the binding
         // constraint and this whole section is measuring the wrong thing.
-        const double iChannel = params.id0() * (std::pow(1.0 + 0.5 * params.gm * circuit::kR5, 2.0) - 1.0);
+        // IDSS is the channel's own ceiling; the extra current available above the quiescent point
+        // is IDSS - Id0. ⚠ Computed from JfetParams::idss() rather than re-derived here: the
+        // exponent made the old inline (1 + gm*R5/2)^2 expression wrong by 30 % and it printed a
+        // confident number (6.04 mA against the true 4.64) right beside the header's correct one.
+        const double iChannel = params.idss() - params.id0();
         const double iLoad = params.vdsQuiescent() / (params.zLoad + circuit::kR5);
         std::printf("    current ceiling: load line %.0f uA vs the channel's %.0f uA (%.1fx tighter)\n",
                     iLoad * 1.0e6, iChannel * 1.0e6, iChannel / iLoad);
@@ -406,7 +420,7 @@ int main()
             double y = 0.0;
             for (int n = 0; n < 64; ++n)
                 y = stage.processSample(vg);
-            const double vovI = params.vov + stage.lastGateDrive();
+            const double vovI = params.vov() + stage.lastGateDrive();
             const char* region = (vovI <= 0.0) ? "CUTOFF"
                                : (stage.lastDrainSourceVolts() < vovI ? "TRIODE" : "saturation");
             std::printf("    %10.3f %11.2f %9.4f %9.3f %s\n", vg, -y * 1.0e6, stage.lastGateDrive(),
@@ -453,7 +467,8 @@ int main()
         stage.setMode(dsp::Mode::Dark);
         stage.prepare(kFs);
 
-        const double vov = params.vov, id0 = params.id0(), beta = params.betaSq();
+        const double vov = params.vov(), id0 = params.id0(), beta = params.betaSq();
+        const double m = params.mExp;
         const double vdsQ = params.vdsQuiescent(), zl = params.zLoad;
         auto oracle = [&](double vg) {
             auto residual = [&](double i) {
@@ -466,9 +481,9 @@ int main()
                 if (vovI <= 0.0)
                     I = 0.0;
                 else if (vds >= vovI)
-                    I = beta * vovI * vovI;
+                    I = beta * std::pow(vovI, m);
                 else
-                    I = beta * (2.0 * vovI * vds - vds * vds);
+                    I = beta * (std::pow(vovI, m) - std::pow(vovI - vds, m));
                 return i - (I - id0);
             };
             double lo = -id0, hi = vdsQ / (zl + circuit::kR5);
@@ -482,7 +497,10 @@ int main()
 
         std::printf("    %10s %13s %13s %10s\n", "gate V", "stage (uA)", "oracle (uA)", "err");
         double worst = 0.0;
-        for (const double vg : { 0.05, 0.197, 0.783, 1.5, 2.0, 3.0, 4.016, -0.5, -2.0 })
+        // ⚠ 12 V is in the list on purpose: it is the step 8c uses, far past any real input, and it
+        // is where the shipped solve and a generic Newton were seen to differ by 7e-11 A. Only a
+        // bisection can say which of the two is right there.
+        for (const double vg : { 0.05, 0.197, 0.783, 1.5, 2.0, 3.0, 4.016, 12.0, -0.5, -2.0 })
         {
             stage.reset();
             double y = 0.0;
@@ -668,37 +686,44 @@ int main()
             fail("DARK must collapse the port to the bare resistor R5 with no state at all");
     }
 
-    // 8c. ⭐⭐ THE CLOSED-FORM SOLVE AGAINST THE SAFEGUARDED NEWTON IT REPLACED.
+    // 8c. ⭐⭐ THE SOLVE, ON TWO AXES -- and which one is load-bearing SWAPPED when the exponent
+    //     landed. Shichman-Hodges is piecewise QUADRATIC in the drain current once the source
+    //     one-port and the load line are substituted in, so it has an exact algebraic root and the
+    //     stage did no iteration at all. A transfer law with m != 2 leaves a transcendental
+    //     equation: there is nothing to solve in closed form, and production is the safeguarded
+    //     Newton. So:
     //
-    //     Shichman-Hodges is piecewise quadratic and both the source one-port and the load line are
-    //     linear in the drain current, so every branch has an exact algebraic root -- the stage does
-    //     no iteration at all. The iterative solve is kept solely as the oracle checked here: it
-    //     reaches the same answer by a completely different method, so neither can inherit the
-    //     other's bug, and it is run to 40 iterations so it is the converged one.
+    //       (a) at m = 2 the closed form must still agree with an independent 40-iteration Newton.
+    //           This is the original test and it is kept because it still earns its keep -- the
+    //           first port of the closed form returned only the cancellation-stable SMALL root of
+    //           each quadratic, which holds only while b < 0, and b flips sign at about -0.53 V of
+    //           gate drive; below that the stage fell through to cutoff and returned -Id0 for every
+    //           sample, a 0.9 mA error on a 0.35 mA quiescent current.
     //
-    //     ⚠⚠ THIS TEST EARNED ITS KEEP IMMEDIATELY. The first port of the closed form returned only
-    //     the cancellation-stable SMALL root of each quadratic, on the reasoning that the physical
-    //     root is the small one. That holds only while b < 0, and b flips sign at about -0.53 V of
-    //     gate drive -- below which the stage fell through to the cutoff branch and returned -Id0 for
-    //     every sample, a 0.9 mA error on a 0.35 mA quiescent current. Selection is by each branch's
-    //     own physical validity condition now, never by magnitude.
+    //       (b) at the SHIPPED exponent the shipped iteration count must be converged. This is now
+    //           the one that guards production, and it is asserted on HARMONICS rather than on the
+    //           raw disagreement, for the reason section 8c already knew: the worst RELATIVE
+    //           disagreement lands where the true current passes through zero and reads alarming
+    //           when the answer is inaudible.
     {
-        std::printf("\n8c. Closed form vs a 40-iteration safeguarded Newton on the same equations:\n");
+        std::printf("\n8c(a). m = 2: closed form vs a 40-iteration safeguarded Newton:\n");
         std::printf("    %-8s %-8s %14s %14s\n", "rate", "mode", "worst rel", "worst abs A");
+        auto square = params;
+        square.mExp = 2.0;
         double worstRel = 0.0, worstAbs = 0.0;
         for (const double fs : { 48000.0, 192000.0, 384000.0 })
         {
             for (const auto m : { dsp::Mode::Bright, dsp::Mode::Dark, dsp::Mode::Mid })
             {
                 dsp::JfetStage closed, iter;
-                closed.setParams(params);
-                iter.setParams(params);
+                closed.setParams(square);
+                iter.setParams(square);
                 closed.setMode(m);
                 iter.setMode(m);
                 closed.prepare(fs);
                 iter.prepare(fs);
-                closed.setUseClosedForm(true);
-                iter.setUseClosedForm(false);
+                closed.setSolver(dsp::JfetStage::Solver::ClosedFormSquareLaw);
+                iter.setSolver(dsp::JfetStage::Solver::GenericNewton);
                 iter.setSolveIters(40);
 
                 double wr = 0.0, wa = 0.0;
@@ -726,6 +751,134 @@ int main()
         // the signal is small.
         if (worstRel > 1.0e-8 || worstAbs > 1.0e-12)
             fail("the closed-form solve disagrees with an independent solve of the same equations");
+
+        // (b) Convergence at the shipped exponent, scored on H2/H3 against a 40-iteration reference.
+        // ⚠⚠ THE SHIPPED SOLVE MUST BE COMPARED AGAINST A DIFFERENT ALGORITHM, NOT AGAINST ITSELF
+        // AT A DIFFERENT ITERATION COUNT. solvePowerLaw()'s counts are compile-time constants, so
+        // sweeping setSolveIters() moves only the generic oracle -- an earlier cut of this section
+        // swept it on both sides and printed 0.0000 dB in every row, which reads as a converged
+        // solve and is actually a test comparing the shipped path with itself.
+        std::printf("\n8c(b). m = %.2f: the SHIPPED solve vs a %d-iteration generic Newton on the\n"
+                    "       composite map -- a different algorithm, run to convergence. Worst over\n"
+                    "       3 modes (DARK at 48 kHz, BRIGHT at 384 kHz -- Rd falls 65x between them,\n"
+                    "       so they bracket the conditioning), at a 0 dBFS peak deep in triode:\n",
+                    params.mExp, 40);
+        std::printf("    %6s %12s %12s %12s\n", "iters", "H2 err dB", "H3 err dB", "gate 4.016 V");
+        double shippedWorst = 0.0;
+        for (const int iters : { 40 })
+        {
+            double wh2 = 0.0, wh3 = 0.0;
+            for (const double fs : { 48000.0, 384000.0 })
+            {
+                for (const auto md : { dsp::Mode::Bright, dsp::Mode::Dark, dsp::Mode::Mid })
+                {
+                    double h[2][4] = {};
+                    for (int which = 0; which < 2; ++which)
+                    {
+                        dsp::JfetStage st;
+                        st.setParams(params);
+                        st.setMode(md);
+                        st.prepare(fs);
+                        st.setSolver(which == 0 ? dsp::JfetStage::Solver::Shipped
+                                                : dsp::JfetStage::Solver::GenericNewton);
+                        st.setSolveIters(iters);
+                        const int kN = (int) (fs / 220.0) * 16;
+                        double a[4] = {}, b[4] = {};
+                        for (int n = -2048; n < kN; ++n)
+                        {
+                            const double t = 2.0 * M_PI * 220.0 * (double) n / fs;
+                            const double y = st.processSample(4.016 * std::sin(t));
+                            if (n < 0)
+                                continue;
+                            for (int q = 1; q < 4; ++q)
+                            {
+                                a[q] += y * std::cos(q * t);
+                                b[q] += y * std::sin(q * t);
+                            }
+                        }
+                        for (int q = 1; q < 4; ++q)
+                            h[which][q] = std::sqrt(a[q] * a[q] + b[q] * b[q]);
+                    }
+                    wh2 = std::max(wh2, std::abs(db(h[0][2] / h[0][1]) - db(h[1][2] / h[1][1])));
+                    wh3 = std::max(wh3, std::abs(db(h[0][3] / h[0][1]) - db(h[1][3] / h[1][1])));
+                }
+            }
+            std::printf("    %6d %12.4f %12.4f %12s\n", iters, wh2, wh3, "<- SHIPPED vs it");
+            shippedWorst = std::max(wh2, wh3);
+        }
+        // 4.016 V is a 0 dBFS peak at the shipped kInputRef, i.e. the loudest ordinary signal, and it
+        // is deep in triode -- where the solve is hardest. 0.01 dB there is 40 dB below the capture
+        // floor any of this is compared against.
+        if (shippedWorst > 0.01)
+            fail("the shipped solve is not converged at the shipped exponent");
+
+        // ⚠⚠ AND A DENSE PER-SAMPLE SWEEP, not only the harmonics of one tone. The saturation branch
+        // takes HALLEY steps, whose denominator is not sign-definite the way Newton's is, so the
+        // failure mode to look for is a rare bad step at an unusual operating point rather than a
+        // uniform lack of convergence -- which a harmonic average would hide. Same signal as 8c(a):
+        // two tones so the branches interleave, plus periodic +12 V steps well past any real input.
+        //
+        // ⚠⚠ AND THE REFERENCE'S OWN FLOOR IS MEASURED FIRST, because on this comparison the
+        // reference is the LESS accurate side. The generic Newton bisects its way across a dF/di
+        // that runs from 1 to ~40, and at the +12 V step it is still short of the answer: section 6
+        // above bisects the same circuit at 12 V and the SHIPPED solve matches it to 1.2e-16, while
+        // the two Newtons disagree by 7e-11 A. Setting the threshold from the shipped side's
+        // accuracy would fail a correct implementation -- which is the same asymmetric-comparison
+        // trap that failed a correct shelf design (JfetStageTest 1c) and a correct droop restore
+        // (DroopRestoreTest section 2). So: run the reference against ITSELF at a much higher count,
+        // and require the shipped solve to sit inside that.
+        std::printf("    dense per-sample sweep vs the generic Newton, and that reference's OWN floor:\n");
+        std::printf("    %-8s %-8s %14s %14s %14s\n", "rate", "mode", "shipped rel", "shipped abs A",
+                    "ref floor A");
+        double dr = 0.0, da = 0.0, refFloor = 0.0;
+        for (const double fs : { 48000.0, 192000.0, 384000.0 })
+        {
+            for (const auto md : { dsp::Mode::Bright, dsp::Mode::Dark, dsp::Mode::Mid })
+            {
+                dsp::JfetStage shipped, ref, refTight;
+                for (auto* st : { &shipped, &ref, &refTight })
+                {
+                    st->setParams(params);
+                    st->setMode(md);
+                    st->prepare(fs);
+                }
+                shipped.setSolver(dsp::JfetStage::Solver::Shipped);
+                ref.setSolver(dsp::JfetStage::Solver::GenericNewton);
+                refTight.setSolver(dsp::JfetStage::Solver::GenericNewton);
+                ref.setSolveIters(60);
+                refTight.setSolveIters(300);
+                double wr = 0.0, wa = 0.0, wf = 0.0;
+                const int n = (int) (fs * 0.05);
+                for (int k = 0; k < n; ++k)
+                {
+                    const double t = (double) k / fs;
+                    double x = 4.016 * std::sin(2.0 * M_PI * 220.0 * t)
+                             + 1.5 * std::sin(2.0 * M_PI * 3100.0 * t);
+                    if (k % 997 == 0)
+                        x = 12.0;
+                    const double ya = shipped.processSample(x);
+                    const double yb = ref.processSample(x);
+                    const double yc = refTight.processSample(x);
+                    wa = std::max(wa, std::abs(ya - yb));
+                    wr = std::max(wr, std::abs(ya - yb) / std::max(1.0e-9, std::abs(yb)));
+                    wf = std::max(wf, std::abs(yc - yb));
+                }
+                std::printf("    %-8.0f %-8s %14.2e %14.2e %14.2e\n", fs / 1000.0,
+                            md == dsp::Mode::Bright ? "Bright" : (md == dsp::Mode::Dark ? "Dark" : "Mid"),
+                            wr, wa, wf);
+                dr = std::max(dr, wr);
+                da = std::max(da, wa);
+                refFloor = std::max(refFloor, wf);
+            }
+        }
+        std::printf("    shipped-vs-reference %.2e A against the reference's own floor %.2e A\n",
+                    da, refFloor);
+        // 3x the reference's own floor, so this fails on a real divergence and not on the fact that
+        // the two sides converge differently. Both are far below anything audible: the floor itself
+        // is ~90 dB under the quiescent current.
+        if (da > 3.0 * refFloor + 1.0e-15)
+            fail("the shipped power-law solve diverges from the generic Newton by more than that "
+                 "reference's own convergence floor");
         stage.setMode(dsp::Mode::Dark);
         stage.prepare(kFs);
     }
@@ -781,18 +934,39 @@ int main()
             lastH3 = h3;
         }
 
-        // ⭐ Cross-implementation check against the INDEPENDENT Python oracle that motivated the whole
-        // change (analysis/compression_audit.py): an exact solve of id = gm*g(vg - id*R5) with g a
-        // PURE square law plus its cutoff clamp reported -0.032 dB of compression at a 0 dBFS input,
-        // A_gate = 0.783 V, at the shipped Vov. This stage now IS that square law, so the two should
-        // agree -- and they are written months and one language apart, so neither can inherit the
-        // other's bug. ⚠ The oracle carried no load line, which is why the check is made at 0.783 V:
-        // that is still in saturation, where the two models are the same circuit.
-        double comp = 0.0, h2x = 0.0, h3x = 0.0;
-        probe(0.7830, comp, h2x, h3x);
-        std::printf("      cross-check vs the Python oracle at 0 dBFS: %.4f dB (oracle -0.032)\n", comp);
-        if (std::abs(comp + 0.032) > 0.006)
-            fail("disagrees with the independent exact-solve oracle in the saturation region");
+        // ⭐ CROSS-IMPLEMENTATION CHECK against an INDEPENDENT Python oracle -- analysis/onset_fit.py's
+        // Device.solve(), which is a plain bisection in numpy over the same three equations, written
+        // to a different design (no branch selection, no closed form, no Newton) and by a different
+        // route. Neither can inherit the other's bug.
+        //
+        // ⚠ THE EXPECTED NUMBERS MOVE WITH THE DEVICE PARAMETERS AND ARE NOT A CONSTANT OF NATURE.
+        // The previous version of this check hard-coded -0.032 dB from compression_audit.py's
+        // square-law oracle at the old Vov, and the moment the exponent landed it failed while both
+        // implementations were perfectly correct. The oracle reads the shipped constants out of this
+        // header, so re-run it (see its docstring) and paste the row in when a parameter moves.
+        //
+        //     A_gate     comp dB      H2 dBc     H3 dBc      (Python oracle, m = 1.60, |Vp| = 1.942)
+        //     0.2752    -0.00179      -53.11     -83.23
+        //     0.7830    -0.01520      -43.68     -64.44
+        //     1.5000    -0.06724      -36.71     -50.66
+        static constexpr double kOracle[3][4] = {{ 0.2752, -0.00179, -53.11, -83.23 },
+                                                 { 0.7830, -0.01520, -43.68, -64.44 },
+                                                 { 1.5000, -0.06724, -36.71, -50.66 }};
+        std::printf("      cross-check vs the independent Python bisection oracle:\n");
+        std::printf("      %10s %10s %10s %10s %10s %10s\n",
+                    "gate V", "comp d", "H2 d", "H3 d", "", "");
+        for (const auto& row : kOracle)
+        {
+            double c = 0.0, h2v = 0.0, h3v = 0.0;
+            probe(row[0], c, h2v, h3v);
+            std::printf("      %10.4f %10.5f %10.3f %10.3f\n",
+                        row[0], c - row[1], h2v - row[2], h3v - row[3]);
+            // 0.01 dB on the harmonics is the oracle's own printed precision; the compression row is
+            // held tighter because it is printed to five places.
+            if (std::abs(c - row[1]) > 5.0e-5 || std::abs(h2v - row[2]) > 0.01
+                || std::abs(h3v - row[3]) > 0.01)
+                fail("disagrees with the independent exact-solve oracle");
+        }
     }
 
     // 8e. ⭐ THIS PROJECT'S FREE KNOWN-ANSWER PROBE, applied to the MODEL rather than to a capture --

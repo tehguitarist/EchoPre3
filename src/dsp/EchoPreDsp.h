@@ -62,26 +62,42 @@ public:
     /** Closed-form solve (production) vs the safeguarded-Newton reference. Test/probe only. */
     void setUseClosedForm(bool b) noexcept { jfet.setUseClosedForm(b); }
 
-    /** Overdrive at the quiescent point -- the stage's ONE amplitude parameter. Measurement hook:
-     *  fitting it means sweeping it and comparing harmonics against a calibrated capture, and every
-     *  other quantity in the device model is derived from it, so it cannot be swept from outside.
-     *  Production never calls this; JfetParams::vov is the shipped value. */
+    /** Overdrive at the quiescent point. Measurement hook, kept because several analysis scripts
+     *  sweep it by name -- it still means the same PHYSICAL quantity, and is converted to the
+     *  parameter the stage now stores (|Vp| = Vov * (1 + gm*R5/m)). Production never calls it. */
     void setVov(double v)
     {
         auto p = jfet.getParams();
-        p.vov = v;
+        p.vp = v * (1.0 + p.gm * circuit::kR5 / p.mExp);
+        setParams(p);
+    }
+
+    /** Pinch-off magnitude -- the stage's amplitude parameter. ⭐ It is also, exactly, the CUTOFF
+     *  ONSET in gate volts, which is what a capture measures directly. Measurement hook only. */
+    void setVp(double v)
+    {
+        auto p = jfet.getParams();
+        p.vp = v;
+        setParams(p);
+    }
+
+    /** Transfer-law exponent (2.0 = Shichman-Hodges; this pedal measures 1.60). Measurement hook. */
+    void setExponent(double m)
+    {
+        auto p = jfet.getParams();
+        p.mExp = m;
         setParams(p);
     }
 
     /** Transconductance -- the stage's other square-law parameter, and the one the mode shelf's
      *  K0 = 1 + gm*R5 is built from. Measurement hook only; production uses JfetParams::gm.
      *
-     *  ⚠⚠ gm AND vov ARE ONE SQUARE-LAW FAMILY AND MUST BE SWEPT TOGETHER (circuit.md note #22a).
-     *  Holding one while sweeping the other walks the BIAS POINT: Id0 = gm*vov/2 and
-     *  Vds_q = VA - Id0*(R6 + R5), so at the shipped gm = 1553 uS a vov of 1.2 puts the quiescent
-     *  drain-source voltage NEGATIVE -- the stage is fully in triode at rest and the "curvature"
-     *  being measured is a collapsing operating point instead. A sweep that reads non-monotone in
-     *  the tail is showing that, not a curvature optimum.
+     *  ⚠ gm AND THE AMPLITUDE PARAMETER ARE ONE FAMILY (circuit.md note #22a). Under the OLD
+     *  (gm, Vov) parameterisation this was a live trap: Id0 = gm*Vov/m grows without bound, so at
+     *  the shipped gm a Vov of 1.2 put the quiescent drain-source voltage NEGATIVE and an hour of
+     *  renders measured a collapsing operating point instead of a curvature. ⭐ Parameterised on
+     *  |Vp| (JfetParams::vp) it cannot happen: Id0 = gm*|Vp|/(m + gm*R5) is bounded above by
+     *  |Vp|/R5 for any gm at all. Sweeping gm alone is now safe -- it re-solves the bias.
      *  ⭐ Setting gm here also rebuilds the shelf, because setParams() calls updateShelf() and the
      *  discrete source one-port is DERIVED from the shelf coefficients (circuit.md note #12). So a
      *  gm sweep moves the mode differential to match, which is exactly what fitting Vov against a
@@ -93,15 +109,17 @@ public:
         setParams(p);
     }
 
-    /** The operating point the current (gm, vov) pair implies. Measurement/diagnostic only. */
+    /** Quiescent overdrive implied by the current triple. Diagnostic only. */
+    double quiescentOverdrive() const { return jfet.getParams().vov(); }
+
+    /** The operating point the current (gm, |Vp|, m) triple implies. Measurement/diagnostic only. */
     void operatingPoint(double& id0, double& idss, double& vdsQ, double& vpMag) const
     {
         const auto& p = jfet.getParams();
         id0 = p.id0();
         vdsQ = p.vdsQuiescent();
         vpMag = p.vpMagnitude();
-        const double ratio = vpMag / p.vov;
-        idss = id0 * ratio * ratio;
+        idss = p.idss();
     }
 
     /** Antiderivative anti-aliasing on the JFET shaper. Policy lives in the processor (it is a

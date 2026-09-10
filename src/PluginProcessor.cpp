@@ -212,6 +212,23 @@ void PedalAudioProcessor::setVov(double v)
         d.setVov(v);
 }
 
+
+double PedalAudioProcessor::quiescentOverdrive() const
+{
+    return dsp[0].quiescentOverdrive();
+}
+
+void PedalAudioProcessor::setVp(double v)
+{
+    for (auto& d : dsp)
+        d.setVp(v);
+}
+
+void PedalAudioProcessor::setExponent(double m)
+{
+    for (auto& d : dsp)
+        d.setExponent(m);
+}
 void PedalAudioProcessor::setGm(double g)
 {
     for (auto& d : dsp)

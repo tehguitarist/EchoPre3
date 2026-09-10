@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(EchoPre3 VERSION 0.4.0)   # bump VERSION to force Logic to rescan the AU after changes
+project(EchoPre3 VERSION 0.5.0)   # bump VERSION to force Logic to rescan the AU after changes
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

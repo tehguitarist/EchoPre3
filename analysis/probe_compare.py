@@ -33,13 +33,20 @@ PROBE_DIR = "analysis/captures/probe"
 CACHE = "/tmp/probe_renders"
 
 
-def render(parsed, vov=None, gm=None):
+def render(parsed, vov=None, gm=None, vp=None, mexp=None):
     os.makedirs(CACHE, exist_ok=True)
     args = ["--os", "8"] + C.render_args(parsed)
-    if vov is not None:
-        args += ["--vov", f"{vov}"]
+    # ⚠ ORDER MATTERS on the OfflineRender side (the exponent and gm are applied before the
+    # amplitude parameter, because --vov is converted through both). Passing them in this order
+    # keeps the command line readable in the same order it is applied.
+    if mexp is not None:
+        args += ["--exponent", f"{mexp}"]
     if gm is not None:
         args += ["--gm", f"{gm}"]
+    if vp is not None:
+        args += ["--vp", f"{vp}"]
+    if vov is not None:
+        args += ["--vov", f"{vov}"]
     import hashlib
     key = hashlib.sha1(("|".join(args) + "|" + C.render_bin_key()).encode()).hexdigest()[:10]
     out = f"{CACHE}/{key}.wav"
@@ -67,7 +74,18 @@ def tone_table(x, segs, fs, freqs, levels, lag=0):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--vov", type=float, default=None, help="sweep the plugin's Vov")
+    ap.add_argument("--vov", type=float, default=None, help="sweep the plugin's quiescent Vov")
+    ap.add_argument("--vp", type=float, default=None,
+                    help="sweep the plugin's |Vp| -- the shipped amplitude parameter, and exactly "
+                         "the cutoff onset in gate volts")
+    ap.add_argument("--exponent", type=float, default=None,
+                    help="sweep the transfer-law exponent. ⭐ TO REPRODUCE THE SQUARE-LAW MODEL "
+                         "THIS REPLACED, so a before/after is taken on the SAME cells: pass "
+                         "`--exponent 2.0 --vov 0.4469`. ⚠⚠ USE --vov, NOT --vp. The old model "
+                         "stored Vov directly, so its Vov did not move when gm did; |Vp| does "
+                         "(|Vp| = Vov*(1 + gm*R5/m)). The two spellings agree only at the shipped "
+                         "gm -- at P4's 1146 uS, `--vp 1.6962` is Vov = 0.554 rather than 0.447 and "
+                         "reads 4.95 dB where the real old model reads 8.0.")
     ap.add_argument("--gm", type=float, default=None,
                     help="⚠⚠ SWEEP THIS WITH --vov, NOT INSTEAD OF IT. gm and Vov are one "
                          "square-law family (Id0 = gm*Vov/2), so holding gm at the shipped "
@@ -101,9 +119,9 @@ def main():
         cap = ref if a.self_test else PA.load(path, fs)
         lag = 0 if a.self_test else PA.align(cap, ref)
         if a.self_test:
-            cap = PA.load(render(d, a.vov, a.gm), fs)
+            cap = PA.load(render(d, a.vov, a.gm, a.vp, a.exponent), fs)
         ct = tone_table(cap, segs, fs, freqs, levels, lag)
-        pt = tone_table(PA.load(render(d, a.vov, a.gm), fs), segs, fs, freqs, levels)
+        pt = tone_table(PA.load(render(d, a.vov, a.gm, a.vp, a.exponent), fs), segs, fs, freqs, levels)
         name = os.path.basename(path)[:-4]
         report[name] = {}
         print(f"\n== {name}   x={d['volume']:.3f}  pad {d['pad_db']:g}")
@@ -124,7 +142,7 @@ def main():
     print(f"\nH2 delta ({a.unit} minus plugin) over {len(agg)} cells at -12 dBFS and above:")
     print(f"   mean {np.mean(agg):+.2f} dB   median {np.median(agg):+.2f}   sd {np.std(agg):.2f}")
     print("   positive = the pedal makes MORE distortion than the model")
-    json.dump(dict(vov=a.vov, gm=a.gm, rows=report, h2_mean=float(np.mean(agg)),
+    json.dump(dict(vov=a.vov, gm=a.gm, vp=a.vp, exponent=a.exponent, rows=report, h2_mean=float(np.mean(agg)),
                    h2_median=float(np.median(agg))), open(OUT, "w"), indent=2, default=float)
     print(f"\nwrote {OUT}")
 
