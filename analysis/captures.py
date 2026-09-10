@@ -58,7 +58,8 @@ REFERENCE_MODES = ("none", "bypass")
 
 _CAPTURE_RE = re.compile(
     r"^(?P<unit>[a-z0-9]+)_V(?P<clock>\d{3,4})_(?P<mode>bright|dark|mid|none|bypass)"
-    r"(?:_pad(?P<pad>\d+(?:p\d+)?))?$",
+    r"(?:_pad(?P<pad>\d+(?:p\d+)?))?"
+    r"(?:_take(?P<take>\d+)|_(?P<dawtake>\d+))?$",
     re.IGNORECASE,
 )
 
@@ -96,6 +97,18 @@ def parse_capture(filename):
         # dB of digital attenuation applied to the PLAYED signal, 0 when the suffix is absent.
         # "p" stands in for the decimal point, so _pad7p5 is 7.5 dB.
         "pad_db": float((m.group("pad") or "0").replace("p", ".")),
+        # ⭐ Repeat take of an identical setting: `_take2`, or a bare `_2` (which is what the DAW
+        # appends by itself). Take 1 is the unsuffixed original. REPEATS ARE NOT REDUNDANT -- a
+        # repeat captured at the END of a session, after deliberately moving the knob away and
+        # back, is the only measurement that bounds rig drift, JFET thermal drift and knob-setting
+        # repeatability, and the taper fit currently has no error budget without it. Callers that
+        # want one capture per setting should pick on `take`, not assume uniqueness.
+        # `_take<N>` is explicit and means take N. A BARE `_<N>` is the DAW's own convention, where
+        # the first export is unsuffixed and the second is `_1` -- so it means take N+1, not take N.
+        # Reading it as take N would collide with the unsuffixed original and one of the two would
+        # silently win whichever way the dict happened to iterate.
+        "take": int(m.group("take")) if m.group("take")
+                 else (int(m.group("dawtake")) + 1 if m.group("dawtake") else 1),
     }
 
 
