@@ -1606,3 +1606,72 @@ high, execute routine work cheap) is what should persist.
 >   H2, which is a headroom check for a REFERENCE capture, where the measured H2 is chain noise. On a
 >   pedal capture the measured H2 *is* the pedal's. Ignore that column on active captures; the H2 dBc
 >   figures themselves are fine. (Not yet fixed.)
+
+> ### ⭐⭐ SESSION 2026-09-10 (part 2): THE PROBE CAPTURES. `Vov` REVERSED, Zout MEASURED.
+>
+> Full numbers in `.claude/rules/circuit.md` notes **#21, #21a, #22**. **No DSP constant changed.**
+> New: `analysis/gen_probe_signal.py` + `probe_signal_48k.wav` (56 s, self-contained),
+> `analysis/probe_analyse.py`, `analysis/probe_compare.py`, `analysis/output_impedance.py`,
+> `analysis/p4_corners.py`, `analysis/unit_compare.py`, `analysis/p4_component_fit.py`,
+> `analysis/volume_sweep.py`. **Every one has a passing `--self-test` against plugin renders.**
+>
+> **The capture set is COMPLETE and the rig is torn down.** 28 main-signal captures (both modes,
+> 7:30 → 17:00, plus loop and bypass references) and 15 probe captures (P4 at six settings including
+> two into a 10 kΩ line input, plus NAM probe renders of P1/P2/P3).
+>
+> ### What is now MEASURED that never was
+> | quantity | was | now |
+> |---|---|---|
+> | VOLUME taper `p` | 2.0 assumed | **2.28–2.33**, two independent bands |
+> | peak-to-full-CW fall-back | 3.9 model vs "1–2 dB" maker | **3.86 measured vs 3.91 model** |
+> | `kOutputMakeup` | 1.0, unanchored since day one | **1.1658 (+1.332 dB)**, sd 0.160 |
+> | output impedance | computed, never measured | **99.8 k / 60.8 kΩ**, model off by 2.0 / 2.3 % |
+> | P4's `gm` (K0) | — | **K0 = 5.06–5.19**, vs P1 6.31, P2 6.91, model 6.59 |
+> | drift + knob repeatability | unknown | **≤ 0.061 dB** at a normal knob position |
+> | `Vov` | NAM fit said 0.126–0.165 | **REFUTED — it is ~0.94 at P4's own `gm`** |
+>
+> ⭐ **On tolerance (the owner's point, and it is the right frame): the unit's resistors are carbon,
+> so 2–5 % between one unit and nominal is expected.** That reframes several results as agreement
+> rather than discrepancy — the 2.0/2.3 % Zout errors are essentially exact, and the ~5–9 % offsets
+> in the measured shelf zeros (R5·C) across units sit at the edge of ordinary tolerance. ⛔ It does
+> NOT explain P4's 25 % lower K0: that is `gm`, a JFET parameter with a 5:1 datasheet spread, not a
+> resistor.
+>
+> ### ⛔⭐⭐ THE ONE CONSTANT THE PROJECT WAS ABOUT TO GET WRONG
+> Note #16 fitted `Vov` twice from the NAM set (0.126 and 0.165) and deferred applying it pending a
+> capture that reaches the load line. That capture exists now and **refutes the fit: applying it
+> would have made H2 13–20 dB wrong.** The shipped 0.4469 is only 3.4 dB out and has the LOWEST
+> scatter of any value tried. ⭐ The cause was already on the record and was reasoned past: note #7's
+> M5 says P1's H2 does not move with level at all, i.e. it is floor — and route A fitted P1's H2
+> anyway because the deficit cleared its per-band floor in magnitude. **A fit whose input is floor
+> returns a confident number with a good residual.**
+>
+> ### ➡ NEXT SESSION — the model is now the bottleneck, not the data
+> Everything below is unblocked. Work in this order.
+>
+> 1. ⭐⭐ **Decide `gm` under the recorded decision** (voice to the newer P1/P2 units, measure with
+>    P4). The differential is rig-free, so P1 = 1475 µS and P2 = 1640 µS are both usable; shipped is
+>    1553 µS, the mean of the two. **Probably no change — but write down that it was checked.**
+> 2. ⭐⭐ **Apply `kOutputMakeup` = 1.1658.** Its only coupling is to `gm` (both are level scalars in
+>    the DARK path), so do it after step 1 and re-derive if `gm` moves. This is the first anchor the
+>    constant has ever had and there will not be another.
+> 3. ⭐⭐ **Apply the taper `p` = 2.3.** Two independent bands agree; the shipped 2.0 costs 2.08 dB
+>    worst / 0.96 dB RMS on the control law. ⚠ Re-check that the volume peak still lands in the
+>    maker's 1–2 o'clock: at p = 2.33 the fitted peak is 13:28, so it does.
+> 4. ⭐ **Model the clipping ONSET, not just `Vov`.** The H2 delta grows with drive (−2.5 dB at the
+>    −12 cell, −6.2 at −4), so a single curvature scalar cannot close it. This is the real remaining
+>    modelling work and `analysis/probe_compare.py --vov` is the instrument for it.
+> 5. **Then re-run the full evaluation** (`goal_check.py`, `phase_sweep.py`) against P4 and re-read
+>    the 1 dB / 5° targets. Both were previously blocked on the LF pole, which note #21 dissolves:
+>    C10 is as drawn and the LF error was the taper.
+>
+> ⚠ **Standing traps for whoever picks this up:**
+> - **`probe_compare.py` must stay `--unit p4`.** The probe directory also holds NAM renders whose
+>   rigs ran at unknown levels, so their drive is not matched; pooling them took the shipped-`Vov`
+>   mean from −3.4 dB to −10.8 with an sd of 10.4 and looked like a real result.
+> - **7:30 is excluded from everything except load-line depth.** Its knob-setting error is 6.4 dB
+>   (dark) and 10.4 dB (bright), measured — not its level only, its CORNER too.
+> - **BRIGHT above 9:00 has no load-line data and never can**: the pedal's output clips the
+>   converter before the JFET reaches triode. That is the rig's ceiling, not a missing capture.
+> - **MID stays inferred** — P4 has no MID position. Scale by the measured cap RATIO (2.24), never
+>   by an absolute τ.

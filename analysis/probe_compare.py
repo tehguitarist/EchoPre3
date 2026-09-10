@@ -65,13 +65,20 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--vov", type=float, default=None, help="sweep the plugin's Vov")
     ap.add_argument("--self-test", action="store_true")
+    ap.add_argument("--unit", default="p4",
+                    help="⚠⚠ MUST stay a single unit. The probe directory also holds NAM renders "
+                         "of P1/P2/P3, whose rigs ran at unknown levels (P1's was -12 dBu, 24 dB "
+                         "below the plugin's kInputRef), so their drive is NOT matched and pooling "
+                         "them destroys the statistic -- it took the shipped-Vov mean from -3.4 dB "
+                         "to -10.8 with an sd of 10.4. Use --unit p1 etc. deliberately, never all.")
     a = ap.parse_args()
 
     m = json.load(open(PA.META))
     fs, segs, freqs, levels = m["fs"], m["segments"], m["tone_freqs"], m["tone_levels_db"]
     ref = PA.load(SIG, fs)
 
-    caps = sorted(C.find_captures(PROBE_DIR), key=lambda kv: (kv[1]["volume_clock"], kv[1]["mode"]))
+    caps = sorted((c for c in C.find_captures(PROBE_DIR) if c[1]["unit"] == a.unit),
+                  key=lambda kv: (kv[1]["volume_clock"], kv[1]["mode"]))
     if not caps:
         sys.exit(f"no probe captures in {PROBE_DIR}")
 
@@ -100,7 +107,7 @@ def main():
                 if dd >= -12:      # only cells with real signal
                     agg.append(dh)
     agg = np.array(agg)
-    print(f"\nH2 delta (capture minus plugin) over {len(agg)} cells at -12 dBFS and above:")
+    print(f"\nH2 delta ({a.unit} minus plugin) over {len(agg)} cells at -12 dBFS and above:")
     print(f"   mean {np.mean(agg):+.2f} dB   median {np.median(agg):+.2f}   sd {np.std(agg):.2f}")
     print("   positive = the pedal makes MORE distortion than the model")
     json.dump(dict(vov=a.vov, rows=report, h2_mean=float(np.mean(agg)),

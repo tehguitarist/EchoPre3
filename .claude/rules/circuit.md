@@ -1589,3 +1589,88 @@ network's steepest slope. Note #21 excluded 7:30 on the strength of its fit resi
 direct measurement, and it is far larger than the ±10 min the original level warning assumed.
 📌 It also explains the shape column: 0.168 and 0.392 dB RMS of *shape* difference at 7:30, because
 moving Ra moves the C10 corner as well as the level.
+
+### 22. ⭐⭐ THE PROBE CAPTURES (2026-09-10) — Zout measured, and the NAM `Vov` fit is REFUTED
+
+New signal `analysis/probe_signal_48k.wav` (56 s, self-contained), analysers
+`analysis/probe_analyse.py`, `analysis/probe_compare.py`, `analysis/output_impedance.py`, captures
+in `analysis/captures/probe/`. **No DSP constant changed.** Every instrument passes a `--self-test`
+against plugin renders where the answer is known by construction.
+
+**⭐⭐ THE OUTPUT IMPEDANCE IS MEASURED, AND STAGE 3's MODEL IS CONFIRMED TO ~2 %.**
+Two captures into a 10 kΩ line input against the existing 1 MΩ instrument-input takes:
+
+| knob | measured Zout | modelled | error |
+|---|---|---|---|
+| 10:30 | **99.8 kΩ** | 101.8 kΩ | **−2.0 %** |
+| 17:00 (full CW) | **60.8 kΩ** | 59.4 kΩ | **+2.3 %** |
+
+⭐ **These errors are AT OR BELOW the parts tolerance, so this is agreement, not a discrepancy.**
+The unit's resistors are carbon (the maker says "aged carbon film"), where 2–5 % between one unit
+and the nominal value is ordinary. A 2 % result on a quantity built from four resistors and a pot is
+as close as this can be measured.
+➡ This validates, all at once: stage 3's output network, the derived `ro` = 1.44 MΩ, and the
+interface-loading correction applied to every capture in note #21 — none of which had ever been
+measured. 📌 It also extends stage 3's quoted "92–139 kΩ, barely moves with VOLUME": full CW was not
+among the three NAM knob positions, and at 60.8 kΩ it sits well below that range. The impedance
+moves by 1.7× across the rotation, not "barely".
+
+⚠⚠ **THE MAXED LINE-INPUT GAIN COST NOTHING, AND THE METHOD IS THE REUSABLE PART.** The line input
+needed full gain, which confounds an unknown gain G with the loading drop being measured. Two
+independent routes remove it: (a) a BYPASSED capture through the same input at the same gain —
+bypass presents the reamp's near-zero source impedance, so loading does nothing to it and it
+measures G alone (flat to **0.008 dB** across four tones); (b) the RATIO of the two knob positions,
+in which G cancels identically and no bypass is needed at all. ⭐ And the fit is OVERDETERMINED:
+one line-input impedance must serve both knob positions, and it does, to **1.040×** — that is the
+discriminator saying the model's *Zout* is right rather than the load being flattered.
+
+**⭐⭐⭐ `Vov` IS AT THE TOP OF ITS ADMISSIBLE RANGE, NOT THE BOTTOM. NOTE #16 IS REFUTED.**
+Matched-drive H2 against P4, 56 cells at −12 dBFS and above:
+
+| `Vov` | mean H2 delta | median | sd |
+|---|---|---|---|
+| 0.2200 | −13.52 dB | −14.29 | 4.91 |
+| 0.3000 | −9.46 | −7.98 | 3.74 |
+| **0.4469 (shipped)** | **−3.36** | **−3.01** | **1.45** |
+| 0.7000 | +3.59 | +2.37 | 4.56 |
+
+Negative means the pedal makes LESS distortion than the model. ⭐ **The sd is minimised at the
+shipped value and roughly triples either side**, so the shipped `Vov` already gives the most
+*consistent* fit across cells even though its mean is 3.4 dB out. Interpolating the mean to zero
+gives `Vov` ≈ 0.57 at the model's `gm`.
+
+⚠ **Corrected for P4's own `gm`, which the model does not carry.** H2 ∝ 1/(`Vov`·k²) and P4's
+K0 = 5.12 against the model's 6.59, so the invariant is `Vov`·K0² = 24.7 and P4's own value is
+**`Vov` ≈ 0.94** — right at the datasheet ceiling (with P4's `gm`, IDSS ≤ 5 mA caps it at 0.930).
+
+⛔⛔ **SO NOTE #16's FITTED 0.126–0.165 MUST NOT BE APPLIED. Applying it would have made the model
+13–20 dB WRONG in H2.** Note #16's own stated condition for applying it was a capture reaching the
+load line; that capture now exists and it refutes the fit rather than confirming it. The cause is
+already on the record: note #7's M5 found **P1's H2 does not move with level at all**, i.e. it is
+floor throughout — and note #16 fitted route A to P1's H2 anyway, on the grounds that the deficit
+cleared its per-band floor. Clearing a floor in magnitude is not the same as carrying signal.
+⭐ **The general lesson, and it is the sharpest one in this file: a fit whose input is floor returns
+a confident number with a good residual.** Only a better-conditioned measurement can expose it, and
+here that took a calibrated raw capture that reaches the nonlinearity — which is exactly what the
+NAM set structurally could not provide (note #15: its floors are systematic, so they never average
+down).
+
+⚠ **One `Vov` does NOT fix the shape.** The H2 delta grows with drive — about −2.5 dB at the −12
+cell, −3.0 at −8, −6.2 at −4 — so the model's clipping ONSET is misplaced as well as its curvature.
+That residual is what the sd column is measuring, and it is the next thing to model.
+
+**⭐ Intermodulation is measurable at last, and the model's order structure is right.** Second-order
+products come back at slopes of 2.05 and 2.14 absolute against a required 2.00, on P4 at 7:30 and
+9:00. ⚠ Third-order is floor at low volume settings and only clears at 9:00 and above, because
+7:30 records ~16 dB down.
+
+⚠⚠ **A FIXED-AMPLITUDE ARTEFACT FLOOR, AND THE INSTRUMENT MUST BOUND ITS FIT AT BOTH ENDS.** At 7:30
+the quiet cells read a flat −41 dBc with H3 at or above H2, which no square-law device can produce,
+and the first version of `probe_analyse.py` fitted a slope through them and reported −0.09 where
+1.00 was required — a broken measurement of a good capture. The fit window is now bounded BELOW by
+whether a product actually grows with drive and ABOVE by whether the fundamental has begun to
+compress, both measured per cell. ⭐ Omitting the upper bound was equally fatal: it made the
+self-test read 2.39 against a required 2.00 and flag a correct instrument as broken.
+
+**✅ Drift is a non-issue and is measured, not assumed** — see note #21a. Within-take repeats on the
+probe captures read ≤ 0.02 dB on every take above 7:30.
