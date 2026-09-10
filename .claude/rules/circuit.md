@@ -1560,3 +1560,32 @@ across a gate swing from **0.009 V to 2.013 V**, a 47 dB span that ends past tri
 **⭐ The known-answer probe is 7× cleaner than the best NAM model.** Below the shelf zero every mode
 has `Zs = R5`, so the mode differential must read 0.00 dB: the raw captures read **≤ 0.08 dB** at
 100–200 Hz, against 0.20 dB (P2) and 0.60 dB (P1). Note #15's systematic NAM floor is gone.
+
+#### 21a. ✅ DRIFT AND KNOB REPEATABILITY ARE ALREADY MEASURED — no repeat take is needed
+
+A dedicated end-of-session repeat was proposed and declined, on the reasoning that the gear is
+modern and stable. **The captures already on disk settle it, and they agree.**
+
+`p4_V0900_dark` (pad 0, 07:27) and `p4_V0900_dark_pad12` (08:19) are the same knob position **52
+minutes apart, with the VOLUME knob moved to 10:30 and to 7:30 twice in between and returned** —
+i.e. exactly the knob-away-and-back repeat the proposed take would have been. With the 12 dB pad
+removed, 100 Hz–10 kHz:
+
+| | level | shape, level removed |
+|---|---|---|
+| **9:00 dark, 52 min apart, knob returned** | **+0.061 dB** | **0.019 dB RMS, 0.053 dB peak** |
+| 7:30 dark, same treatment | +6.402 dB | 0.168 dB RMS, 0.460 dB peak |
+| 7:30 bright, same treatment | +10.381 dB | 0.392 dB RMS, 1.801 dB peak |
+
+➡ **Rig drift, JFET thermal drift and knob repeatability TOGETHER are ≤ 0.061 dB at a normal knob
+position.** So none of them is a candidate explanation for anything measured in note #21, and the
+control law's 0.160 dB RMS residual after fitting `p` is **model or estimator error, not setting
+error** — which is what an error budget was wanted for.
+
+⭐⭐ **And the same comparison quantifies the 7:30 problem instead of merely asserting it.** The two
+7:30 pairs disagree by **6.4 dB (dark) and 10.4 dB (bright)** under identical treatment. That is not
+drift — the 9:00 row rules drift out at 0.06 dB — it is **knob-setting error alone**, on the
+network's steepest slope. Note #21 excluded 7:30 on the strength of its fit residuals; this is the
+direct measurement, and it is far larger than the ±10 min the original level warning assumed.
+📌 It also explains the shape column: 0.168 and 0.392 dB RMS of *shape* difference at 7:30, because
+moving Ra moves the C10 corner as well as the level.
