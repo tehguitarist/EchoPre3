@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare every probe capture against the plugin at the same settings -- the load line, at last.
 
-    .venv/bin/python analysis/probe_compare.py [--vov V] [--self-test]
+    .venv/bin/python analysis/probe_compare.py [--vov V] [--gm S] [--self-test]
 
 ⭐⭐ THIS IS THE MEASUREMENT `Vov` HAS BEEN WAITING FOR. circuit.md note #16 fitted it twice from the
 NAM set (0.126 and 0.165, against the shipped 0.4469) and deliberately did NOT apply it, because the
@@ -33,9 +33,13 @@ PROBE_DIR = "analysis/captures/probe"
 CACHE = "/tmp/probe_renders"
 
 
-def render(parsed, vov=None):
+def render(parsed, vov=None, gm=None):
     os.makedirs(CACHE, exist_ok=True)
-    args = ["--os", "8"] + C.render_args(parsed) + ([] if vov is None else ["--vov", f"{vov}"])
+    args = ["--os", "8"] + C.render_args(parsed)
+    if vov is not None:
+        args += ["--vov", f"{vov}"]
+    if gm is not None:
+        args += ["--gm", f"{gm}"]
     import hashlib
     key = hashlib.sha1(("|".join(args) + "|" + C.render_bin_key()).encode()).hexdigest()[:10]
     out = f"{CACHE}/{key}.wav"
@@ -64,6 +68,16 @@ def tone_table(x, segs, fs, freqs, levels, lag=0):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--vov", type=float, default=None, help="sweep the plugin's Vov")
+    ap.add_argument("--gm", type=float, default=None,
+                    help="⚠⚠ SWEEP THIS WITH --vov, NOT INSTEAD OF IT. gm and Vov are one "
+                         "square-law family (Id0 = gm*Vov/2), so holding gm at the shipped "
+                         "1553 uS while raising Vov walks the BIAS POINT down instead of the "
+                         "curvature up -- that is what made the earlier Vov sweep read "
+                         "non-monotone above ~0.7 (circuit.md note #22a). To measure P4's own "
+                         "curvature, pin --gm to P4's measured 1146e-6 so the model's K0 matches "
+                         "the unit being compared against, then convert the answer back to the "
+                         "shipped gm through the invariant Vov*K0^2. OfflineRender prints the "
+                         "implied operating point and refuses a pair whose Vds_q is negative.")
     ap.add_argument("--self-test", action="store_true")
     ap.add_argument("--unit", default="p4",
                     help="⚠⚠ MUST stay a single unit. The probe directory also holds NAM renders "
@@ -87,9 +101,9 @@ def main():
         cap = ref if a.self_test else PA.load(path, fs)
         lag = 0 if a.self_test else PA.align(cap, ref)
         if a.self_test:
-            cap = PA.load(render(d, a.vov), fs)
+            cap = PA.load(render(d, a.vov, a.gm), fs)
         ct = tone_table(cap, segs, fs, freqs, levels, lag)
-        pt = tone_table(PA.load(render(d, a.vov), fs), segs, fs, freqs, levels)
+        pt = tone_table(PA.load(render(d, a.vov, a.gm), fs), segs, fs, freqs, levels)
         name = os.path.basename(path)[:-4]
         report[name] = {}
         print(f"\n== {name}   x={d['volume']:.3f}  pad {d['pad_db']:g}")
@@ -110,7 +124,7 @@ def main():
     print(f"\nH2 delta ({a.unit} minus plugin) over {len(agg)} cells at -12 dBFS and above:")
     print(f"   mean {np.mean(agg):+.2f} dB   median {np.median(agg):+.2f}   sd {np.std(agg):.2f}")
     print("   positive = the pedal makes MORE distortion than the model")
-    json.dump(dict(vov=a.vov, rows=report, h2_mean=float(np.mean(agg)),
+    json.dump(dict(vov=a.vov, gm=a.gm, rows=report, h2_mean=float(np.mean(agg)),
                    h2_median=float(np.median(agg))), open(OUT, "w"), indent=2, default=float)
     print(f"\nwrote {OUT}")
 

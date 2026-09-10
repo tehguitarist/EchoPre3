@@ -212,6 +212,17 @@ void PedalAudioProcessor::setVov(double v)
         d.setVov(v);
 }
 
+void PedalAudioProcessor::setGm(double g)
+{
+    for (auto& d : dsp)
+        d.setGm(g);
+}
+
+void PedalAudioProcessor::operatingPoint(double& id0, double& idss, double& vdsQ, double& vpMag) const
+{
+    dsp[0].operatingPoint(id0, idss, vdsQ, vpMag);
+}
+
 bool PedalAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) const
 {
     const auto& out = layouts.getMainOutputChannelSet();

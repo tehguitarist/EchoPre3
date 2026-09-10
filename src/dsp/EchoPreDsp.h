@@ -73,6 +73,37 @@ public:
         setParams(p);
     }
 
+    /** Transconductance -- the stage's other square-law parameter, and the one the mode shelf's
+     *  K0 = 1 + gm*R5 is built from. Measurement hook only; production uses JfetParams::gm.
+     *
+     *  ⚠⚠ gm AND vov ARE ONE SQUARE-LAW FAMILY AND MUST BE SWEPT TOGETHER (circuit.md note #22a).
+     *  Holding one while sweeping the other walks the BIAS POINT: Id0 = gm*vov/2 and
+     *  Vds_q = VA - Id0*(R6 + R5), so at the shipped gm = 1553 uS a vov of 1.2 puts the quiescent
+     *  drain-source voltage NEGATIVE -- the stage is fully in triode at rest and the "curvature"
+     *  being measured is a collapsing operating point instead. A sweep that reads non-monotone in
+     *  the tail is showing that, not a curvature optimum.
+     *  ⭐ Setting gm here also rebuilds the shelf, because setParams() calls updateShelf() and the
+     *  discrete source one-port is DERIVED from the shelf coefficients (circuit.md note #12). So a
+     *  gm sweep moves the mode differential to match, which is exactly what fitting Vov against a
+     *  unit with a different gm requires. */
+    void setGm(double g)
+    {
+        auto p = jfet.getParams();
+        p.gm = g;
+        setParams(p);
+    }
+
+    /** The operating point the current (gm, vov) pair implies. Measurement/diagnostic only. */
+    void operatingPoint(double& id0, double& idss, double& vdsQ, double& vpMag) const
+    {
+        const auto& p = jfet.getParams();
+        id0 = p.id0();
+        vdsQ = p.vdsQuiescent();
+        vpMag = p.vpMagnitude();
+        const double ratio = vpMag / p.vov;
+        idss = id0 * ratio * ratio;
+    }
+
     /** Antiderivative anti-aliasing on the JFET shaper. Policy lives in the processor (it is a
      *  function of the oversampling factor); this only carries the decision down. */
     /** AC impedance at the drain node, which sets the load line's slope inside the JFET stage.

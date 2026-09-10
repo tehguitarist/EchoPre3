@@ -35,6 +35,9 @@ public:
     /** Measurement hook: the JFET stage's one amplitude parameter, Vov. Sweeping it is how it gets
      *  fitted against a calibrated capture; production leaves it at JfetParams' shipped value. */
     void setVov(double v);
+    void setGm(double g);
+    /** Operating point implied by the current (gm, vov). Measurement/diagnostic only. */
+    void operatingPoint(double& id0, double& idss, double& vdsQ, double& vpMag) const;
 
     bool isBusesLayoutSupported(const BusesLayout&) const override;
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
