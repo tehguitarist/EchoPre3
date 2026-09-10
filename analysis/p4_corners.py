@@ -147,7 +147,8 @@ def render(parsed, tag, os_factor=8):
     """
     os.makedirs(RENDER_CACHE, exist_ok=True)
     args_tail = ["--os", str(os_factor)] + C.render_args(parsed)
-    key = hashlib.sha1("|".join(args_tail).encode()).hexdigest()[:10]
+    # The BINARY is part of the key too -- see captures.render_bin_key().
+    key = hashlib.sha1(("|".join(args_tail) + "|" + C.render_bin_key()).encode()).hexdigest()[:10]
     out = f"{RENDER_CACHE}/{tag}_{key}.wav"
     if not os.path.exists(out):
         subprocess.run([C.RENDER_BIN, A.ORIG, out] + args_tail, check=True, capture_output=True)

@@ -37,7 +37,7 @@ def render(parsed, vov=None):
     os.makedirs(CACHE, exist_ok=True)
     args = ["--os", "8"] + C.render_args(parsed) + ([] if vov is None else ["--vov", f"{vov}"])
     import hashlib
-    key = hashlib.sha1("|".join(args).encode()).hexdigest()[:10]
+    key = hashlib.sha1(("|".join(args) + "|" + C.render_bin_key()).encode()).hexdigest()[:10]
     out = f"{CACHE}/{key}.wav"
     if not os.path.exists(out):
         subprocess.run([C.RENDER_BIN, SIG, out] + args, check=True, capture_output=True)

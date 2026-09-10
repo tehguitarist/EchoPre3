@@ -46,6 +46,26 @@ from scipy import signal as sps
 import analyze as A
 
 RENDER_BIN = "build/OfflineRender_artefacts/Release/OfflineRender"
+
+
+def render_bin_key():
+    """A content hash of the OfflineRender binary, for every render cache's key.
+
+    ⚠⚠ THE BINARY IS AN IMPLICIT INPUT TO EVERY RENDER AND WAS NOT IN ANY CACHE KEY. The caches key
+    on the render ARGUMENTS -- which was itself a fix, for a cache keyed on a display tag that
+    silently served a render whose settings had changed. This is the same fault one level up: change
+    a DSP constant, rebuild, re-run a fit, and the arguments are identical, so every script compares
+    the NEW captures against the OLD plugin and reports it as a measurement.
+    ⭐ It was caught by a column that did not move: after the VOLUME taper went 2.0 -> 2.30, the
+    volume sweep's plugin levels came back byte-identical to the pre-change run. A constant that
+    changes the model and moves nothing is the tell.
+    """
+    import hashlib
+    h = hashlib.sha1()
+    with open(RENDER_BIN, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()[:10]
 CAPTURE_DIR = "analysis/captures"
 
 # MODE choice order matches the APVTS AudioParameterChoice layout (circuit.md note #2 / PluginProcessor):
