@@ -27,11 +27,23 @@ Two candidates, fitted as ONE global value each across every usable knob positio
              impedance, not the pedal's 120 kOhm. Deconvolution divides out the series chain, not
              a source-impedance-dependent load.
 
-⛔ 7:30 IS EXCLUDED, and this reverses CLAUDE.md's "read its CORNER, never its LEVEL". Its two takes
-fit 68.79 and 63.19 Hz -- 8.9 % apart -- where 9:00's two takes agree to 0.1 %. At Ra = 1.25 kOhm the
-network is on its steepest slope, so the physical knob-setting error at the very bottom of the
-rotation is larger than the +-10 min the level warning assumed. The corner is knob-error dominated
-there too, not just the level.
+⛔ 7:30 AND 8:00 ARE BOTH EXCLUDED, i.e. x <= 0.1. 7:30's two takes fit 68.79 and 63.19 Hz -- 8.9 %
+apart -- where 9:00's two takes agree to 0.1 %. At Ra = 1.25 kOhm the network is on its steepest
+slope, so the physical knob-setting error at the very bottom of the rotation is larger than the
++-10 min the level warning assumed. The corner is knob-error dominated there too, not just the level.
+
+⚠⚠ 8:00 WAS ADDED TO THIS FIT SILENTLY AND MOVED IT, because the exclusion here was written as
+`volume_clock <= 730` while volume_sweep.py and absolute_gain.py both use `x > 0.1` -- and 8:00 is
+x = 0.100 exactly, so the two rules disagreed on precisely one capture. Including it pulled the LF
+taper fit 2.281 -> 2.201 and sent the joint C10 fit from 97.8 nF to 114.3 nF, i.e. 14 % ABOVE
+nominal. ⭐ It is excluded on its RESIDUAL, not on its leverage: at the pooled fit 8:00 reads
+0.185 dB RMS / 0.692 worst against 0.020-0.087 / 0.147-0.528 for every other position, and dropping
+it more than HALVES the pooled RMS (0.0871 -> 0.0414) where every other leave-one-out changes it by
+under 0.01. The physical reason is the same as 7:30's: the 1 kHz control law moves +-2.98 dB per
++-10 min of knob error at 8:00, against +-1.02 at 9:00 and +-0.27 at 10:30.
+⭐ With it gone the two modes agree independently -- dark p = 2.281 (RMS 0.0414), bright p = 2.276
+(0.0403) -- which is this file's own known-answer probe: below the 1.9 kHz shelf zero every mode has
+Zs = R5, so the LF band must return the same taper whichever mode it is fitted from.
 """
 import argparse, json, os, sys
 
@@ -82,16 +94,17 @@ def main():
 
     bypass_fr = None if args.self_test else P.load_fr(P.REF_BYPASS)[1]
 
-    # one DARK capture per knob position, 7:30 excluded (see the docstring)
+    # one capture per knob position; 7:30 AND 8:00 excluded (x <= 0.1 -- see the docstring).
+    # Keep this threshold in step with volume_sweep.py and absolute_gain.py, which both use x > 0.1.
     picks = {}
     for path, d in C.find_captures():
-        if d["unit"] != "p4" or d["mode"] != MODE or d["volume_clock"] <= 730:
+        if d["unit"] != "p4" or d["mode"] != MODE or d["volume"] <= 0.1 + 1e-9:
             continue
         k = d["volume_clock"]
         if k not in picks or d["pad_db"] > picks[k][1]["pad_db"]:
             picks[k] = (path, d)
     if len(picks) < 2:
-        sys.exit("need at least two knob positions above 7:30")
+        sys.exit("need at least two knob positions above 8:00")
 
     data = {}
     for clock, (path, d) in sorted(picks.items()):

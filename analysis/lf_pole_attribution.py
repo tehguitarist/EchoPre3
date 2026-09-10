@@ -20,14 +20,35 @@ floor with the pedal left exactly as drawn. See circuit.md note #19 before actin
 Run:  .venv/bin/python analysis/lf_pole_attribution.py
 Reads analysis/reports/hf_shape_fit.json (capture-minus-plugin curves, 8x OS).
 """
-import json, os, numpy as np
+import json, os, re
+
+import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC  = os.path.join(HERE, "reports", "hf_shape_fit.json")
 OUT  = os.path.join(HERE, "reports", "lf_pole_attribution.json")
 
-# circuit.md stage 3 / CircuitValues.h
-R6, C10, R10, R9, R8, POT, TAPER_P = 22e3, 100e-9, 240e3, 110e3, 110e3, 500e3, 2.0
+# circuit.md stage 3 / CircuitValues.h.
+# ⚠⚠ TAPER_P AND C10 ARE PARSED FROM THE HEADER, NOT TYPED. Six analysis scripts route their output
+# network through this module, so a hardcoded copy here is a second definition of a shipped constant
+# -- and when the taper moved 2.0 -> 2.30 every one of them would have silently kept modelling the
+# old plugin while comparing against renders of the new one. That is not a hypothetical: the LF and
+# midband taper fits are BOTH reparameterisations off TAPER_P (`x ** (taper / TAPER_P)`), so a stale
+# copy would have returned a confident, well-fitting, wrong exponent. Same rule as OsDroopRestore's
+# "one definition" and p4_corners.plugin_known(): read the source of truth.
+_SRC_H = open(os.path.join(HERE, "..", "src", "dsp", "CircuitValues.h")).read()
+
+
+def _const(name):
+    m = re.search(rf"{name}\s*=\s*([0-9.eE+-]+)", _SRC_H)
+    if m is None:
+        raise RuntimeError(f"{name} not found in CircuitValues.h -- the header was restructured")
+    return float(m.group(1))
+
+
+R6, R10, R9, R8, POT = 22e3, 240e3, 110e3, 110e3, 500e3
+C10 = _const("kC10")
+TAPER_P = _const("kVolumeTaperP")
 RO = 1.44e6                      # JfetStage ro
 R4, C4 = 1e6, 22e-9              # input high-pass, 7.2 Hz as drawn
 F_IN = 1.0 / (2 * np.pi * R4 * C4)
