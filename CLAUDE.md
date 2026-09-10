@@ -1658,9 +1658,14 @@ high, execute routine work cheap) is what should persist.
 > 3. ⭐⭐ **Apply the taper `p` = 2.3.** Two independent bands agree; the shipped 2.0 costs 2.08 dB
 >    worst / 0.96 dB RMS on the control law. ⚠ Re-check that the volume peak still lands in the
 >    maker's 1–2 o'clock: at p = 2.33 the fitted peak is 13:28, so it does.
-> 4. ⭐ **Model the clipping ONSET, not just `Vov`.** The H2 delta grows with drive (−2.5 dB at the
->    −12 cell, −6.2 at −4), so a single curvature scalar cannot close it. This is the real remaining
->    modelling work and `analysis/probe_compare.py --vov` is the instrument for it.
+> 4. ⭐⭐ **Add a `--gm` flag to `OfflineRender`, then model the clipping ONSET.** See circuit.md
+>    note **#22a**: the `Vov` sweep goes NON-MONOTONE above ~0.7 (sd 1.45 → 4.56 → 12.71) because it
+>    holds P1/P2's `gm` while sweeping, and the bias point collapses — at `Vov` = 1.2 the quiescent
+>    Vds is NEGATIVE. `gm` and `Vov` are one square-law family and must be swept together. At P4's
+>    measured gm = 1146 µS the same `Vov` = 0.93 is healthy (IDSS exactly 5 mA, Vds = 8.4 V).
+>    ⚠ Separately, the H2 delta grows with drive (−2.5 dB at the −12 cell, −6.2 at −4), so no single
+>    curvature scalar closes it — the clipping ONSET is misplaced too. `probe_compare.py` is the
+>    instrument for both.
 > 5. **Then re-run the full evaluation** (`goal_check.py`, `phase_sweep.py`) against P4 and re-read
 >    the 1 dB / 5° targets. Both were previously blocked on the LF pole, which note #21 dissolves:
 >    C10 is as drawn and the LF error was the taper.

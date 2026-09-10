@@ -29,8 +29,11 @@ come from P1/P2 because the mode differential is rig-free, and everything struct
    is the first anchor the constant has ever had and there will not be another.
 3. Apply the VOLUME taper `p` = 2.3 (measured 2.28 from the LF corners and 2.33 from the midband
    control law). The shipped 2.0 costs 2.08 dB worst and 0.96 dB RMS on the control law.
-4. Model the clipping ONSET. The H2 error grows with drive (−2.5 dB at the −12 dBFS cell, −6.2 at
-   −4), so no single curvature scalar closes it. `analysis/probe_compare.py --vov` is the instrument.
+4. Add a `--gm` flag to `OfflineRender`, then model the clipping onset. Read circuit.md note #22a
+   first: the `Vov` sweep goes non-monotone above about 0.7 because it holds P1/P2's `gm` while
+   sweeping, and the bias point collapses — at `Vov` = 1.2 the quiescent drain-source voltage is
+   negative. The two are one square-law family and must move together. Separately, the H2 error
+   grows with drive, so no single curvature scalar closes it either.
 5. Re-run `goal_check.py` and `phase_sweep.py` against P4 and re-read the 1 dB / 5° targets.
 
 **Things that will waste your time if you don't know them.**

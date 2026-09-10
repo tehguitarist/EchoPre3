@@ -1674,3 +1674,50 @@ self-test read 2.39 against a required 2.00 and flag a correct instrument as bro
 
 **✅ Drift is a non-issue and is measured, not assumed** — see note #21a. Within-take repeats on the
 probe captures read ≤ 0.02 dB on every take above 7:30.
+
+#### 22a. ⚠⚠ CORRECTION to note #22 — the `Vov` sweep CANNOT reach P4's value, because `gm` is wrong
+
+The sweep in note #22 was run to completion and its tail is NOT monotone:
+
+| `Vov` | 0.2200 | 0.3000 | **0.4469** | 0.7000 | 0.9300 | 1.2000 |
+|---|---|---|---|---|---|---|
+| mean H2 delta | −13.52 | −9.46 | **−3.36** | +3.59 | −4.88 | −23.22 |
+| sd | 4.91 | 3.74 | **1.45** | 4.56 | **12.71** | 9.26 |
+
+⭐⭐ **The tail is the BIAS POINT COLLAPSING, and it is an artefact of sweeping `Vov` while holding
+P1/P2's `gm`.** The square-law self-bias solve is a one-parameter family, so raising `Vov` raises
+`Id`, which drops the drain:
+
+| `Vov` at gm = 1553 µS | 0.4469 | 0.7000 | 0.9300 | 1.2000 |
+|---|---|---|---|---|
+| IDSS | 5.00 mA | 7.83 | 10.40 | 13.42 |
+| Vds | 13.12 V | 8.08 | 3.51 | **−1.86 V** |
+
+At 1.2 the quiescent Vds is NEGATIVE — the stage is fully in triode at rest — and everything above
+0.4469 exceeds the datasheet's IDSS ≤ 5 mA. 📌 **The shipped 0.4469 is exactly the datasheet
+ceiling at this `gm`** (IDSS = 5.00 mA), which is how it was chosen (note #8).
+
+⭐⭐ **BUT AT P4's OWN `gm` THE SAME `Vov` IS PERFECTLY HEALTHY, and this is the coupling that
+matters.** A lower `gm` needs a smaller `Id` for the same `Vov`, so it raises BOTH the admissible
+`Vov` and the quiescent drain:
+
+| at `Vov` = 0.93 | gm = 1553 µS (P1/P2, shipped) | gm = 1146 µS (P4 measured) |
+|---|---|---|
+| IDSS | 10.40 mA — over datasheet | **5.00 mA — exactly at it** |
+| Vds | 3.51 V (Vds/Vov = 3.8, near triode at idle) | **8.36 V (Vds/Vov = 9.0, healthy)** |
+
+➡ **So note #22's "`Vov` ≈ 0.94 at P4's own `gm`" is physically admissible and stands — but the
+sweep cannot demonstrate it, because every point above ~0.7 was run with the wrong `gm` and is
+measuring a collapsing bias point rather than a curvature.** The two parameters must be moved
+TOGETHER.
+
+⛔ **What this does NOT change:** the refutation of note #16's 0.126–0.165 is untouched — those
+points are on the clean, monotone part of the sweep and read −9.5 to −13.5 dB. **Do not apply them.**
+
+➡ **What the next session needs: a `--gm` measurement flag on `OfflineRender`**, exactly parallel to
+`--vov` and for the same stated reason ("every other quantity in the device model is derived from it,
+so it cannot be swept from outside the stage"). Then sweep the (gm, `Vov`) pair with `gm` pinned at
+P4's measured 1146 µS. ⚠ Note that pinning `gm` to P4 conflicts with the recorded decision to voice
+to P1/P2 — which is fine, because this is a MEASUREMENT of P4's `Vov`, not a voicing choice. Convert
+the result back to the shipped `gm` through the invariant `Vov`·K0², and sanity-check that the
+converted value keeps Vds/Vov above ~6.
