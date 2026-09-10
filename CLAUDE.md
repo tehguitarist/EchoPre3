@@ -1680,3 +1680,90 @@ high, execute routine work cheap) is what should persist.
 >   converter before the JFET reaches triode. That is the rig's ceiling, not a missing capture.
 > - **MID stays inferred** — P4 has no MID position. Scale by the measured cap RATIO (2.24), never
 >   by an absolute τ.
+
+> ### ⭐⭐ SESSION 2026-09-11: THREE CONSTANTS APPLIED. Full detail in circuit.md note **#23**.
+>
+> The handover's steps 1–4 are done. **All 11 tests pass, warning-free.**
+>
+> | constant | was | now | source |
+> |---|---|---|---|
+> | `gm` | 1.5531069 mS | **unchanged** | re-checked against a 2nd estimator; means agree to 0.021 dB |
+> | `kVolumeTaperP` | 2.0 (marketing copy) | **2.30** | P4's VOLUME sweep, two independent bands |
+> | `kOutputMakeup` | 1.0 (UNANCHORED) | **1.1562 (+1.261 dB)** | P4, DARK only, sd 0.175 dB |
+> | `kInputRef` | 4.4626, comment said "ASSUMPTION" | 4.4626, **comment corrected to MEASURED** | owner-confirmed +12.20 dBu |
+>
+> ⭐ **`kOutputMakeup` is the headline: it has been exactly 1.0 and unanchored since the project
+> began and there was never another possible route to it.** ✅ Verified by re-measurement — with the
+> constant applied, the same instrument reads **+0.000 dB**, scatter unchanged.
+>
+> ⭐⭐ **The taper confirmed itself through a quantity it does not appear in.** `kOutputMakeup` must
+> be a CONSTANT across the knob. At p = 2.0 its per-position scatter was **2.73 dB**; at p = 2.30 it
+> is **0.42 dB**. A 6.5× collapse in the scatter of something that must not vary is stronger evidence
+> than either taper fit's own residual.
+>
+> ### ⚠⚠ FOUR HARNESS FAULTS, AND TWO WOULD HAVE CORRUPTED THESE VERY NUMBERS
+> 1. ⚠⚠ **The render cache did not include the plugin BINARY.** Keys were a hash of the render
+>    ARGUMENTS — itself a fix for a key that had been a display tag. Same fault one level up: change
+>    a constant, rebuild, re-run, and the args are identical, so every script compares new captures
+>    against the OLD plugin. ⭐ **Caught by a column that did not move** — after the taper changed,
+>    the plugin levels came back byte-identical. Fixed via `captures.render_bin_key()`.
+>    **Any future measurement flag must go into that key too.**
+> 2. ⚠⚠ **The fits the handover quoted were STALE**: three captures (`p4_V0800_dark`,
+>    `p4_V0800_bright`, `p4_V1030_dark_pad4p5`) landed after the reports. `*.wav` is gitignored, so
+>    git cannot show this. ➡ **Compare capture mtimes to report mtimes before trusting a prior fit.**
+> 3. ⚠⚠ **8:00 is x = 0.100 EXACTLY and two scripts disagreed on whether that is excluded.**
+>    Including it moved the LF taper 2.281 → 2.201 and the joint C10 fit to 114.3 nF (14 % over
+>    nominal), reopening note #21's closed C10 question with a wrong answer. ⭐ It is excluded on its
+>    **residual** (0.185 dB RMS against 0.020–0.087 elsewhere; dropping it halves the pooled RMS),
+>    not on leverage. Physical cause: the control law moves **±2.98 dB per ±10 min** of knob error at
+>    8:00, against ±1.02 at 9:00. Threshold is `x <= 0.1` in all three scripts now.
+> 4. ⚠ **`TAPER_P` was a second definition** of a shipped constant in `lf_pole_attribution.py`, and
+>    both taper fits are reparameterisations off it. It parses `CircuitValues.h` now.
+>
+> ### ⭐ `OfflineRender --gm S` IS IN, WITH A BIAS-POINT GUARD
+> It sits beside `--vov`, and setting it rebuilds the shelf (so a `gm` sweep moves the model's mode
+> differential to match the unit under comparison — required to fit `Vov` against P4). ⭐⭐ It now
+> prints the implied operating point and **refuses** a pair whose quiescent Vds is negative, so
+> note #22a's trap cannot recur silently: shipped `gm` with `Vov` = 1.2 exits 1 and writes no file;
+> `Vov` = 0.93 warns twice; **P4's gm = 1146 µS with `Vov` = 0.93 gives IDSS 4.999 mA and
+> Vds_q 8.36 V**, reproducing note #22a's prediction from the flag itself.
+>
+> ### ⭐⭐ AND HANDOVER STEPS 4–5 ARE DONE TOO — circuit.md notes **#24** and **#25**
+>
+> **`Vov` STAYS at 0.4469, and it is now MEASURED rather than defaulted.** Swept as a PAIR with `gm`
+> pinned at P4's measured 1146 µS, the sweep is **monotone across the whole range** — confirming
+> note #22a's diagnosis that the old tail was a collapsing bias point. Three criteria give three
+> answers spanning 2× (mean H2 zero at 0.78, scatter minimum 0.60, drive-slope zero ~0.40); converted
+> back through `Vov·K0²` the mean-zero answer is **0.47, within 4 % of the shipped value**.
+> ⛔ **The drive dependence CHANGES SIGN** between the shipped pair and P4's, so the clipping onset is
+> a fittable two-parameter problem — but no single `Vov` closes both the mean and the slope.
+> ➡ **The model's H2-vs-drive CURVE has the wrong SHAPE, not the wrong scale.** That is the next
+> modelling job, and `Vov` must not absorb it.
+>
+> **`goal_check.py` NOW ANCHORS TO P4** (`--unit`, default p4) with the rig deconvolved, the
+> interface load undone in magnitude AND phase, matched drive, and a new **absolute-level** section
+> that only became possible once `kOutputMakeup` was anchored.
+>
+> | target, 8× OS, against the owner's own pedal | result |
+> |---|---|
+> | FR ±0.5 dB, 80 Hz–12 kHz | ✅ **DARK passes 9:00–17:00 except 13:30**, at 0.04–0.22 dB core worst |
+> | phase ±5° | ✅ **worst 3.90° over 200 Hz–12 kHz**; every DARK row passes 20 Hz–20 kHz |
+> | absolute level ±0.5 dB | ✅ **all 15 captures pass**; dark mean −0.039 dB |
+>
+> ⚠⚠ **THE ~99 pF CAPTURE-SIDE CABLE LOAD IS NOT OPTIONAL IN EITHER INSTRUMENT, and omitting it
+> reads as a knob-dependent MODEL defect.** The bypass deconvolution structurally cannot remove it
+> (note #21). Without it `goal_check` reported HF misses growing with VOLUME to +2.69 dB, and
+> `phase_sweep` reported P4 at **17–23° RMS against P1's 2.7–4.0°**. With it, `phase_sweep`'s P4 DARK
+> rows read **0.13–1.88° RMS**, ~10× better than P1. ⛔ CAPTURE-side only — the plugin still ships no
+> load capacitance, because its output goes to a DAW digitally.
+> ⭐ Both corrections live in `p4_corners` as ONE definition each. Two free checks confirm the
+> refactor: `goal_check`'s output is byte-identical through the shared function, and the **mode
+> differential did not move** (it is a within-unit ratio, so the rig must cancel in it).
+>
+> ### ➡ NEXT
+> 1. **Model the clipping ONSET.** This is the one substantive modelling gap left. The tooling is in
+>    place and note #24 maps the residual: at P4's gm the drive slope runs +0.14 dB (`Vov` 0.45) →
+>    +4.99 (0.77) while the shipped pair reads −1.06, so the sign change brackets the answer.
+> 2. **BRIGHT's 6.5–10 kHz miss is the recorded voicing decision** (P4's K0 5.06–5.19 vs the shipped
+>    6.59), not a defect. ⛔ Do not move `gm` to close it.
+> 3. **MID stays inferred** (P4 has no MID position) — scale by the measured cap RATIO 2.24.
