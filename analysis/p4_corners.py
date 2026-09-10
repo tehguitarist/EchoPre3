@@ -58,7 +58,7 @@ def load_fr(path, seg=FIT_SWEEP):
     return A.sweep_fr(A.seg_of(cap, seg, settled=False), A.seg_of(orig, seg, settled=False))
 
 
-def loading_correction_db(f, x):
+def loading_correction_db(f, x, cable_pf=0.0):
     """dB to ADD to a capture to undo the interface's 1 MOhm input load.
 
     NOT a scalar: it moves with the knob (0.341 dB across the sweep) AND with frequency, because
@@ -67,9 +67,57 @@ def loading_correction_db(f, x):
     """
     f = np.asarray(f, dtype=float).copy()
     f[f <= 0] = 1e-6          # DC is not a measurement point; keep the solve finite
-    loaded = np.abs(LFA.out_network(f, x, rl=ZIN))
+    loaded = np.abs(LFA.out_network(f, x, rl=load_impedance(f, cable_pf)))
     free = np.abs(LFA.out_network(f, x, rl=np.inf))
     return 20 * np.log10(np.maximum(free, 1e-300) / np.maximum(loaded, 1e-300))
+
+
+# Capture-side cable capacitance at the pedal's output, MEASURED (circuit.md note #21): fitting one
+# global value across P4's DARK rotation takes the 3-19 kHz error from 2.036 / 0.992 dB to
+# 0.361 / 0.071 dB. It is P2's 542 pF cable pole again at a fifth the size, measured this time.
+#
+# ⚠⚠ THE BYPASS DECONVOLUTION STRUCTURALLY CANNOT REMOVE IT, so it must be corrected separately.
+# In BYPASS the cable is driven by the interface's own low output impedance and the pole is
+# inaudible; in an ACTIVE capture it is driven by the pedal's 59-102 kOhm, so the pole exists in one
+# path and not the other. Leaving it out reports the rig's cable as a MODEL error -- and as a
+# KNOB-DEPENDENT one, because the pedal's Zout moves 1.7x across the rotation, which is exactly what
+# a real HF defect would look like.
+# ⛔ CAPTURE-side only. The 2026-09-08 decision to ship no load capacitance in the plugin stands,
+# because the plugin's output goes to a DAW digitally.
+CABLE_PF = 99.0
+
+
+def load_impedance(f, cable_pf=CABLE_PF):
+    """The interface AS SEEN BY THE PEDAL: ZIN shunted by `cable_pf`. Frequency-dependent.
+
+    ⚠⚠ `cable_pf = 0` IS THE DEFAULT FOR loading_correction_db() AND THAT IS DELIBERATE, not an
+    oversight. Three fits that are already applied -- the VOLUME taper, C10 and kOutputMakeup -- were
+    made against the resistive-only correction, and p4_component_fit.py fits the cable itself as a
+    free parameter on top of that correction. Folding the cable in by default would DOUBLE-COUNT it
+    there and silently perturb the other three. So the cable is opt-in, and only the two instruments
+    that need it whole -- goal_check.py and phase_sweep.py -- ask for it.
+    ⭐ It matters little at the fit bands and hugely above them: 0.014 dB at 1 kHz, but 2.08 dB and
+    29.8 deg at 10 kHz, and 3.25 dB / 40.7 deg at 15 kHz.
+    """
+    f = np.asarray(f, dtype=float).copy()
+    f[f <= 0] = 1e-6
+    if cable_pf <= 0.0:
+        return np.full(f.shape, ZIN, dtype=complex)
+    return 1.0 / (1.0 / ZIN + 2j * np.pi * f * cable_pf * 1e-12)
+
+
+def loading_correction_complex(f, x, cable_pf=CABLE_PF):
+    """COMPLEX ratio to MULTIPLY a capture by, to undo the interface load. Magnitude AND phase.
+
+    ⚠ Taking only the dB and dropping the angle would correct one instrument and not the other --
+    the load is a complex divider, and this project has been bitten three times by an asymmetry
+    between a magnitude path and a phase path. loading_correction_db() is this function's magnitude.
+    """
+    f = np.asarray(f, dtype=float).copy()
+    f[f <= 0] = 1e-6
+    loaded = LFA.out_network(f, x, rl=load_impedance(f, cable_pf))
+    free = LFA.out_network(f, x, rl=np.inf)
+    return np.where(np.abs(loaded) > 0, free / loaded, 1.0 + 0j)
 
 
 def pedal_fr(path, parsed, bypass_fr=None, seg=FIT_SWEEP, undo_load=True):

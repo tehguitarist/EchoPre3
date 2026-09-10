@@ -47,6 +47,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import analyze as A
 import captures as C
+import p4_corners as P
 import gen_test_signal as G
 
 OUTPUT_JSON = "analysis/reports/phase_sweep.json"
@@ -158,6 +159,23 @@ def main():
     results = {}
     tmpdir = tempfile.mkdtemp(prefix="phase_sweep_")
 
+    # The bypass reference's own COMPLEX transfer, for the P4 rig deconvolution. Computed once.
+    _bypass_cf = _bypass_cH = None
+    if any(d["unit"] == "p4" for _, d in caps):
+        if not os.path.exists(P.REF_BYPASS):
+            sys.exit(f"missing the deconvolution reference {P.REF_BYPASS}")
+        _bc, _ = A.align(A.load(P.REF_BYPASS), orig)
+        _bypass_cf, _bypass_cH = A.transfer_complex(A.seg_of(_bc, "sweep_clean"), ref)
+
+    def pedal_correction(freqs, corr):
+        """COMPLEX ratio to MULTIPLY a P4 capture by: rig out, interface+cable load out."""
+        freqs = np.asarray(freqs, dtype=float)
+        rig = (np.interp(freqs, _bypass_cf, _bypass_cH.real)
+               + 1j * np.interp(freqs, _bypass_cf, _bypass_cH.imag))
+        load = P.loading_correction_complex(freqs, corr[1])
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.where(np.abs(rig) > 0, load / rig, 1.0 + 0j)
+
     print(f"Phase sweep: {len(caps)} captures | OS={args.os}x | band {BAND_LO:.0f}-{BAND_HI:.0f} Hz")
 
     for path, parsed in caps:
@@ -175,6 +193,19 @@ def main():
         cap_seg = A.seg_of(cap_al, "sweep_clean")
         ren_seg = A.seg_of(ren_al, "sweep_clean")
 
+        # ⚠⚠ A P4 CAPTURE IS NOT THE PEDAL UNTIL THE RIG AND THE OUTPUT CABLE ARE REMOVED, and
+        # leaving them in reads as a huge model error in the ABSOLUTE columns: uncorrected, P4's
+        # residuals came back 17-23 deg RMS against P1's 2.7-4.0, purely because the interface's
+        # 1 MOhm shunted by ~99 pF is 29.8 deg at 10 kHz and 40.7 deg at 15 kHz off the pedal's
+        # 59-102 kOhm output impedance. Both corrections come from p4_corners -- ONE definition,
+        # shared with goal_check.py (circuit.md note #23 fault 4).
+        # ⭐ Section 3's MODE DIFFERENTIAL needs none of this: it is a ratio within one unit, so the
+        # rig and the cable cancel identically. That is why it was trustworthy before this fix and
+        # is unchanged by it.
+        cap_corr = None
+        if parsed["unit"] == "p4":
+            cap_corr = (None, parsed["volume"])
+
         # 1. Polarity, absolute, before anything else is read.
         cap_pol, cap_ang = A.polarity(cap_seg, ref)
         ren_pol, ren_ang = A.polarity(ren_seg, ref)
@@ -184,6 +215,9 @@ def main():
         _, Hr_far = farina_spectrum(ren_seg, ref)
         f_csd, Hc_csd = csd_spectrum(cap_seg, ref)
         _, Hr_csd = csd_spectrum(ren_seg, ref)
+        if cap_corr is not None:
+            Hc_far = Hc_far * pedal_correction(f_far, cap_corr)
+            Hc_csd = Hc_csd * pedal_correction(f_csd, cap_corr)
 
         band = (f_far >= BAND_LO) & (f_far <= BAND_HI)
         f_b = f_far[band]

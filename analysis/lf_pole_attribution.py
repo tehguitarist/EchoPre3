@@ -59,16 +59,24 @@ FIT_BAND = (25.0, 800.0)
 
 
 def out_network(f, x, c10=C10, r10=R10, rl=np.inf, zd=None):
-    """Node-E / node-OUT solve, driven by the drain Norton current. Returns V_out."""
+    """Node-E / node-OUT solve, driven by the drain Norton current. Returns V_out.
+
+    `rl` is the load at the jack. It may be a scalar (a resistive load, or np.inf for unloaded) OR
+    an ARRAY the same length as `f` -- which is what a CAPACITIVE load needs, since a cable's
+    impedance is frequency-dependent. goal_check.py uses the array form for the interface's
+    1 MOhm shunted by the measured ~99 pF of cable (circuit.md note #21).
+    """
+    f = np.atleast_1d(np.asarray(f, dtype=complex))
     ra = POT * x ** TAPER_P
     rb = POT - ra
     if zd is None:
         zd = 1.0 / (1 / R6 + 1 / RO)
+    rl_arr = np.broadcast_to(np.asarray(rl, dtype=complex), f.shape)
     out = []
-    for y in 2j * np.pi * np.asarray(f, dtype=complex) * c10:
+    for y, zl in zip(2j * np.pi * f * c10, rl_arr):
         Y = np.array([[1 / zd + y, -y, 0],
                       [-y, y + 1 / r10 + 1 / ra + 1 / R9, -1 / R9],
-                      [0, -1 / R9, 1 / R9 + 1 / (R8 + rb) + 1 / rl]], dtype=complex)
+                      [0, -1 / R9, 1 / R9 + 1 / (R8 + rb) + 1 / zl]], dtype=complex)
         out.append(np.linalg.solve(Y, np.array([1, 0, 0], dtype=complex))[2])
     return np.array(out)
 

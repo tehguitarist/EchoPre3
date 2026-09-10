@@ -3,38 +3,50 @@
 
     frequency response   within +-1.0 dB overall, and +-0.5 dB from 80 Hz to 12 kHz
     phase                within 5 degrees across all bands
+    absolute level       kOutputMakeup is anchored now, so this is finally a target and not a note
     THD                  within 5 % (= 0.42 dB), PER BAND, over 100 Hz .. 12 kHz
     compression          within 5 %
     harmonics            correct levels, per order
 
-⚠⚠ TWO OF THESE FOUR CANNOT BE MEASURED AGAINST THE CURRENT REFERENCE, and the script says so
-rather than printing a number that looks like an answer. 5 % of THD is 0.42 dB. The reference
-models' own harmonic error floor is 4-9 dB (circuit.md note #10) and their compression floor is
-0.145-0.210 dB against signals of 0.2-0.6 dB (note #11), and note #15 established those floors are
-SYSTEMATIC rather than noise, so they do not average down. A 0.42 dB target sits an order of
-magnitude under the instrument. Only the +12.2 dBu capture session can move that.
+    .venv/bin/python analysis/goal_check.py [--unit p4|p1|p2|p3] [--os 8]
 
-The frequency-response target IS measurable, and against P1 only: circuit.md note #9 disqualifies P2
-(cable pole, inverted polarity) and P3 (shelf-blind fit) for absolute response.
+⭐⭐ THE DEFAULT ANCHOR IS NOW **P4**, THE OWNER'S OWN UNIT, AND THAT REVERSES THIS FILE'S PREVIOUS
+HEADLINE. It used to say "the FR target is measurable against P1 only", because the whole reference
+set was seven NAM models and note #9 disqualified P2 (cable pole, inverted polarity) and P3
+(shelf-blind fit) for absolute response, leaving P1 -- which note #17 then showed is also the
+NOISIEST model in the set. P4 is a raw capture of the test signal through a MEASURED, near-flat rig,
+with both calibration figures written down. It supersedes all four NAM units as the anchor.
 
-⚠⚠ BUT READ THE FR MISSES WITH circuit.md NOTE #17 BESIDE THEM -- NEITHER CLUSTER IS A MODEL DEFECT.
-The core-band cells this table reports as over target fall into two groups and both are the
-reference's, not the plugin's:
-  * 80-127 Hz, +0.6 to +1.06 dB -- the missing LF high-pass pole, confounded 27 / 18 / 13.5 Hz
-    across three units (note #7's M4, note #9d). Blocked on the within-rig VOLUME sweep.
-  * 4064-8127 Hz, -0.5 to -0.67 dB -- P1's own HF error. Note #17: the plugin's input pole is
-    confirmed at 7.3 kHz by P2 (0.02 dB residual, all three modes) and accommodated by P3, while P1
-    cannot be described by ANY pole cascade containing one, and its best fit still leaves a
-    structured +0.3 dB hump at 3-5 kHz -- the same size as the miss. P1 is BRIGHTER there than the
-    circuit as drawn can be, and an extra pole can only darken.
-⛔ So do not move an input-network constant to close either cluster. P1 is the only capture that can
-carry an absolute anchor and it is also the noisiest model in the set; those are both true at once.
+⚠⚠ A P4 CAPTURE NEEDS TWO CORRECTIONS BEFORE IT IS THE PEDAL, AND THIS SCRIPT APPLIES BOTH.
+  * Deconvolve `p4_V1030_bypass.wav`, NOT the bare loop. They are not interchangeable: bypass minus
+    loop is +0.37 dB at 18 kHz (the loop path carried a cable the bypass path did not), and the
+    bypass path shares its cabling with every pedal capture. The chain also has ~0.5-0.75 dB of real
+    HF droop over 8-20 kHz, which is the size of the entire 1 dB target, so this is not optional.
+  * Undo the interface's 1 MOhm input load. NOT a scalar -- the pedal's output impedance is
+    59-102 kOhm and moves with VOLUME, so the correction moves with the knob (0.341 dB across the
+    rotation) and with frequency (0.120 dB within one position). Generated per capture from the
+    network model, never typed.
 
-⚠ Level is not shape. kOutputMakeup is still exactly 1.0 and unanchored, so every comparison here is
-normalised over the midband and reads SHAPE. An absolute-level target needs `output_level_dbu`.
+⚠ P4 captures are compared at MATCHED DRIVE: the capture's `_pad` suffix is fed to OfflineRender's
+--input-scale by captures.render_args(), so the plugin sees the same gate volts. That is binding for
+anything harmonic (circuit.md note #8) and harmless for the linear bands.
 
-Run from the repo root:
-    .venv/bin/python analysis/goal_check.py [--os 8]
+⚠⚠ P4 IS A DIFFERENT UNIT FROM THE ONE THE MODEL IS VOICED TO, DELIBERATELY. The recorded decision
+is to voice to the newer three-position units (P1/P2) and use P4 as the measurement baseline. P4's
+JFET is ~25 % weaker (K0 5.06-5.19 against the shipped 6.59), and that gap lives entirely in the
+mode shelf -- so expect BRIGHT to read ~1.9 dB bright at 10 kHz against P4 and DARK to be unaffected.
+⛔ That is a recorded voicing decision, not a defect, and it must not be closed by moving `gm`.
+➡ Read the DARK row as the model's own error; read the BRIGHT row's HF as the unit difference.
+
+⚠ THD / COMPRESSION / PER-ORDER remain out of scope HERE, but no longer because the reference cannot
+carry them -- P4's raw captures can. They need matched-drive per-order work, which is
+`analysis/probe_compare.py` and `analysis/harmonic_audit.py`, not a banded sweep. This script covers
+the linear targets.
+
+⚠ HISTORIC, kept because it is still true OF P1: its 80-127 Hz and 4064-8127 Hz core-band misses are
+the reference's, not the plugin's (circuit.md notes #7 M4, #9d, #17). P1 is brighter at 4-8 kHz than
+the circuit as drawn can be, and an extra pole can only darken. Do not move an input-network
+constant to close them.
 """
 import argparse, os, subprocess, sys, tempfile
 
@@ -43,6 +55,9 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import analyze as A
 import captures as C
+import p4_corners as P
+import lf_pole_attribution as LFA
+from absolute_gain import VOLTS_CORR as _VOLTS_CORR
 
 # The owner's targets.
 FR_BAND_DB = 1.0          # everywhere
@@ -51,34 +66,87 @@ FR_CORE = (80.0, 12000.0)
 THD_PCT = 5.0             # -> 20*log10(1.05) = 0.42 dB
 THD_BAND = (100.0, 12000.0)  # per band, not as an aggregate
 COMP_PCT = 5.0
+LEVEL_DB = 0.5            # absolute voltage-gain tolerance, now that kOutputMakeup is anchored
+LEVEL_BAND = (200.0, 2000.0)  # above the LF poles, below the 1.9 kHz mode shelf zero
+# The capture-side cable capacitance lives in p4_corners.CABLE_PF -- one definition.
 PHASE_DEG = 5.0           # across all bands
 # Shape normalisation window. Deliberately inside the core band and away from both roll-offs.
 NORM = (200.0, 5000.0)
-# The absolute anchor. Note #9: P1 is the only capture that can carry one.
-ANCHOR_UNIT = "p1"
+# The absolute anchor. P4 is the owner's own unit, raw-captured through a measured rig.
+ANCHOR_UNIT = "p4"
+# Play side and record side of the P4 rig -- see analysis/absolute_gain.py for the derivation and
+# for the free known-answer check (a loop is a wire; this bypass is true bypass; both read 0.000).
+VOLTS_CORR = _VOLTS_CORR
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--os", type=int, default=8)
     ap.add_argument("--bin", default=C.RENDER_BIN)
+    ap.add_argument("--unit", default=ANCHOR_UNIT,
+                    help="which unit to anchor to. p4 is the owner's own pedal, raw-captured "
+                         "through a measured rig, and is the default. The NAM units p1/p2/p3 are "
+                         "kept selectable for the historic comparisons only -- note #9 disqualifies "
+                         "p2 and p3 for absolute response and note #17 shows p1 is the noisiest "
+                         "model in that set.")
     args = ap.parse_args()
+    unit = args.unit
+
+    # ⚠ P4 needs the rig deconvolved and the interface load undone before it is the PEDAL. Both are
+    # smooth curves on the continuous grid, interpolated onto the 1/3-octave centres below. A NAM
+    # unit gets neither: it has no bypass reference and it was never loaded by this interface.
+    bypass_fr = None
+    if unit == "p4":
+        if not os.path.exists(P.REF_BYPASS):
+            sys.exit(f"missing the deconvolution reference {P.REF_BYPASS}")
+        bypass_f, bypass_mag = P.load_fr(P.REF_BYPASS, seg="sweep_clean")
+        _bo = A.load(A.ORIG)
+        _bc, _ = A.align(A.load(P.REF_BYPASS), _bo)
+        bypass_cf, bypass_cH = A.transfer_complex(A.seg_of(_bc, "sweep_clean", settled=False),
+                                                  A.seg_of(_bo, "sweep_clean", settled=False))
+
+    # ⚠⚠ BOTH corrections live in p4_corners, in ONE definition each, and this script only calls
+    # them. A second copy of a shipped correction is exactly harness fault 4 (circuit.md note #23).
+    def pedal_correction_db(freqs, parsed):
+        """dB to ADD to a banded capture so it reads as the pedal alone. Zero for a NAM unit."""
+        if unit != "p4":
+            return np.zeros_like(np.asarray(freqs, dtype=float))
+        rig = np.interp(freqs, bypass_f, bypass_mag)
+        return -rig + P.loading_correction_db(freqs, parsed["volume"], P.CABLE_PF)
+
+    def pedal_correction_complex(freqs, parsed):
+        """The same correction as a COMPLEX ratio, for the phase section.
+
+        ⚠ The interface load is a complex divider, not a magnitude scaler, so its PHASE has to come
+        out too -- it is 29.8 deg at 10 kHz and 40.7 at 15 kHz. Taking only the dB and leaving the
+        angle would put a real correction in one section and not the other, which is the kind of
+        asymmetry this project has been bitten by three times.
+        """
+        freqs = np.asarray(freqs, dtype=float)
+        if unit != "p4":
+            return np.ones_like(freqs, dtype=complex)
+        rig = np.interp(freqs, bypass_cf, bypass_cH.real) + 1j * np.interp(freqs, bypass_cf,
+                                                                          bypass_cH.imag)
+        corr = P.loading_correction_complex(freqs, parsed["volume"])
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.where(np.abs(rig) > 0, corr / rig, 1.0 + 0j)
 
     orig = A.load(A.ORIG)
     ref_seg = A.seg_of(orig, "sweep_clean", settled=False)
     tmp = tempfile.mkdtemp(prefix="goal_")
 
     print(f"Goal check | OS {args.os}x | kInputRef {C.plugin_vfs()} V/FS (read from the header)")
-    print(f"Anchor: {ANCHOR_UNIT.upper()} only -- circuit.md note #9 disqualifies the others for "
-          f"absolute response.\n")
+    print(f"Anchor: {unit.upper()}"
+          + ("  (owner's own unit; rig deconvolved, interface load undone, matched drive)"
+             if unit == "p4" else "  (NAM model -- historic comparison only)") + "\n")
     print("=== 1. FREQUENCY RESPONSE (shape, 1/3 octave, normalised over "
           f"{NORM[0]:.0f}-{NORM[1]:.0f} Hz) ===")
-    print(f"{'mode':>8} {'RMS 20-20k':>11} {'worst':>9} {'@Hz':>7} "
+    print(f"{'capture':>26} {'RMS 20-20k':>11} {'worst':>9} {'@Hz':>7} "
           f"{'>1.0dB':>7} {'core RMS':>9} {'core worst':>11} {'>0.5dB':>7}  verdict")
 
     worst_core, worst_all = 0.0, 0.0
     for path, parsed in C.find_captures():
-        if parsed["unit"] != ANCHOR_UNIT:
+        if parsed["unit"] != unit:
             continue
         name = os.path.splitext(os.path.basename(path))[0]
         cap, _ = A.align(C.load_capture(path), orig)
@@ -88,6 +156,7 @@ def main():
         ren, _ = A.align(A.load(out), orig)
 
         fc, mc, nc = A.band_fr(A.seg_of(cap, "sweep_clean", settled=False), ref_seg, frac=3)
+        mc = mc + pedal_correction_db(fc, parsed)
         _, mr, nr = A.band_fr(A.seg_of(ren, "sweep_clean", settled=False), ref_seg, frac=3)
         # band_average's own docstring: a 0-bin band was INTERPOLATED, not measured. Never quote one.
         valid = (nc > 0) & (nr > 0)
@@ -104,7 +173,7 @@ def main():
         nCoreOver = int(np.sum(np.abs(d[core]) > FR_CORE_DB))
         worst_core = max(worst_core, cw)
         worst_all = max(worst_all, float(np.max(np.abs(d[allb]))))
-        print(f"{parsed['mode']:>8} {rms:>11.2f} {d[allb][wi]:>+9.2f} {fc[allb][wi]:>7.0f} "
+        print(f"{name[:26]:>26} {rms:>11.2f} {d[allb][wi]:>+9.2f} {fc[allb][wi]:>7.0f} "
               f"{nOver:>7} {crms:>9.2f} {cw:>11.2f} {nCoreOver:>7}  "
               f"{'PASS' if (nOver == 0 and nCoreOver == 0) else 'miss'}")
         if nCoreOver:
@@ -124,11 +193,11 @@ def main():
     # would otherwise vanish into the residual -- which is exactly how P2's inversion hid for a whole
     # session. Read the polarity column FIRST.
     print("\n=== 2. PHASE (best-fit pure delay removed; polarity reported separately) ===")
-    print(f"{'mode':>8} {'pol ren':>8} {'pol cap':>8} {'RMS 20-20k':>11} {'worst':>9} {'@Hz':>7} "
+    print(f"{'capture':>26} {'pol ren':>8} {'pol cap':>8} {'RMS 20-20k':>11} {'worst':>9} {'@Hz':>7} "
           f"{'200Hz-12k':>10} {'>5deg':>7}  verdict")
     worst_ph_core = 0.0
     for path, parsed in C.find_captures():
-        if parsed["unit"] != ANCHOR_UNIT:
+        if parsed["unit"] != unit:
             continue
         name = os.path.splitext(os.path.basename(path))[0]
         cap, _ = A.align(C.load_capture(path), orig)
@@ -138,6 +207,7 @@ def main():
 
         f, Hc = A.transfer_complex(cs, ref_seg)
         _, Hr = A.transfer_complex(rs, ref_seg)
+        Hc = Hc * pedal_correction_complex(f, parsed)
         keep = (f >= 20.0) & (f <= 20000.0) & (np.abs(Hc) > 0) & (np.abs(Hr) > 0)
         f = f[keep]
         ratio = Hr[keep] / Hc[keep]
@@ -158,30 +228,67 @@ def main():
         cw = float(np.max(np.abs(resid[band])))
         nOver = int(np.sum(np.abs(resid) > PHASE_DEG))
         worst_ph_core = max(worst_ph_core, cw)
-        print(f"{parsed['mode']:>8} {polR:>+8d} {polC:>+8d} {rms:>11.2f} {resid[wi]:>+9.2f} "
+        print(f"{name[:26]:>26} {polR:>+8d} {polC:>+8d} {rms:>11.2f} {resid[wi]:>+9.2f} "
               f"{f[wi]:>7.0f} {cw:>10.2f} {nOver:>7}  "
               f"{'PASS' if (nOver == 0 and polR == polC == -1) else 'miss'}")
     print(f"\n  target: +-{PHASE_DEG:.0f} deg across all bands")
     print(f"  worst over 200 Hz - 12 kHz: {worst_ph_core:.2f} deg")
     print("  ⚠ BOTH polarity columns must read -1 -- a single common-source stage inverts. They are")
     print("    measured against the TEST SIGNAL, not against each other: a relative check reads +1")
-    print("    when both are flipped and so cannot see a shared error. P2's captures read +1 here,")
-    print("    which is why this anchor is P1 (circuit.md note #9).")
+    print("    when both are flipped and so cannot see a shared error. All three of P2's NAM")
+    print("    captures read +1 here, which is how that rig's inversion was found (circuit.md #9).")
 
-    print("\n=== 3. THD, 4. COMPRESSION, 5. PER-ORDER HARMONICS ===")
-    print(f"  ⛔ NOT MEASURABLE against this reference set, and that is a property of the reference")
-    print(f"     rather than of the model:")
-    print(f"       {THD_PCT:.0f} % of THD PER BAND over {THD_BAND[0]:.0f}-{THD_BAND[1]:.0f} Hz")
-    print(f"         = {20 * np.log10(1 + THD_PCT / 100):.2f} dB "
-          f"| harmonic floor 4-9 dB      (circuit.md #10)")
-    print(f"         ⚠ per band is HARDER than an aggregate, not easier: an RSS over orders can")
-    print(f"           average a per-band error away, which is why band_audit.py exists.")
-    print(f"       {COMP_PCT:.0f} % of compression  = 0.01-0.03 dB "
-          f"| compression floor 0.145-0.210 dB (note #11)")
-    print(f"     Those floors are SYSTEMATIC, not noise (note #15), so they do not average down.")
-    print(f"     ➡ The +12.2 dBu capture is what makes these three answerable. Until then use")
-    print(f"       band_audit.py / harmonic_audit.py / compression_audit.py, which report each")
-    print(f"       delta beside the floor it has to clear.")
+    # ---- 3. ABSOLUTE LEVEL ---------------------------------------------------------------------
+    # ⭐⭐ NEW, AND ONLY POSSIBLE SINCE 2026-09-10. kOutputMakeup was exactly 1.0 and unanchored for
+    # the whole project, so every comparison above this line is normalised and reads SHAPE. With the
+    # makeup anchored from P4's own rig, the pedal's ABSOLUTE voltage gain is a target like any
+    # other. It is reported here as a check on the anchored constant, not as a fit.
+    #
+    # ⚠⚠ Play side (+12.20 dBu) and record side (+14.29 dBu) are NOT equal, so a capture's digital
+    # gain is 2.090 dB away from the pedal's voltage gain. Getting that backwards is a 4.2 dB error.
+    # VOLTS_CORR comes from absolute_gain.py, which owns the arithmetic and the known-answer check.
+    if unit == "p4":
+        print(f"\n=== 3. ABSOLUTE LEVEL ({LEVEL_BAND[0]:.0f}-{LEVEL_BAND[1]:.0f} Hz, volts out per "
+              f"volt in) ===")
+        print(f"{'capture':>28} {'pedal dB':>9} {'plugin dB':>10} {'delta':>8}  verdict")
+        deltas = {}
+        for path, parsed in C.find_captures():
+            if parsed["unit"] != unit:
+                continue
+            if parsed["volume"] <= 0.1 + 1e-9:   # 7:30 / 8:00 -- knob-slope dominated, see #23
+                continue
+            name = os.path.splitext(os.path.basename(path))[0]
+            fc, mc, nc = A.band_fr(A.seg_of(A.align(C.load_capture(path), orig)[0],
+                                            "sweep_clean", settled=False), ref_seg, frac=3)
+            mc = mc + pedal_correction_db(fc, parsed)
+            ren, _ = A.align(A.load(os.path.join(tmp, name + ".wav")), orig)
+            _, mr, nr = A.band_fr(A.seg_of(ren, "sweep_clean", settled=False), ref_seg, frac=3)
+            m = (nc > 0) & (nr > 0) & (fc >= LEVEL_BAND[0]) & (fc <= LEVEL_BAND[1])
+            ped = float(np.mean(mc[m])) + parsed["pad_db"] + VOLTS_CORR
+            plg = float(np.mean(mr[m])) + parsed["pad_db"]
+            deltas.setdefault(parsed["mode"], []).append(ped - plg)
+            print(f"{name:>28} {ped:>+9.3f} {plg:>+10.3f} {ped - plg:>+8.3f}  "
+                  f"{'PASS' if abs(ped - plg) <= LEVEL_DB else 'miss'}")
+        print(f"\n  target: +-{LEVEL_DB:.1f} dB")
+        for mode, v in sorted(deltas.items()):
+            v = np.array(v)
+            print(f"  {mode:>8}: mean {np.mean(v):+.3f} dB, worst {v[np.argmax(np.abs(v))]:+.3f}, "
+                  f"n={v.size}")
+        print("  ⚠ DARK is the check on kOutputMakeup. BRIGHT carries the deliberate P1/P2-vs-P4 gm")
+        print("    difference in the top of this band and is expected to read ~0.1 dB low -- that is")
+        print("    a recorded voicing decision (circuit.md #21, #23), not a level error.")
+
+    print("\n=== 4. THD, 5. COMPRESSION, 6. PER-ORDER HARMONICS ===")
+    print("  ⚠ OUT OF SCOPE HERE, but no longer UNMEASURABLE -- and that distinction is new.")
+    print("    It used to be a property of the reference: the NAM models' harmonic floor is 4-9 dB")
+    print(f"    against a {THD_PCT:.0f} % target of {20 * np.log10(1 + THD_PCT / 100):.2f} dB, their")
+    print("    compression floor 0.145-0.210 dB against a target of 0.01-0.03 dB, and note #15")
+    print("    established both are SYSTEMATIC so they never average down. P4's RAW captures carry")
+    print("    none of that floor. What they need is a matched-drive PER-ORDER comparison, which is")
+    print("    a tone-cell measurement rather than a banded sweep.")
+    print("    ➡ Use probe_compare.py (per-order H2/H3 and compression, matched drive, P4 only),")
+    print("      harmonic_audit.py and band_audit.py. ⚠ A per-BAND THD target is HARDER than an")
+    print("      aggregate, not easier: an RSS over orders averages a per-band error away.")
 
 
 if __name__ == "__main__":
