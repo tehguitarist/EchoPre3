@@ -2184,3 +2184,131 @@ settings dict straight into a report, and Python writes a bare `Infinity` there 
 JSON and which `JSON.parse()` in the dashboard rejects outright. It had already put 28 of them into
 `comprehensive_data.json` before it was caught. `None` round-trips as `null`. ➡ **Anything added to
 `parse_capture()`'s return value is serialised by callers you did not write; keep it JSON-safe.**
+
+### 27. ⭐⭐ REVALIDATION AFTER THE TRANSFER-LAW CHANGE (2026-09-11) — and the TRIODE BRANCH rests on ONE cell
+
+Note #26 replaced the device law (square → `m` = 1.60, `Vov` → `|Vp|`), which also moved `ro` and the
+bias point. **Every downstream validation and the `kOutputMakeup` anchor were measured under the OLD
+law**, so nothing about the shipped model had actually been checked end to end. This note is that
+check. **No constant changed, and none should.** All 11 tests pass, warning-free.
+
+#### ✅ 1. `kOutputMakeup` SURVIVES THE CHANGE — re-measured, not assumed
+
+Note #23 records the coupling: `gm` and `kVolumeTaperP` feed this constant, so it must be re-run if
+either moves. The device law is a third input nobody had listed — it moved `ro` 1.4407 → 1.1921 MΩ
+and the whole operating point. Re-measured (`analysis/absolute_gain.py`, DARK only, x > 0.1, n = 6):
+
+| | residual | sd | spread |
+|---|---|---|---|
+| with `kOutputMakeup` = 1.1562 applied | **+0.019 dB (×1.0022)** | 0.178 | 0.437 |
+| recorded under the square law | +0.000 dB | 0.175 | 0.424 |
+
+**The whole device-law change is worth 0.019 dB of absolute level — one tenth of the scatter.** So the
+constant stays at 1.1562, and note #26's "the `ro` re-derivation is worth 0.03 dB" is confirmed by
+measurement at 0.019 dB. ✅ Both known answers still hold: the loop reads −0.026 dB and the true
+bypass −0.015 dB, where a wire and a true bypass must each read exactly 0.000.
+
+⭐ **And two independent instruments agree on that 0.019 dB to a millidB.** `goal_check.py`'s
+absolute-level section is a per-capture check rather than the mean the makeup was fitted from, and its
+DARK mean moved **−0.039 → −0.021 dB, i.e. +0.018 dB**, against `absolute_gain.py`'s +0.019. Neither
+can inherit the other's arithmetic.
+
+#### ✅ 2. THE LINEAR TARGETS ARE BIT-FOR-BIT UNMOVED, which is the prediction
+
+Note #26 asserts the small-signal response is preserved to 1.6e-10 dB / 4.7e-10° — but that was
+measured at the STAGE, against its own prototype. This is the whole chain against real captures:
+
+| DARK core band 80 Hz–12 kHz, RMS / worst | note #25 (square law) | now (m = 1.60) |
+|---|---|---|
+| 9:00 | 0.02 / 0.04 | 0.02 / 0.05 |
+| 10:30 | 0.03 / 0.07 | **0.03 / 0.07** |
+| 12:00 | 0.08 / 0.22 | **0.08 / 0.22** |
+| 17:00 | 0.07 / 0.20 | **0.07 / 0.20** |
+
+Phase worst over 200 Hz–12 kHz: **3.90° both times.** Absolute level: **all 15 captures PASS**.
+Every DARK row passes the FR core band from 8:00 to 17:00 except 13:30 (0.64), exactly as recorded.
+
+⭐ **One thing is BETTER than note #25 claimed, and only because the full-band column was read this
+time: DARK passes the whole 20 Hz–20 kHz ±1.0 dB target — zero bands over — at 9:00, 10:30, 12:00,
+15:00 and 17:00.** Note #25 only ever asserted the 80 Hz–12 kHz core. 20 Hz reads −0.16 to −0.24 dB at
+those positions, so note #21's taper and as-drawn C10 really did close the LF story; the remaining
+misses are 8:00 dark marginally (−1.08 dB at 20 Hz, and 8:00 is excluded for knob slope anyway),
+13:30's core HF, and BRIGHT's voicing gap. ➡ **There is no general LF defect left to chase.**
+➡ **A nonlinear re-derivation that leaves the linear targets identical is the evidence it was
+confined to the nonlinear path.** Worth re-running for that reason alone, not just for the anchor.
+
+#### ✅ 3. COMPRESSION IS CLOSED — and the raw column is NOT the statistic
+
+Note #26 reported compression as a free by-product, from the memoryless oracle. Confirmed here
+through real plugin renders (`probe_compare.py --unit p4`, shipped parameters):
+
+⚠ **The captures' raw `comp_cap` reads POSITIVE (expansive) at mid levels — 0.06 to 0.19 dB — which
+the circuit forbids.** That is note #16's level-independent reference gain error again, and reading
+the raw column would score the model against it. The floor-free statistic is the **increment**:
+
+| compression increment, −18 dBFS → top cell | value |
+|---|---|
+| plugin minus pedal, median | **−0.024 dB** |
+| mean / sd | −0.126 / 0.214 |
+| cells within ±0.29 dB | **14 of 16** |
+
+⭐ **And the H2 figure reproduces the oracle exactly.** 64 cells at −12 dBFS and above:
+**mean +1.26 dB, median +1.57, sd 1.53** — identical to note #26c's table, from a full plugin render
+rather than the one-period solve. Two implementations, no shared code path.
+
+#### ⛔⭐⭐ 4. THE FINDING: THE TRIODE BRANCH IS EXERCISED BY EXACTLY ONE CAPTURE CELL
+
+The two cells that break the compression table are both `p4_V1700_dark_pad1p5` (plugin
+over-compresses by **0.67 / 0.59 dB** at 220 / 3150 Hz, and under-produces H2 by **6.2 / 5.3 dB**).
+⚠⚠ **That is not an outlier among comparable cells — it has no comparables.** Computed from the
+shipped constants (throwaway probe, ~30 lines over `JfetStage.h`; `triodeOnsetGateVolts()` depends on
+the drain load, which VOLUME sets):
+
+| knob | drain load | gate at −1 dBFS | cutoff onset | triode onset | region |
+|---|---|---|---|---|---|
+| 7:30 | 0.50 kΩ | 3.58 V | 1.94 | 9.64 V | cutoff only |
+| 8:00 | 2.22 kΩ | 3.58 V | 1.94 | 6.99 V | cutoff only |
+| 9:00 | 7.57 kΩ | 3.58 V | 1.94 | 3.80 V | cutoff only |
+| 10:30 | 13.61 kΩ | 2.13 V | 1.94 | 2.52 V | cutoff only |
+| 13:30 | 17.58 kΩ | 1.90 V | 1.94 | 2.07 V | linear |
+| **17:00** | **17.80 kΩ** | **3.01 V** | 1.94 | **2.05 V** | **TRIODE + cutoff** |
+
+⭐⭐ **The rig ANTI-CORRELATES drive depth with drain load, because VOLUME sets both the load line and
+the recorded level.** Every deep-drive capture sits at a low drain load; every high-load capture is
+shallow. So one cell in the matrix enters triode, and it is the one that disagrees.
+
+⚠⚠ **It is also the largest residual in the m-fit that shipped, and that was absorbed into an sd.**
+`onset_fit.json`'s own cells: its delta is **+6.196 dB against a next-worst 2.82**, and dropping it
+takes the reported scatter from **sd 1.358 to 0.966** — one cell in twenty carrying 29 % of it.
+➡ So note #26's `m` and `|Vp|` are a **SATURATION-branch fit**. The triode branch
+`beta*(Vov_i^m − (Vov_i − Vds_i)^m)` — which note #26 correctly describes as forced by the solve's
+guarantees rather than chosen — has **essentially no measurement support**, and the single cell that
+tests it is where the model is worst.
+
+⛔ **Do NOT fit it. One cell cannot constrain a branch**, and the direction of both observables is
+consistent (plugin over-compresses AND under-produces H2 = plugin clipping harder than the pedal),
+so a curvature constant would absorb a structural error — the exact failure note #22 records.
+
+⚠ **And a deeper cell CANNOT be captured at this VOLUME setting.** `p4_V1700_dark_pad1p5.wav` peaks
+at **−1.18 dBFS**, 1.2 dB below the converter ceiling. The pedal's own compression (−1.52 dB at that
+cell) is what keeps it inside at all. At 17:00 the pedal's gain is +6.7 dB, so driving the gate to
+0 dBFS/pad 0 (4.02 V) would put ~8.7 V into a 5.68 V converter. **This is the same structural ceiling
+already recorded for BRIGHT above 9:00, reached from the other direction.**
+
+⭐ **It matters in play, so it is a real gap rather than a curiosity**: at 17:00 a user at 0 dBFS puts
+**4.02 V on the gate against a 2.05 V triode onset**, i.e. the top of a normal take at a high VOLUME
+setting is in the region with one supporting measurement.
+
+➡ **WHAT WOULD SETTLE IT, and it is one item for any future capture session: a known RESISTIVE PAD ON
+THE PEDAL'S OUTPUT, not on the input.** Input padding cannot work — it lowers drive and recorded
+level together, which is what created the anti-correlation. An output pad decouples them, and a known
+load is already handled (the `_load10k` takes measure `Zout` exactly that way, and
+`loading_correction_complex` already undoes a load in magnitude and phase). ⚠ Record its value: it
+loads a 59–102 kΩ source, so it changes the transfer and must be modelled, not ignored.
+
+#### 📌 5. MID needs no action under the recorded decision
+
+`tauBright`/`tauMid` = 85.369 / 38.263 µs is a ratio of **2.2311**, between the drawn 2.20 and the
+measured 2.24 — and both values are P1/P2's own fits, which is the unit the model is voiced to. ➡ The
+"scale MID by the measured cap RATIO 2.24" instruction bites only if the model is retuned to P4,
+which the recorded decision declines. **No position is a blend of two pedals, as note #23 states.**

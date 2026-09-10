@@ -1864,3 +1864,76 @@ high, execute routine work cheap) is what should persist.
 >   it as a separate job.
 > - **The band edges** (below 200 Hz and above 12 kHz) are untouched by this session.
 > - **MID stays inferred** — P4 has no MID position. Scale by the measured cap RATIO 2.24.
+
+> ### ⭐⭐ SESSION 2026-09-11: REVALIDATION AFTER THE TRANSFER-LAW CHANGE. Full detail: circuit.md #27.
+>
+> Note #26 replaced the device law in the previous commit. **Every downstream validation and the
+> `kOutputMakeup` anchor had been measured under the OLD square law**, so the shipped model had never
+> been checked end to end. This session is that check. **NO constant changed, and none should.**
+> All 11 tests pass, warning-free.
+>
+> | what | result |
+> |---|---|
+> | `kOutputMakeup` = 1.1562 | ✅ **re-measured +0.019 dB, sd 0.178** — the whole device-law change is 1/10 of the scatter. STAYS. |
+> | linear FR / phase / level | ✅ **identical to note #25** (DARK core 0.03/0.07 at 10:30, phase worst 3.90°, all 15 levels PASS) |
+> | compression | ✅ **closed: median −0.024 dB**, 14 of 16 cells within ±0.29 dB |
+> | H2 vs P4, shipped params | ✅ **mean +1.26 dB, sd 1.53** — reproduces note #26c's ORACLE through a real plugin render |
+>
+> ⭐ **Two free cross-checks fell out.** (a) `goal_check`'s absolute-level DARK mean moved −0.039 →
+> −0.021 dB, i.e. **+0.018 against `absolute_gain`'s +0.019** — two instruments, one millidB. (b) A
+> nonlinear re-derivation leaving every linear target bit-for-bit unmoved is the evidence it was
+> confined to the nonlinear path; note #26's preservation claim was measured at the STAGE, this is the
+> whole chain against real captures.
+>
+> ⚠ **Compression's RAW column is not the statistic.** The captures read POSITIVE (expansive) by
+> 0.06–0.19 dB at mid levels, which the circuit forbids — note #16's level-independent reference gain
+> error. Use the INCREMENT across level, which cancels it.
+>
+> ### ⛔⭐⭐ THE ONE FINDING: THE TRIODE BRANCH RESTS ON A SINGLE CAPTURE CELL
+>
+> Both cells that break the compression table are `p4_V1700_dark_pad1p5` (plugin over-compresses
+> 0.67/0.59 dB, under-produces H2 6.2/5.3 dB). ⚠⚠ **Not an outlier among comparable cells — it has no
+> comparables.** The rig ANTI-CORRELATES drive depth with drain load, because VOLUME sets both the
+> load line and the recorded level: 7:30–9:00 reach 3.58 V at a 0.5–7.6 kΩ load (triode onset 3.8–9.6 V,
+> unreachable), 10:30–13:30 sit at 13.6–17.6 kΩ but only 1.9–2.1 V. **17:00 is the only cell that
+> enters triode** (3.01 V against a 2.05 V onset at 17.8 kΩ).
+>
+> ⚠⚠ **And it is the largest residual in the m-fit that shipped, absorbed into an sd.** In
+> `onset_fit.json`'s own cells its delta is **+6.196 dB against a next-worst 2.82**, and dropping it
+> takes the scatter **sd 1.358 → 0.966** — one cell in twenty carrying 29 %. ➡ So note #26's `m` and
+> `|Vp|` are a **SATURATION-branch fit**, and the triode branch (forced by the solve's guarantees, not
+> chosen) has **essentially no measurement support**.
+>
+> ⛔ **Do NOT fit it — one cell cannot constrain a branch**, and both observables move the same way
+> (plugin clipping harder), so a curvature constant would absorb a structural error. That is note
+> #22's recorded failure mode.
+> ⚠ **A deeper cell cannot be captured at that knob setting**: the file peaks at **−1.18 dBFS**, and
+> only the pedal's own −1.52 dB of compression keeps it inside the converter. Same structural ceiling
+> already recorded for BRIGHT above 9:00, reached from the other side.
+> ⭐ **It matters in play**: at 17:00 a user at 0 dBFS puts 4.02 V on the gate against a 2.05 V onset.
+>
+> ➡ **THE ONE THING TO ADD TO ANY FUTURE CAPTURE SESSION: a known RESISTIVE PAD ON THE PEDAL'S OUTPUT,
+> not the input.** Input padding cannot work — it lowers drive and recorded level together, which is
+> what created the anti-correlation in the first place. An output pad decouples them. A known load is
+> already handled (`_load10k` measures `Zout` that way; `loading_correction_complex` undoes a load in
+> magnitude and phase). ⚠ Record its value — it loads a 59–102 kΩ source, so it must be modelled.
+>
+> ### 📌 MID is resolved as NO ACTION
+> `tauBright`/`tauMid` = 2.2311, between the drawn 2.20 and the measured 2.24, and **both values are
+> P1/P2's own fits — the unit the model is voiced to.** The "scale by the cap ratio 2.24" rule bites
+> only if the model is retuned to P4, which the recorded decision declines.
+>
+> ### ➡ NEXT
+> 1. ⭐⭐ **The voicing decision is the owner's and is now fully quantified.** At the shipped `gm` the
+>    model makes **+1.26 dB less H2** than their own pedal (note #26c's −2.39 dB predicted at
+>    small signal; BRIGHT also reads up to +1.51 dB bright at 6.5–10 kHz). Reversing it is ONE
+>    constant, `gm` → ~1146 µS. ⚠ `kOutputMakeup` must then be re-measured — it and `gm` are both
+>    level scalars in the DARK path.
+> 2. **The triode branch**, if and only if an output-padded capture ever exists. Not fittable now.
+> 3. **The band edges, and this is BETTER than note #25 recorded.** ⭐ DARK now passes the FULL
+>    20 Hz–20 kHz ±1.0 dB target — **zero bands over** — at 9:00, 10:30, 12:00, 15:00 and 17:00, where
+>    note #25 only ever claimed the 80 Hz–12 kHz core. The LF story really is closed by note #21's
+>    taper and C10: 20 Hz reads −0.16 to −0.24 dB at those positions. What still misses is **8:00 dark
+>    marginally (−1.08 dB at 20 Hz)**, 13:30 in the core HF (0.64), and BRIGHT above ~6.5 kHz, which is
+>    the voicing decision. 7:30 and 8:00 remain excluded for knob-slope error (note #23). ➡ There is no
+>    general LF defect left to chase.
