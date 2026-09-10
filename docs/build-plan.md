@@ -1,9 +1,15 @@
-# Build Plan — Echo Pre 3, with NAM models as the reference
+# Build Plan — Echo Pre 3
 
-> Written 2026-09-07, at the end of step 1 (schematic analysis). This file adapts the generic
-> build sequence in `CLAUDE.md` to the reference data we actually have: **seven NAM models, no
-> raw pedal captures, no bypass anchor.** Read `docs/validation-and-capture.md` for the generic
-> method; this file records what changes because of the data.
+> Written 2026-09-07, at the end of step 1 (schematic analysis), when the only reference data was
+> seven NAM models with no raw pedal captures and no bypass anchor. **That premise is superseded —
+> the owner captured their own unit (P4) on 2026-09-10** (raw WAVs, a measured rig, both calibration
+> figures known), and most of what §1–§18 below call out as NAM-only limitations have since been
+> measured directly. Sections 1–18 are kept as the dated research log (how each constant was
+> actually pinned down, and the traps hit on the way) — that reasoning doesn't go stale even where
+> its NAM-era framing does. **§19 is the live plan and is edited in place, not appended to** — read
+> it first for what to do next; read `.claude/rules/circuit.md` for the current value of anything
+> circuit-related (it is the single source of truth for that, not this file or `CLAUDE.md`); read
+> `CLAUDE.md` only for the chronological reasoning behind a past decision.
 
 ---
 
@@ -18,11 +24,6 @@ same `HHMM` convention `analysis/analyze.py:parse_filename` already parses.
 | **P1** | `thelamehorse` | 10:30 | Bright, Mid, Dark | −21.63 / −24.40 / −26.04 |
 | **P2** | `danielnguyen` | 2:30 | Bright, Mid, Dark | −18.50 / −19.83 / −20.27 |
 | **P3** | (unnamed) | 10:00 | Mid only | −15.94 |
-
-⚠ **Corrected 2026-09-07: this table originally had P1 and P2 swapped.** The folders
-(`~/Downloads/Pedal 1 - 1030`, `Pedal 2 - 1430`), the `.nam` `modeled_by` metadata and the capture
-filenames in `analysis/captures/` all agree with the table as it now stands — only the table was
-wrong. Anywhere below that says "P1" was written meaning danielnguyen's unit; §4 is corrected.
 
 All seven share one architecture: TONE3000 `SlimmableContainer` wrapping two WaveNet submodels
 (`max_value` 0.5 and 1.0), 48 kHz, receptive field **6347 samples = 132 ms**.
@@ -1531,3 +1532,76 @@ instrument reads −5.85 to −6.47° at its own 200 Hz point, which the claim's
 The whole miss is 200–500 Hz, the tail of the missing LF pole, already confounded across units and
 already blocked on the VOLUME sweep. §18.2 also removes the minimum-phase companion that was
 suspected: there is no model-side magnitude dip at 4–8 kHz for phase to be carrying.
+
+## 19. Current plan (2026-09-11) — the model-tightening phase
+
+> ⚠⚠ **UNLIKE EVERY SECTION ABOVE, THIS ONE IS LIVE.** Sections 1–18 are a dated log and are never
+> rewritten after the fact. This section IS rewritten in place as items complete or the priority
+> order changes — it is the plan of record, not a log entry. Update it at the start/end of a
+> session the same way `CLAUDE.md`'s old "Current step" block used to be updated, so progress
+> doesn't rely on conversation history.
+
+The DSP is now close enough that the remaining work is tightening and deciding, not discovering.
+FR, harmonics, phase (core bands) and compression are all already close; what was missing was a
+per-band THD picture. The owner set this priority order. **No more captures are coming — the rig
+is gone** — so anything below that would need one stays a best-guess/theoretical call in the
+direction the data points, not a fit, and is not a reason to stop.
+
+**In order:**
+
+1. **Per-band THD audit.** The one measurement that didn't exist: THD (and H2-only) plugin-vs-P4,
+   by frequency band, at matched drive, with the rig+interface-loading correction applied **per
+   harmonic order** — not just at the fundamental, since the correction differs at the harmonic's
+   own frequency by up to the size of the whole HF droop. P4 is the primary anchor; P1's
+   matched-drive data (the one NAM unit with a known −12 dBu calibration) is the only cross-check
+   worth pooling in — P2/P3's nonlinear data has no known calibration and stays floor, not signal
+   (circuit.md note #10). ⚠ THD above ~8 kHz is **not measurable by this method at 48 kHz, by
+   construction** (a tone's H2 is past Nyquist above ~12.5 kHz, which is why `gen_test_signal.py`'s
+   tone grid stops at 8 kHz) — report that as a signal ceiling, not a pass/fail, and don't chase it
+   with more captures. ⚠ The instrument for this (`analysis/thd_band_audit_p4.py`) needed its own
+   floor-gating worked out in-session — a fixed-amplitude artefact at quiet/padded cells reads as
+   real distortion unless both a drive-response (slope) gate and a residual gate are applied, and
+   even then the bottom two grid levels stay ambiguous enough that the headline comparison is
+   restricted to the loudest two. See the script's own docstring before trusting a quiet cell from
+   it.
+2. **The voicing decision.** Decide `gm`: ship 1.5531 mS (voiced to P1/P2), or move to P4's own
+   measured ~1146 µS (voiced to the owner's unit). If it moves, re-measure `kOutputMakeup` in the
+   same session — the two are coupled level scalars in the DARK path (circuit.md notes #23, #26c).
+   One decision, at most two constants, and `JfetStage.h`'s device law (`m`, `|Vp|`) does not
+   change either way — those came from P4's probe captures regardless of which `gm` ships.
+3. **The 13:30 DARK outlier.** `goal_check.py --unit p4` shows every DARK knob position passes the
+   core-band FR target except 13:30 (0.64 dB worst, at 8127/10240 Hz), and it is neither knob-slope
+   error (that's 7:30/8:00 only) nor the BRIGHT voicing gap (DARK isn't touched by the mode shelf).
+   Diagnose whether it's a real, narrow model gap or a one-off capture artefact before deciding
+   whether it is worth acting on.
+4. **<200 Hz cleanup** — FR, THD, phase, and compression below 200 Hz, within the limits already on
+   record (the LF pole is confounded across the three NAM units and not fittable further without a
+   capture that does not exist — notes #19/#19a/#20/#20a; the taper and C10 are already settled
+   against P4 — note #21). Close whatever is left that is **not** blocked by those limits; theorise
+   or best-guess the rest rather than stalling on it.
+5. **>12 kHz cleanup** (>8 kHz for THD, per item 1's ceiling) — same treatment, same standard: fix
+   what's fixable, best-guess what a capture would be needed to pin down. Expect the BRIGHT
+   mode-shelf gap to show up here (circuit.md note #25/#26c) — that is item 2's decision surfacing,
+   not a separate defect to chase twice.
+6. **Optimisation pass.** Target roughly 2.5 % CPU at the 4× default (currently 6.7–7.5 %, almost
+   entirely the transfer law's three `std::pow` calls per sample — note #26b). Look for a cheaper
+   evaluation of that law and/or an HQ/Eco toggle per `dsp.md`'s gating rules (measure CPU cost and
+   accuracy delta together; gate only a feature that's a genuine lever). Trading a small, measured
+   accuracy loss for a large CPU win is explicitly acceptable here — look harder for a more
+   efficient algorithm before reaching for a quality toggle as the only answer.
+7. **Everything else**, once 1–6 are settled: refresh the README (status + performance table are
+   both stale), write up everything since §18 into new dated sections here (the capture session,
+   the device-law rewrite, the three anchored constants — currently only in `circuit.md` and
+   `CLAUDE.md`'s chronological log), check VOLUME automation for zipper noise, and the two parked
+   harness defects (`check_capture.py`'s meaningless H2-clearance column on active captures; the
+   twin-tone segment's inability to measure IMD at all).
+
+**Explicitly parked, not forgotten, not to be re-raised without new information:**
+- Asking the P2/P3 NAM trainers for their calibration figures — **not happening.**
+- The triode branch (rests on exactly one capture cell, `p4_V1700_dark_pad1p5` — note #27 §4): no
+  output-padded capture exists or is coming, so this stays a best-guess extrapolation pointed the
+  way the one cell indicates, never a fit. Revisit only if a future capture session happens.
+- MID — confirmed, not re-litigated: both its amplitude (`gm`) and its shelf time constant come
+  entirely from P1/P2, since P4 has no MID position and nothing from P4 can inform it. This is an
+  accepted, documented estimate guided by the NAM data, not a gap.
+- Re-capturing anything — the rig is gone.

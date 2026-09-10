@@ -365,8 +365,6 @@ high, execute routine work cheap) is what should persist.
 >   every mode differential must read exactly 0.00 dB under ~200 Hz. It reads ≤0.20 dB (P2) and
 >   ≤0.60 dB (P1) — the LF noise floor of the dataset, obtained with no reference capture. It is what
 >   ruled out "NAM just can't do low frequencies" as the M4 explanation.
-> - 📌 **Bookkeeping: build-plan §1's unit table had P1 and P2 swapped** (folders and `.nam` metadata
->   agree with the filenames on disk). Corrected. **P1 = thelamehorse @ 10:30, P2 = danielnguyen @ 2:30.**
 > - ⚠ **The measured shelf zeros are ~7% below the drawn ones, consistently.** The zero depends only
 >   on R5·C, and both branches imply the same R5 to 1.6%, so it is one common offset: either R5 ≈
 >   3.85 kΩ or both caps run ~7% high. **`schematic.png` was re-read at high zoom — R5 is
@@ -1103,72 +1101,22 @@ high, execute routine work cheap) is what should persist.
 
 ## Project-specific carry-forwards
 
-### Reference data: seven NAM models (see `docs/build-plan.md`)
+> ⚠⚠ **This section used to restate circuit facts and NAM-dataset caveats in place. DON'T.**
+> Circuit values, topology and every measured constant (kInputRef, kOutputMakeup, gm, the VOLUME
+> taper, the MODE cap mapping, etc.) live in `.claude/rules/circuit.md` and ONLY there — it is the
+> single source of truth for "what is the circuit and what have we measured". A second copy here
+> went stale and actively wrong (it carried the pre-note-#2 MODE mapping, after note #2 had already
+> reversed it, and it said `kInputRef` "cannot be measured" long after note #21 measured it). Do not
+> recreate that problem: record a new circuit fact in circuit.md, not here.
+>
+> The session-by-session **plan** (what to do next, in what order) lives in `docs/build-plan.md`.
+> This file (`CLAUDE.md`) is project memory: who/why, the build sequence checklist above, and the
+> chronological log below of how the project got here — read it for the REASONING behind a decision
+> (method lessons, traps already found, why a value was chosen), not for the current value of
+> anything. Where this log and circuit.md or build-plan.md disagree, circuit.md/build-plan.md win —
+> they are kept current in place; this log is append-only history and is never retroactively edited
+> to match.
 
-- **No raw pedal captures exist and none are coming.** The reference is seven `.nam` models across
-  three physical pedals, trained by three different people, at three VOLUME positions (2:30 / 10:30
-  / 10:00). Only P1 and P2 have all three MODE positions; P3 has Mid only. They are driven by
-  rendering a test signal through the NAM plugin — we never run inference on the files directly.
-- ⭐ **The mode differential is the jackpot, and it hands us `gm` for free.** Within one unit the
-  three modes differ in exactly one thing, so rig gain, converter response and unit variance all
-  cancel in the ratio. The bypassed-to-unbypassed plateau ratio is `k = 1 + gm·R5` with R5 known,
-  so `gm` comes out of a *ratio* — no level calibration needed — for the one parameter the 5:1
-  datasheet spread makes least predictable. Measured twice, independently.
-- ⚠ **The VOLUME taper CANNOT be fitted from this data.** Volume is confounded with both unit and
-  rig gain: P3 sits at a lower volume setting than P2 yet reports 8.5 dB more loudness. Fit the
-  taper to the maker's four published points (p ≈ 2.0) and use the NAM volume points only as a
-  shape check via the LF high-pass corner, which is level-independent.
-- ⚠ **There is no bypass anchor, so `kInputRef` cannot be measured.** Keep 0.87 V/FS as a declared
-  assumption, commented as an assumption — not as a calibrated constant.
-- ⚠ **All seven models have a 132 ms receptive field**, so a 13 Hz corner is seen for under two
-  cycles. Verify the low-frequency probe behaves before leaning on it. The top octave carries each
-  trainer's converters, not the pedal.
-- 📌 **Hypothesis to test first (M1 in the plan): the BRIGHT/MID labels may be backwards.** The
-  stored loudness figures order Bright above Mid above Dark in *both* units, but the 22 nF cap lifts
-  a wider band and should win a broadband comparison. Settles `circuit.md` note #2 either way.
-- **The old two-way pedal is the contingency**, held for the two things NAM data structurally
-  cannot give: a VOLUME sweep and a bypass anchor. Trigger only if volume becomes the dominant
-  error.
-
-> Record decisions, measured constants (kInputRef, rail voltages, makeup), and open questions here
-> as you go, so the next session resumes cleanly.
-
-- Emulation target: Echoplex EP-3 tube preamp circuit, traced via the **Chase Tone Secret Preamp**
-  schematic (not an original circuit design).
-- **Rail: VA = 22 V**, charge-pumped from 9 V and clamped by the D6 1N4748A zener. The whole power
-  section (D1–D6, C5–C9, IC1) is supply-only — excluded from the DSP model. The high rail is the
-  point: this is a clean, high-headroom preamp, not a distortion.
-- **Exactly one part needs an external (non-WDF) model: Q1, a 2N5457 JFET common-source stage.**
-  No clipping diodes, no op-amps, no CMOS anywhere in the signal path. Follow
-  `docs/nonlinear-component-modeling.md` §2 Path B, and heed the ⭐⭐⭐ "a degenerated CS stage is a
-  CURRENT source" trap — on this pedal the MODE switch's entire audible job *is* that source-bypass
-  lift, so getting it wrong is worth ~20 dB and will be loudly obvious rather than subtle.
-- **MODE = 3-position ON-OFF-ON**, labelled by treble content: **up BRIGHT** (C2 10 nF, corner
-  ≈4.4 kHz) / **middle DARK** (no bypass — flat, lowest gain) / **down MID** (C1 22 nF, corner
-  ≈2.0 kHz). Both cap positions reach the same HF plateau; they differ in *where the lift starts*.
-- ⭐ **The VOLUME control is deliberately NON-MONOTONIC — this is correct, do not "fix" it.** The
-  wiper grounds and both end lugs feed signal nodes, reproducing the original EP-3 wiring: silence
-  full CCW, **peak boost at 1–2 o'clock**, then falling back by full rotation. I initially flagged
-  this as a probable schematic error; the maker's published control description reproduces the
-  computed SHAPE and refutes that. See circuit.md "Validation notes" #1.
-- ⚠ **Two VOLUME caveats found in the 2026-09-07 re-verification pass — both matter before the
-  taper is fitted.** (a) The peak's POSITION depends on the drain drive impedance (Ra = 176 k at
-  the physical ~20 kΩ, but 280 k at an ideal current source), so the taper fit and the Norton-source
-  modelling of stage 2 are coupled and must be done together. (b) The as-drawn network falls back
-  **3.9 dB** from peak to full CW, against the maker's stated **1–2 dB** — ~2 dB unexplained, and
-  invariant to every assumption tested. Settle it with the VOLUME sweep capture; do NOT tune other
-  constants to close it.
-- **Free taper-calibration targets (from the maker's notes):** full CCW = no signal · 10–11 o'clock
-  = unity · 1–2 o'clock = +3 dB max · 3–5 o'clock = +1–2 dB. Fit the 500 kA taper so the network's
-  peak lands at 1–2 o'clock — that needs a power-law exponent **p ≈ 2.0** at the physical drive
-  impedance (p ≈ 1.4 would put the peak at ~12 o'clock). Marketing copy — a real VOLUME sweep capture supersedes it.
-- 📌 **Level anchor:** those figures imply the JFET stage's own gain is ≈ **+7–8 dB**, about 4 dB
-  *below* a nominal-2N5457 estimate. Expect fitted `gm` under nominal — the maker specifies a
-  "cherry picked" vintage JFET, so nominal SPICE is even less trustworthy than the usual 5:1 spread.
-- ✅ **2N5457 datasheet fetched** (`docs/refs/onsemi_2N5457-2N5458_datasheet.pdf`, onsemi Rev. 6).
-  Confirms IDSS 1–5 mA, Vgs(off) −0.5…−6 V, Yfs 1000–5000 µmhos — a 5× spread on every amplitude
-  param, and the typical-characteristics graphs show sample units spanning nearly that whole range.
-  Sanity range only — the maker's "cherry picked" claim means don't assume this unit is typical.
 
 > ### ⛔⭐⭐ THE LF BASS EXCESS (2026-09-09) — circuit.md note #19
 > ⚠⚠ **PARTLY SUPERSEDED LATER THE SAME DAY — read the block below this one before acting on
@@ -1472,10 +1420,8 @@ high, execute routine work cheap) is what should persist.
 > drain-load point and turns that caveat into a measurement. 📌 One optional capture completes it —
 > `p4_V0900_bright_pad4.wav`, which still leaves +2.5 dB of coverage.
 > 📌 Folder layout: everything lives in `captures/`, distinguished by the `_pad` suffix; only
-> `clipped/` is separate. ⚠⚠ An earlier `hotdrive/` folder had swallowed `p4_V1030_bypass.wav`,
-> hiding the deconvolution reference from `find_reference_captures()` — a capture the harness cannot
-> see is one that silently does not exist. ⚠ `*.wav` is gitignored: captures are NOT recoverable from
-> version control.
+> `clipped/` is separate — any OTHER subfolder hides its contents from `find_captures()` silently.
+> ⚠ `*.wav` is gitignored: captures are NOT recoverable from version control.
 >
 > ### (superseded heading kept for the reasoning below)
 > `p4_V0730_{bright,dark}.wav` are at FULL drive and clean (−10.83 / −16.37 dBFS peak). **The VOLUME
@@ -1847,14 +1793,6 @@ high, execute routine work cheap) is what should persist.
 >   NOT taken: it costs a digit or two of the machine-precision agreement and the profile does not
 >   flag 7 %.
 >
-> ### ⚠⚠ A HARNESS FAULT: `_take2` MEANT "10 kΩ LINE INPUT", AND NOTHING SAID SO
-> Three probe captures named `_take2` are the LINE-INPUT takes `output_impedance.py` uses to measure
-> Zout. `find_captures()` served them to a harmonic fit as ordinary repeats. They differ in the
-> output network's transfer, the drain load, AND the recorded level (~31 dB down) — and their dBc
-> figures look perfectly reasonable, so **the only tell was their absolute H2 sitting 31 dB from
-> their neighbours'**. Renamed `_load10k`; `parse_capture()` returns `load_ohms`; `find_captures()`
-> excludes non-default loads by default, as it already did for reference captures.
->
 > ### ➡ NEXT
 > - ⭐⭐ **A voicing decision for the owner, now quantified.** At the shipped gm the model makes about
 >   2.4 dB LESS H2 than their own pedal at small signal. That is the recorded "voice to P1/P2"
@@ -1937,3 +1875,9 @@ high, execute routine work cheap) is what should persist.
 >    marginally (−1.08 dB at 20 Hz)**, 13:30 in the core HF (0.64), and BRIGHT above ~6.5 kHz, which is
 >    the voicing decision. 7:30 and 8:00 remain excluded for knob-slope error (note #23). ➡ There is no
 >    general LF defect left to chase.
+
+### 🗺️ Current plan
+
+> The session-by-session plan — priority order, what's parked, what's explicitly out of scope —
+> lives in `docs/build-plan.md`'s final section, kept current in place. This file stays the
+> chronological log; don't duplicate the plan here. See `docs/build-plan.md` §19.

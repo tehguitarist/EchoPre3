@@ -237,18 +237,20 @@ Node S:  Q1 source, R5 leg 1, C1 leg 1, C2 leg 1 — no other connection
 Node GND: R5 leg 2
 ```
 
-DC bias — ✅ **narrowed by the measured `gm` (note #8), no longer a free estimate.** Once `gm` is
-known the square-law self-bias solve is a ONE-parameter family: `|Vp|/Vov = 1 + gm·R5/2 = 3.796` and
-`IDSS/Id = 14.41`, so choosing any one of (IDSS, |Vp|, Id, Vov) fixes the rest. The datasheet's
-IDSS ≤ 5 mA caps it at **Vov = 0.447 V, Id = 347 µA, |Vp| = 1.70 V, Vs = 1.25 V, Vd = 14.4 V**; its
-Vgs(off) ≥ 0.5 V floors it at Vov = 0.131 V; the load line would allow Vov up to 1.05 V, so the
-datasheet binds first. The model ships the IDSS = 5 mA end (see `JfetStage.h`).
+DC bias — ⛔ **THE PARAGRAPH THIS REPLACED DESCRIBED A SQUARE LAW (m = 2) AND IS SUPERSEDED BY
+NOTE #26.** The transfer law is measured at **m = 1.60**, not 2, and the amplitude parameter is
+**|Vp| (cutoff onset in gate volts), not `Vov`** — `Vov` is now a DERIVED quantity,
+`Vov = |Vp| / (1 + gm·R5/m)`. The shipped pair is **`m` = 1.60, `|Vp|` = 1.942 V**, fitted from P4's
+probe captures (note #26), at the voicing decision's shipped `gm` = 1.5531 mS this gives
+**`Vov` = 0.4328 V, `Id0` ≈ 420 µA, `IDSS` ≈ 4.65 mA, `Vd` ≈ 11.25 V** (note #26c) — i.e. the drain
+sits close to mid-rail after all, not the square-law fit's 14.4 V. `ro` = 1.1921 MΩ (re-derived at
+this `Id0`, not the square law's 1.4407 MΩ). These four numbers (`m`, `|Vp|`, `gm`, `ro`) are the
+complete device model; do not reconstruct a square-law bias point from first principles here —
+read `JfetStage.h` and note #26/#26a/#26c for the derivation and the solve.
 
-⚠ **The earlier "drain near mid-rail ≈ 11 V" estimate is superseded.** It assumed a nominal part; the
-measured `gm` is ~2× nominal, and high `gm` at this device needs a small `Vov`, which needs a small
-`Id` — so the drain sits **high (14.4 V), not mid-rail**. Headroom is therefore asymmetric: 7.6 V of
-up-swing against 13.1 V down. Still deliberately generous — this stage is meant to stay clean at
-guitar levels.
+⚠ The drain voltage above moves with whichever `gm` ships (see the voicing decision, note #26c):
+P4's own measured `gm` ≈ 1146 µS gives `Vds_q` ≈ 8.36 V with the SAME `m`/`|Vp|`; nothing else in
+the device model changes either way.
 
 ⭐⭐⭐ **THE STRUCTURAL TRAP — READ `docs/nonlinear-component-modeling.md` §2 BEFORE WRITING THIS
 STAGE. It is worth ~20 dB, and on THIS pedal it is not a corner case — it is the whole circuit.**
@@ -271,27 +273,28 @@ Because MODE's entire audible job *is* this bypass lift, getting this wrong will
 mode switch does far too much" — the failure mode is loud and obvious, so validate it early with a
 mode-to-mode difference measurement, not just a single-mode FR.
 
-Drive the shaper with the **effective vgs** (real gate volts, order |Vp|), so `gm` alone sets the
-gain and the shaper only adds curvature (slope exactly 1 at the origin).
+⛔ **THE THREE PARAGRAPHS THIS REPLACED DESCRIBE THREE GENERATIONS OF SUPERSEDED IMPLEMENTATION —
+kept only for the STRUCTURAL lessons, which are still correct; none of the formulas or the "square
+law" framing below them describe the shipped stage any more.** In order: (1) driving the shaper
+with a plain `vg` double-counted nothing but also produced nothing real; (2) note #8 found that the
+degeneration suppresses distortion TWICE, fixed with a second-order expansion
+`id2 = c·u1²/k(s) ⇒ H2/H1 = A/(4·Vov·k²)` — still a square law; (3) note #12 ("Path A") replaced the
+expansion with a per-sample implicit solve `id = gm·g(vg − Zs(z)·id)`, which produces compression
+and H3 for the first time but still assumed `g` was a square law. **Note #26 replaces (3)'s `g`
+itself**: the measured transfer law is `m = 1.60`, not 2, so the stage solves
+`id = gm·sign(u)·beta·|u|^m` in saturation (Halley, not closed-form) with a matching
+`beta·(Vov^m − (Vov−Vds)^m)` triode branch — see `JfetStage.h`. The two things that DO carry forward
+unchanged: the stage is still a Norton current source (`Zout(s) = ro·k(s) ∥ R6`, unchanged by the
+exponent), and the degeneration still suppresses the nonlinearity it creates (that suppression is
+now inside the per-sample solve rather than a separate filter pass, so there is no longer a second
+factor to forget).
 
-⭐⭐ **AND THEN SUPPRESS WHAT IT GENERATES A SECOND TIME — see note #8.** The line above is necessary
-and NOT sufficient, and the difference is worth 16.4 dB. Feeding `vgs = vg/k(s)` into the shaper
-models the *drive* to the nonlinearity; the same local feedback also attenuates the distortion the
-device makes *inside* the loop, so the second-order product comes out filtered by `1/k(s)` as well:
-
-```
-id2 = c·(u1²)/k(s)      ⇒   H2/H1 = A/(4·Vov·k²),  NOT  A/(4·Vov·k)
-```
-
-Every linear test passes with that factor missing. It was shipped, and only an independent implicit
-solve of `id = gm·g(vg − id·Zs)` caught it.
-
-⚠ **Expect a square-law, even-dominant character.** Per §2's finding (a), a `tanh` **structurally
-cannot** produce an even-dominant stage — and a JFET is a square-law device, so H2 should dominate
-H3 in captures. Use the linear-core-plus-even-bump shape, and **check the sign of the cubic**
-(finding (b)) before choosing a limiter. With no downstream clipper on this pedal, the JFET's own
-harmonic signature is the *only* thing to match — there is nothing else to hide a wrong shape
-behind, which makes the capture-driven fit both easier to judge and unforgiving.
+⚠ **"Square-law, even-dominant" is now only approximately right.** `m = 1.60 < 2` means the stage is
+LESS purely quadratic than a true square law — H2 still dominates H3 (note #26's table), but don't
+assume the even/odd ratio a square law would predict; read it off `JfetStage.h`'s fitted pair
+instead. `beta` (the old cubic-sign question from `nonlinear-component-modeling.md` §2 finding (b))
+no longer applies — the triode branch's cubic-like behaviour is forced by the solve's own
+continuity requirement, not a free sign to choose (note #26, note #11).
 
 Rails: the drain can only swing between roughly the JFET's saturation floor and **VA = 22 V** — an
 **asymmetric** clamp. At normal guitar levels it should never reach either; it matters only for
@@ -508,15 +511,21 @@ Silence at full CCW, a peak short of full rotation, and a deliberate fall-back p
 reproduced by the as-drawn topology and by nothing else. **Model it exactly as drawn.** A
 conventional wiper-to-output divider would be monotonic and therefore wrong.
 
-⚠ **One quantity does NOT match, and it is worth knowing before the capture session.** The maker
-puts the peak at +3 dB and 3–5 o'clock at +1 to +2 dB — a fall-back of **1–2 dB**. The as-drawn
-network falls back **3.9 dB** from peak to full CW, and as the table above shows that depth is
-insensitive to the drive impedance, so it is not an artefact of any assumption we've made. Roughly
-2 dB is unaccounted for. Candidate explanations, none confirmed: the taper compresses the top of
-the rotation so 5 o'clock never reaches `Ra` = 500 k electrically; "3 to 5 o'clock" is a rounded
-range quoted at 3 o'clock rather than at the stop; or the copy is simply approximate. **Treat this
-as an open discrepancy to settle with the VOLUME sweep capture (measurement #1 below), not as a
-confirmation.** Do not tune other constants to close a 2 dB gap that may not exist.
+⚠ **One quantity did NOT match at the time this was written, and it is worth knowing before the
+capture session.** The maker puts the peak at +3 dB and 3–5 o'clock at +1 to +2 dB — a fall-back of
+**1–2 dB**. The as-drawn network falls back **3.9 dB** from peak to full CW, and as the table above
+shows that depth is insensitive to the drive impedance, so it is not an artefact of any assumption
+we've made. Roughly 2 dB is unaccounted for. Candidate explanations, none confirmed: the taper
+compresses the top of the rotation so 5 o'clock never reaches `Ra` = 500 k electrically; "3 to 5
+o'clock" is a rounded range quoted at 3 o'clock rather than at the stop; or the copy is simply
+approximate. **Treat this as an open discrepancy to settle with the VOLUME sweep capture
+(measurement #1 below), not as a confirmation.** Do not tune other constants to close a 2 dB gap
+that may not exist.
+
+✅ **RESOLVED 2026-09-10 (note #21): it was the maker's copy, not the circuit.** P4's VOLUME sweep
+measured a **3.86 dB** fall-back against the as-drawn prediction of 3.91 dB — agreement to 0.05 dB.
+The maker's published "1–2 dB" is simply wrong (marketing rounding, not a circuit fact); the peak
+POSITION claim they also published is the only one of their four control-law figures that held up.
 
 ⭐ **This gives four free calibration points for the taper fit — use them.** `dsp.md` asks for at
 least two knob positions to constrain a taper's shape; the maker's notes supply four across the
@@ -615,10 +624,12 @@ those two numbers per mode, and this dataset cannot separate R5 from C.
 `["Bright", "Dark", "Mid"]` — so the on-screen `ThreePositionSwitch` reads the same way as the
 hardware. Note that this is deliberately *not* ordered by brightness; it is ordered by position.
 
-### 3. ⚠ VOLUME rotation direction
+### 3. ✅ RESOLVED — VOLUME rotation direction: CW = louder
 
-Confirm which physical rotation direction moves the wiper toward lug 3 (i.e. that CW = louder).
-This is a wiring/`taper` detail that a capture sweeping VOLUME will settle at the same time as #1.
+Was: confirm which physical rotation direction moves the wiper toward lug 3. Settled 2026-09-09
+(note #20a) by fitting the LF-corner data against both senses: the shipped CW-is-louder sense fits
+at 9.3 Hz RMS against 17.5 Hz for the reversed wiring, and P4's full VOLUME sweep (note #21) is
+consistent with it throughout. **CW = louder stands; do not revisit.**
 
 ### 4. Values resolved by judgement, and the parts the maker specifies
 
@@ -637,16 +648,19 @@ Two build details the maker states that affect how much the nominal part numbers
   a resistor's value is its value. Noted only so a later session doesn't mistake the marketing for
   a circuit difference.
 
-### 5. Things to measure on the real pedal, in priority order
+### 5. ✅ DONE — the 2026-09-10 P4 capture session answered all four
 
-1. **VOLUME sweep, everything else fixed** — settles #1 and #3, and gives the taper fit.
-2. **One capture per MODE position at fixed volume** — gives the source-bypass corner fit (the
-   single most character-defining measurement on this pedal) and confirms the lever→lug mapping
-   left open in #2. The DARK position doubles as a clean measurement of the *undegenerated* stage
-   gain, which pins `gm` with no bypass network in the way — capture it first.
-3. **Harmonic spectrum at 2–3 input levels** (low-frequency tone) — fits the JFET shaper: confirms
-   the expected even-dominant square-law signature and the sign of the cubic (§2 findings a/b).
-4. **Bypass/unity anchor capture** — needed for `kInputRef` and output-makeup calibration.
+Kept for the record of what was originally asked for; all four landed in the same session.
+
+1. ~~VOLUME sweep, everything else fixed~~ — done, note #21 (taper `p` = 2.30).
+2. ~~One capture per MODE position at fixed volume~~ — P4 has only BRIGHT/DARK, no MID (it is a
+   two-position variant), but DARK alone gave the undegenerated gain and `gm` was re-checked against
+   it (note #23 item 1). The lever→lug mapping question was already settled from the NAM set
+   (note #2) and P4 corroborates which branch its own BRIGHT engages (note #21).
+3. ~~Harmonic spectrum at several input levels~~ — done and then some: the probe captures (note #22)
+   reach the load line, which is what finally replaced the square-law assumption entirely (note #26).
+4. ~~Bypass/unity anchor capture~~ — done, `p4_V1030_bypass.wav`; both `kInputRef` and
+   `kOutputMakeup` are now anchored (notes #21, #23).
 
 ### 7. ✅ Phase-1 characterisation against the NAM captures (2026-09-07) — what measurement settled
 
@@ -775,12 +789,6 @@ from ~0.3 dB RMS / ~0.8 dB peak on the mode differential.** There is no measurem
 unit-to-unit spread in this dataset and there cannot be one — three units means three rigs.
 📌 This also answers `build-plan.md` §9.2's open question: `FeatureProfile`'s `kHfBudgetDb` should
 **not** be widened. The 13.8 dB top-octave figure is rig, and real units agree to ~0.5 dB at 10 kHz.
-
-**One bookkeeping correction.** `docs/build-plan.md` §1's table had the two units swapped. The
-folders and the `.nam` metadata agree: **P1 = thelamehorse, VOLUME 10:30** and **P2 = danielnguyen,
-VOLUME 2:30**. The capture filenames on disk were right; the table was not. §4's instruction to
-"anchor absolute response to P1" was written meaning danielnguyen's unit — which is the one whose
-rig response just disqualified it for exactly that job. See `build-plan.md` §4.
 
 ### 6. ✅ Topology re-verification pass (2026-09-07) — what was checked and what changed
 
@@ -2167,19 +2175,9 @@ their own pedal's distortion, the change is one constant (`gm`) and the decision
 **−0.326 dB against the pedal's −0.285** (delta +0.04) where the square law read −0.802 (delta
 +0.52); at 3150 Hz the delta goes +0.51 → +0.10.
 
-#### 26d. 📌 A HARNESS FAULT: `_take2` MEANT "10 kΩ LINE INPUT", AND NOTHING SAID SO
+#### 26d. 📌 `parse_capture()`'s `load_ohms` field must be `None`, not `float("inf")`
 
-Three probe captures were named `p4_..._take2` but are the LINE-INPUT takes `output_impedance.py`
-uses to measure Zout. `find_captures()` served them to a harmonic fit as ordinary repeats of the
-same setting. They differ in three ways at once: the output network's transfer, the drain load the
-stage works against, and the recorded level (the line input needed full gain, ~31 dB down).
-⭐ **Caught only because their absolute H2 sat 31 dB from their neighbours'** — the dBc figures they
-contribute look perfectly reasonable. Renamed to `_load10k`, `parse_capture()` now returns
-`load_ohms`, and `find_captures()` **excludes non-default loads by default**, the same way it
-already excludes reference captures. ✅ `output_impedance.py` re-runs unchanged: 99.6 k / 60.7 k
-measured against 101.5 / 59.4 modelled.
-
-⚠ **And the new field must be `None`, not `float("inf")`.** Several scripts `json.dump()` the parsed
+⚠ Several scripts `json.dump()` the parsed
 settings dict straight into a report, and Python writes a bare `Infinity` there — which is not valid
 JSON and which `JSON.parse()` in the dashboard rejects outright. It had already put 28 of them into
 `comprehensive_data.json` before it was caught. `None` round-trips as `null`. ➡ **Anything added to
