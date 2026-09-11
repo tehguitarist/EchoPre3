@@ -1626,10 +1626,10 @@ direction the data points, not a fit, and is not a reason to stop.
 
    | factor | before | after |
    |---|---|---|
-   | 1× | 1.61–1.89 % | **0.83–1.01 %** |
-   | 2× | 3.60–4.03 % | **2.13–2.46 %** |
-   | **4× (shipped default)** | **6.70–7.48 %** | **3.72–4.36 %** |
-   | 8× | 12.75–14.39 % | **6.82–8.19 %** |
+   | 1× | 1.61–1.89 % | **0.73–0.83 %** |
+   | 2× | 3.60–4.03 % | **1.91–2.13 %** |
+   | **4× (shipped default)** | **6.70–7.48 %** | **3.28–3.70 %** |
+   | 8× | 12.75–14.39 % | **5.98–6.81 %** |
 
    ⭐⭐ **The win is that the exponent left the inner loop, and it is an IDENTITY.** m = 1.60 is
    exactly 8/5, so substituting `u = y^5` turns the saturation equation `u + c·u^m = P` into the
@@ -1648,14 +1648,38 @@ direction the data points, not a fit, and is not a reason to stop.
    read — `JfetStageTest` 8f now switches it on and asserts it), and the bit-trick root's `i / q`
    is a multiply-high rather than a runtime UDIV.
 
-   ⛔ **NO HQ/ECO TOGGLE, and the measurement is why.** `dsp.md` says to gate only a genuine lever.
-   The one available — dropping the saturation solve from 3 Halley steps to 2 — is worth **0.48
-   points** (3.76 → ~3.28 % at 4×) and costs machine precision in the drain current (1.6e-17 →
-   3.6e-9 A) for a harmonic difference of **0.00001 dB**, i.e. nothing audible. That is exactly the
-   clutter `dsp.md` warns against. **The oversampling factor already IS the quality lever**, and it
-   is the one with a real accuracy axis: 2× meets the old 2.5 % target outright at 2.13–2.46 %, for
-   −0.37 dB at 18 kHz and 3.54° of resampler dispersion there (`OSFidelity` §1, §4) — a real trade
-   against the 5° phase budget, which is why the default stays at 4×.
+   ⭐⭐ **AND THE ITERATION COUNTS WENT 3/6 → 2/4 (owner's call, and my first recommendation was
+   wrong).** I had declined this as "0.48 points for 0.00001 dB — not a genuine lever". Both halves
+   were understated: 0.48 points is the saving at ordinary level, but at a 0 dBFS peak into triode
+   it is **~1.3 points** (127 → 93 ns/sample), and the accuracy headline should have been the worst
+   absolute error over a full sweep (**3.552e-09 A, −101.4 dB re Id0**) rather than the harmonics of
+   one tone. ⭐ The decisive measurement is the one I had not taken: **the full-plugin null, 2/4
+   against 3/6, is −144.8 / −120.2 / −150.1 dB** (bright/dark/mid), worst peak −104.8 dB re peak
+   signal — below 16-bit dither. ➡ Final CPU **3.28–3.70 % at 4×**, i.e. **2.0× off the original**.
+   ⭐ 2/4 rather than 2/6 or 3/4: 2/6 and 2/4 measure the *same* error, so once saturation is at two
+   steps the triode reduction is free. ⛔ Not 2/3 (3.1e-07 A, 0.00051 dB — the margin is falling an
+   order of magnitude per step).
+
+   ⛔ **STILL NO HQ/ECO TOGGLE, but for the OPPOSITE reason to the one first given.** The saving is
+   NOT too small to be a lever — it is 13 % of the chain. It is not a toggle because the accuracy
+   cost is inaudible, so there is nothing to choose between; you simply take it. **`dsp.md`'s gating
+   rule cuts both ways: "don't gate an inaudible difference" also means "don't decline an inaudible
+   saving".** The oversampling factor remains the real quality lever and is the one with an accuracy
+   axis: 2× runs at 1.91–2.13 % for −0.37 dB at 18 kHz and 3.54° of resampler dispersion there
+   (`OSFidelity` §1, §4) — a real trade against the 5° phase budget, which is why the default is 4×.
+
+   ⭐ **The recorded machine-precision principle is kept, in the TEST rather than the constant.**
+   `JfetStageTest` 8c(b), 8f and 8g each assert twice: the ALGORITHM meets the generic-Newton oracle
+   at the oracle's own floor (**6.99e-18 A**) when run at a converged count, and the SHIPPED counts
+   sit inside the bound they were chosen against (**3.53e-09 A**, gate 5e-08). The structural-error
+   detector is unchanged in strength.
+
+   ⚠⚠ **A real bug surfaced doing this:** `satOverdrivePow` kept the compile-time `kSatIters` when
+   the loop was extracted into its own function, so `setSatIters()` never reached the `pow` fallback
+   and 8g was comparing rational@8 against pow@2 — a 7.07e-11 A "disagreement" with a convincing but
+   fictional explanation already half-written. ⭐ Caught by measuring each path against ITSELF at a
+   high count: both read exactly 0.000e+00, and an exactly-zero self-comparison is a hook that does
+   nothing, not a converged solve. Fixed, the two paths agree to **1.626e-19 A**.
 
    ⛔ **Do not go looking for the next factor of two in the solve.** It was measured and it is not
    there: the stage is 69 ns/sample at 192 kHz, of which 10 ns is plumbing, ~6 ns the start and

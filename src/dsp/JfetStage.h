@@ -908,7 +908,6 @@ public:
         {
             step();
             step();
-            step();
         }
         else
         {
@@ -928,7 +927,12 @@ public:
         double u = A - cached.rdLinK * (A - cached.vov);
         if (! (u > 0.0) || u > P)
             u = 0.5 * P;
-        for (int it = 0; it < kSatIters; ++it)
+        // ⚠ satIters, NOT kSatIters. When this loop was extracted from solvePowerLaw it kept the
+        // compile-time constant while the rational path took the settable one, so setSatIters() did
+        // not reach it -- and a test comparing "pow at 8 iterations" against "pow at 40" was
+        // silently comparing a two-iteration result with itself and reading 0.000e+00. Vacuous in
+        // exactly the way JfetStageTest 8c(b) records for an earlier version of that same test.
+        for (int it = 0; it < satIters; ++it)
         {
             const double up = std::pow(u, cached.mm1);
             const double h = u + c * u * up - P;
@@ -1550,13 +1554,35 @@ private:
     // have been wrong by 10 dB while looking fine everywhere else.
     static constexpr int kSolveIters = 8;
 
-    // Iterations for the production (power-law) solve. Both are set on MEASURED convergence to
-    // MACHINE PRECISION in the drain current, not on a residual and not on audibility: see
-    // satOverdriveRational() for saturation and the block above the triode loop for triode. Both
-    // counts fell when their STARTS were fixed -- triode 8 -> 6 -- rather than by accepting less.
-    // JfetStageTest 8c(b) and 8g score them; setSatIters()/setTriodeIters() are how.
-    static constexpr int kSatIters = 3;
-    static constexpr int kTriodeIters = 6;
+    // Iterations for the production (power-law) solve.
+    //
+    // ⚠⚠ THESE ARE SET ON AUDIBILITY, NOT ON MACHINE PRECISION, AND THAT IS A DELIBERATE REVERSAL
+    // OF WHAT THIS FILE USED TO SAY. The previous 3/6 converged the drain current to 1.6e-17 A, and
+    // the argument for it was that only an exact solve can be asserted against an oracle at machine
+    // precision. That argument is preserved -- but by the TEST, not by the shipped constant:
+    // JfetStageTest 8c(b), 8f and 8g each run the solve at a converged count and assert machine
+    // precision there (which is what detects a structural error), then check the shipped count
+    // against its own measured bound. Nothing was given up except the coincidence that production
+    // and the oracle used the same number.
+    //
+    // What 3/6 -> 2/4 costs, measured end to end rather than argued:
+    //
+    //     worst absolute drain-current error   1.6e-17 A -> 3.6e-09 A   (-269 dB -> -101 dB re Id0)
+    //     worst H2 error, 0.45 / 1.50 V        0.00000 dB -> 0.00000 dB
+    //     worst H2 error, 4.016 V (0 dBFS)     0.00000 dB -> 0.00003 dB
+    //     full-plugin null, 2/4 against 3/6    -120 to -150 dB (worst peak -105 dB re peak signal)
+    //
+    // and what it buys, at the 4x default, stereo, as a percentage of realtime:
+    //
+    //     ordinary playing level               3.76 % -> 3.29 %
+    //     0 dBFS peak into triode (worst case) 127 ns/sample -> 93 ns  (~1.3 points)
+    //
+    // ⭐ 2/4 rather than 2/6 or 3/4 because the SATURATION branch dominates the error once it is at
+    // two steps: 2/6 and 2/4 measure the SAME 3.552e-09 A, so the triode reduction is free on top.
+    // ⛔ And not 2/3: that jumps to 3.1e-07 A and 0.0005 dB, still inaudible but with the margin
+    // shrinking an order of magnitude per step, which is where a measured floor stops being a floor.
+    static constexpr int kSatIters = 2;
+    static constexpr int kTriodeIters = 4;
     int solveIters = kSolveIters;
     int triodeIters = kTriodeIters;
     int satIters = kSatIters;

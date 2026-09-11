@@ -400,6 +400,31 @@ it is free where cutting the count is not:
   depend on programme material, and the early-out branch is mispredicted exactly where the signal is
   busiest.
 
+### Set the iteration count on AUDIBILITY; keep machine precision in the TEST
+
+A fixed-count implicit solve has two different jobs and they do not need the same count:
+
+- **Production** only has to be inaudible. Measure the worst ABSOLUTE error over a sweep that
+  crosses every branch (not the harmonics of one tone at one level — that flatters it), and settle
+  it with a **full-plugin null against the converged build**. On this pedal 3 Halley steps → 2 and
+  triode 6 → 4 costs 3.6e-09 A (−101 dB re the quiescent current), 0.00003 dB of H2 at 0 dBFS, and
+  nulls at **−120 to −150 dB** — while buying 13 % of chain CPU, and a third of the WORST-CASE CPU
+  because the triode branch is what a loud passage pays.
+- **The test** has to detect a structural error, and that is what wants machine precision. Run the
+  same solve at a converged count via the iteration hook and assert it meets an independent oracle
+  at the oracle's own floor; then check the shipped count against its own measured bound. Two
+  assertions, two questions. Conflating them either hides a defect behind a loose tolerance or
+  fails a correct build for being fast.
+
+⚠ **"Only an exact solve can be asserted at machine precision" is true and is NOT an argument for
+shipping the exact count** — it is an argument for testing at it. Paying CPU for a property only
+the test suite consumes is a category error, and an easy one to make when the two counts started
+out the same.
+
+⚠⚠ **And the gating rule cuts both ways.** "Don't put an inaudible difference behind a quality
+toggle" also means "don't DECLINE an inaudible saving". If the cheaper setting is genuinely
+indistinguishable, the answer is not a button — it is the new default.
+
 ### Two micro-optimisations that measured BACKWARDS
 
 Recorded so they are not tried again: replacing a small binary-powering loop with a `switch` over
@@ -410,6 +435,18 @@ reverted.
 
 ⚠ `i / q` for a runtime `q` emits a 64-bit UDIV (3.26 ns dependent, against 1.26 for a
 multiply-high by a precomputed magic). That one IS worth fixing when it sits in the chain.
+
+### ⚠⚠ A vacuous iteration hook reads as a perfect result
+
+When two implementations of the same solve disagree, **measure each one against ITSELF at a high
+iteration count before explaining the gap**. On this pedal the `pow` fallback's loop kept the
+compile-time `kSatIters` when it was extracted into its own function while the fast path took the
+settable `satIters`, so the test hook never reached it and a "converged vs converged" comparison
+was really comparing 8 iterations against 2. The self-comparison read **exactly 0.000e+00**, which
+looks like a converged solve and is actually a hook that does nothing — and the 7e-11 A gap it left
+had a completely convincing false explanation ready (the u-space form's second derivative diverges
+at the knee where the substituted form is polynomial). With the bound fixed the two agree to
+1.6e-19 A. An exactly-zero self-comparison is a red flag, not a pass.
 
 ## Pot tapers
 

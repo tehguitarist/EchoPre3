@@ -828,27 +828,38 @@ int main()
         // trap that failed a correct shelf design (JfetStageTest 1c) and a correct droop restore
         // (DroopRestoreTest section 2). So: run the reference against ITSELF at a much higher count,
         // and require the shipped solve to sit inside that.
+        //
+        // ⚠⚠ TWO COLUMNS, AND THEY ANSWER DIFFERENT QUESTIONS. The shipped counts (kSatIters = 2,
+        // kTriodeIters = 4) are set on AUDIBILITY, so "shipped" is expected to sit near 3.6e-09 A
+        // and not at machine precision. What still has to be exact is the ALGORITHM -- run the same
+        // solve at a converged count and it must meet the oracle at the oracle's own floor. That is
+        // the column which detects a structural error; the shipped column only checks the shortcut
+        // is still the size it was measured to be. Conflating the two is what would either hide a
+        // real defect behind a loose tolerance or fail a correct build for being fast.
         std::printf("    dense per-sample sweep vs the generic Newton, and that reference's OWN floor:\n");
-        std::printf("    %-8s %-8s %14s %14s %14s\n", "rate", "mode", "shipped rel", "shipped abs A",
-                    "ref floor A");
-        double dr = 0.0, da = 0.0, refFloor = 0.0;
+        std::printf("    %-8s %-8s %14s %14s %14s\n", "rate", "mode", "shipped abs A",
+                    "converged abs A", "ref floor A");
+        double dr = 0.0, da = 0.0, dc = 0.0, refFloor = 0.0;
         for (const double fs : { 48000.0, 192000.0, 384000.0 })
         {
             for (const auto md : { dsp::Mode::Bright, dsp::Mode::Dark, dsp::Mode::Mid })
             {
-                dsp::JfetStage shipped, ref, refTight;
-                for (auto* st : { &shipped, &ref, &refTight })
+                dsp::JfetStage shipped, conv, ref, refTight;
+                for (auto* st : { &shipped, &conv, &ref, &refTight })
                 {
                     st->setParams(params);
                     st->setMode(md);
                     st->prepare(fs);
                 }
                 shipped.setSolver(dsp::JfetStage::Solver::Shipped);
+                conv.setSolver(dsp::JfetStage::Solver::Shipped);
+                conv.setSatIters(8);
+                conv.setTriodeIters(16);
                 ref.setSolver(dsp::JfetStage::Solver::GenericNewton);
                 refTight.setSolver(dsp::JfetStage::Solver::GenericNewton);
                 ref.setSolveIters(60);
                 refTight.setSolveIters(300);
-                double wr = 0.0, wa = 0.0, wf = 0.0;
+                double wr = 0.0, wa = 0.0, wc = 0.0, wf = 0.0;
                 const int n = (int) (fs * 0.05);
                 for (int k = 0; k < n; ++k)
                 {
@@ -858,28 +869,38 @@ int main()
                     if (k % 997 == 0)
                         x = 12.0;
                     const double ya = shipped.processSample(x);
+                    const double yd = conv.processSample(x);
                     const double yb = ref.processSample(x);
                     const double yc = refTight.processSample(x);
                     wa = std::max(wa, std::abs(ya - yb));
+                    wc = std::max(wc, std::abs(yd - yb));
                     wr = std::max(wr, std::abs(ya - yb) / std::max(1.0e-9, std::abs(yb)));
                     wf = std::max(wf, std::abs(yc - yb));
                 }
                 std::printf("    %-8.0f %-8s %14.2e %14.2e %14.2e\n", fs / 1000.0,
                             md == dsp::Mode::Bright ? "Bright" : (md == dsp::Mode::Dark ? "Dark" : "Mid"),
-                            wr, wa, wf);
+                            wa, wc, wf);
                 dr = std::max(dr, wr);
                 da = std::max(da, wa);
+                dc = std::max(dc, wc);
                 refFloor = std::max(refFloor, wf);
             }
         }
-        std::printf("    shipped-vs-reference %.2e A against the reference's own floor %.2e A\n",
-                    da, refFloor);
-        // 3x the reference's own floor, so this fails on a real divergence and not on the fact that
-        // the two sides converge differently. Both are far below anything audible: the floor itself
-        // is ~90 dB under the quiescent current.
-        if (da > 3.0 * refFloor + 1.0e-15)
-            fail("the shipped power-law solve diverges from the generic Newton by more than that "
-                 "reference's own convergence floor");
+        std::printf("    converged %.2e A vs the reference's own floor %.2e A; shipped %.2e A "
+                    "(%.1f dB re Id0)\n",
+                    dc, refFloor, da, db(da / params.id0()));
+        // (a) THE ALGORITHM. 3x the reference's own floor, so this fails on a real divergence and
+        // not on the fact that the two sides converge differently. This is the structural check.
+        if (dc > 3.0 * refFloor + 1.0e-15)
+            fail("the power-law solve does not meet the generic Newton at a converged iteration "
+                 "count -- the two are solving different equations");
+        // (b) THE SHIPPED SHORTCUT. Set an order of magnitude above the 3.6e-09 A measured when
+        // kSatIters/kTriodeIters were chosen, so this catches a real regression in the counts or
+        // the start while leaving room for ordinary build-to-build variation. 5e-08 A is still
+        // 78 dB under the quiescent current, and the audibility gate is the harmonic table above.
+        if (da > 5.0e-8)
+            fail("the shipped iteration counts are no longer converging to the bound they were "
+                 "chosen against -- see kSatIters/kTriodeIters");
         stage.setMode(dsp::Mode::Dark);
         stage.prepare(kFs);
     }
@@ -1056,35 +1077,50 @@ int main()
     // done when it ran unconditionally.
     {
         std::printf("\n8f. Solve residual on real signal (opt-in; production leaves it off):\n");
-        std::printf("    %-8s %10s %14s\n", "mode", "gate V", "worst |resid| A");
-        double worst = 0.0;
+        std::printf("    %-8s %10s %14s %14s\n", "mode", "gate V", "shipped A", "converged A");
+        double worst = 0.0, worstConv = 0.0;
         for (const auto md : { dsp::Mode::Bright, dsp::Mode::Dark, dsp::Mode::Mid })
         {
             for (const double amp : { 0.45, 1.50, 4.016 })
             {
-                dsp::JfetStage stage;
-                stage.setParams(dsp::JfetParams {});
-                stage.setMode(md);
-                stage.prepare(kFs);
-                stage.setResidualTracking(true);
-                double w = 0.0;
-                const int kN = (int) (kFs / 220.0) * 8;
-                for (int n = 0; n < kN; ++n)
+                double wBoth[2] = { 0.0, 0.0 };
+                for (int which = 0; which < 2; ++which)
                 {
-                    const double t = 2.0 * M_PI * 220.0 * (double) n / kFs;
-                    stage.processSample(amp * (0.75 * std::sin(t) + 0.25 * std::sin(9.0 * t)));
-                    w = std::max(w, std::abs(stage.lastSolveResidual()));
+                    dsp::JfetStage stage;
+                    stage.setParams(dsp::JfetParams {});
+                    stage.setMode(md);
+                    stage.prepare(kFs);
+                    stage.setResidualTracking(true);
+                    if (which == 1) // converged: the ALGORITHM, not the shipped shortcut
+                    {
+                        stage.setSatIters(8);
+                        stage.setTriodeIters(16);
+                    }
+                    const int kN = (int) (kFs / 220.0) * 8;
+                    for (int n = 0; n < kN; ++n)
+                    {
+                        const double t = 2.0 * M_PI * 220.0 * (double) n / kFs;
+                        stage.processSample(amp * (0.75 * std::sin(t) + 0.25 * std::sin(9.0 * t)));
+                        wBoth[which] = std::max(wBoth[which], std::abs(stage.lastSolveResidual()));
+                    }
                 }
-                worst = std::max(worst, w);
+                worst = std::max(worst, wBoth[0]);
+                worstConv = std::max(worstConv, wBoth[1]);
                 if (md == dsp::Mode::Dark)
-                    std::printf("    %-8s %10.3f %14.3e\n", "Dark", amp, w);
+                    std::printf("    %-8s %10.3f %14.3e %14.3e\n", "Dark", amp, wBoth[0], wBoth[1]);
             }
         }
-        std::printf("    worst over 3 modes x 3 levels: %.3e A (quiescent current %.3e A)\n", worst,
-                    dsp::JfetParams {}.id0());
-        // The solve is converged to machine precision, so this is rounding, not iteration error.
-        if (worst > 1.0e-12)
-            fail("the shipped solve is leaving a real residual on ordinary signal");
+        std::printf("    worst over 3 modes x 3 levels: shipped %.3e A, converged %.3e A "
+                    "(quiescent current %.3e A)\n",
+                    worst, worstConv, dsp::JfetParams {}.id0());
+        // Converged, the residual is rounding -- that is what says the equations are right.
+        if (worstConv > 1.0e-12)
+            fail("the solve leaves a real residual even at a converged iteration count");
+        // At the shipped counts it is the deliberate shortcut (kSatIters/kTriodeIters), which was
+        // measured at 3.6e-09 A. Same bound and same reasoning as 8c(b)'s shipped column.
+        if (worst > 5.0e-8)
+            fail("the shipped iteration counts leave a larger residual than they were chosen "
+                 "against -- see kSatIters/kTriodeIters");
 
         // And it must genuinely be OFF by default, or the saving is imaginary.
         dsp::JfetStage off;
@@ -1160,6 +1196,14 @@ int main()
                     st.setMode(md);
                     st.prepare(fs);
                     st.setAllowRationalSolve(which == 0);
+                    // ⚠ CONVERGED, deliberately. The two paths iterate in DIFFERENT VARIABLES (y
+                    // where u = y^q, against u itself), so at the shipped two steps they approach
+                    // the same root along different trajectories and legitimately differ by ~1e-05
+                    // relative. That is not a disagreement about the answer, and testing it there
+                    // would measure the shortcut twice instead of checking the two implementations
+                    // describe the same equation. Converged, they must agree to rounding.
+                    st.setSatIters(8);
+                    st.setTriodeIters(16);
                     const int kN = (int) fs / 8;
                     out.assign((size_t) kN, 0.0);
                     for (int n = 0; n < kN; ++n)

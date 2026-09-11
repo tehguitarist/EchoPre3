@@ -2047,6 +2047,10 @@ high, execute routine work cheap) is what should persist.
 > the opposite character) is taken whenever it is smaller. One compare, better everywhere.
 >
 > ### ⛔ NO HQ/ECO TOGGLE — and the measurement is the argument
+> ⚠⚠ **THE "NO TOGGLE" CONCLUSION STANDS BUT ITS REASONING WAS WRONG, AND THE ITERATION COUNTS
+> MOVED — read the correction block immediately below before acting on this paragraph.** The CPU
+> figures in the table above are superseded too (4× is 3.28–3.70 %, not 3.72–4.36 %).
+>
 > `dsp.md` says gate only a genuine lever. The one available is dropping saturation from 3 Halley
 > steps to 2: worth **0.48 points** (3.76 → ~3.28 % at 4×), and it costs machine precision in the
 > drain current (1.6e-17 → 3.6e-9 A) for a harmonic difference of **0.00001 dB**. Inaudible, so by
@@ -2074,6 +2078,70 @@ high, execute routine work cheap) is what should persist.
 > 📌 **Both new guards were verified to FAIL when broken**, not merely to pass: narrowing the
 > rational search so 8/5 is not found trips 8g's performance assertion, and shrinking `kRootSlack`
 > below the root start's measured 4.55 % worst error trips four separate accuracy assertions.
+
+> ### ⚠⚠ CORRECTION, SAME SESSION: THE ITERATION-COUNT TRADE WAS UNDERSOLD AND IS NOW TAKEN
+> ### 3/6 → 2/4. 4× goes 3.72–4.36 % → **3.28–3.70 %**, i.e. **2.0× off the original 6.70–7.48 %**.
+>
+> The owner challenged the block above — "I lose 0.00001 dB for 0.48 points of CPU, that seems like
+> a good trade unless it's worse than that" — and they were right on both counts: the trade is good,
+> and my figure undersold it. **What was wrong with the recommendation, in order of importance:**
+>
+> 1. ⚠⚠ **I QUOTED ONLY THE SATURATION SAVING AND OMITTED TRIODE.** 0.48 points is the saving at
+>    ordinary playing level. At a 0 dBFS peak into triode — the WORST CASE, which is what actually
+>    decides whether a DAW glitches — going 3/6 → 2/4 takes the stage from **127 to 93 ns/sample**,
+>    about **1.3 points**. The triode reduction is nearly free in accuracy terms (2/6 and 2/4 measure
+>    the *same* 3.552e-09 A, because once saturation is at two steps it dominates the error), so
+>    quoting the saturation branch alone understated the CPU by 2.7× in the case that matters most.
+> 2. ⚠ **"0.00001 dB" was measured at ONE drive level.** Re-measured across 0.45 / 1.50 / 4.016 V and
+>    three rates: 0.00000 / 0.00000 / **0.00003 dB** of H2 error, H3 0.00000 at the top. The honest
+>    headline is the worst ABSOLUTE error over a sweep crossing cutoff, saturation and triode:
+>    **3.552e-09 A, which is −101.4 dB re the quiescent current.**
+> 3. ⭐⭐ **AND THE DECISIVE NUMBER WAS ONE I HADN'T TAKEN: the full-plugin null.** 2/4 against 3/6
+>    through `OfflineRender` on the whole test signal nulls at **−144.8 / −120.2 / −150.1 dB**
+>    (bright / dark / mid), worst peak difference **−104.8 dB re peak signal**. That is ~9 dB below
+>    16-bit dither. Arguing from harmonic tables when a null is available was the wrong instrument.
+>
+> ⛔ **The "no HQ button" conclusion survives, but for the OPPOSITE reason to the one I gave.** I
+> argued the saving was too small to be a lever. It is not — it is 13 % of the chain, and a third of
+> the worst case. What makes it not a button is that **the accuracy cost is inaudible, so there is
+> nothing to choose between: you just take it.** A toggle is for a real trade; this is a free lunch
+> with a bookkeeping cost. ➡ **`dsp.md`'s gating rule cuts both ways, and I only applied one edge:
+> "don't gate an inaudible difference" also means "don't DECLINE an inaudible saving".**
+>
+> ### ⭐ WHAT THE PROJECT ACTUALLY GIVES UP, AND HOW IT WAS KEPT
+> The recorded principle was that only an exact solve can be asserted against an oracle at machine
+> precision, "so a future structural error shows up immediately instead of hiding inside a tolerance".
+> That is a TEST property, not a listening property, and it did not have to be paid for with CPU.
+> All three affected assertions now run twice:
+>
+> | | what it asserts | at |
+> |---|---|---|
+> | the ALGORITHM | meets the generic-Newton oracle at the oracle's own floor — **6.99e-18 A** | a converged count (`setSatIters(8)`, `setTriodeIters(16)`) |
+> | the SHIPPED counts | inside the bound they were chosen against — **3.53e-09 A**, gate 5e-08 | `kSatIters` / `kTriodeIters` |
+>
+> `JfetStageTest` 8c(b), 8f and 8g each do this. ⭐ The structural-error detector is unchanged in
+> strength; what moved is only the coincidence that production and the oracle used the same count.
+>
+> ### ⚠⚠ AND A REAL BUG THIS EXPOSED — MINE, INTRODUCED EARLIER IN THE SAME SESSION
+> `satOverdrivePow` looped on the compile-time `kSatIters` while the rational path took the settable
+> `satIters`, because the loop kept the constant when it was extracted out of `solvePowerLaw`. So
+> `setSatIters()` never reached the `pow` fallback, and 8g — comparing the two implementations at a
+> converged count — was really comparing rational@8 against pow@2. It read a **7.07e-11 A**
+> disagreement, DARK-only and rate-independent, and I had already started writing up a plausible
+> story for it (u-space Halley has `h'' ~ u^(m-2) → ∞` at the knee where the y-space form is
+> polynomial, so the `pow` path must be the less accurate side). ⭐ **The probe that killed it was
+> the cheap one: measure each path against ITSELF at a high count.** Both read exactly 0.000e+00 —
+> and a self-comparison that is exactly zero is not a converged solve, it is a hook that does
+> nothing. With the loop bound fixed the two paths agree to **1.626e-19 A**.
+> ➡ Two lessons, both already in this file in other words: **a vacuous test reads as a perfect
+> result**, and **when two implementations disagree, measure each one's own floor before explaining
+> the gap** — the explanation I was about to record was elegant, consistent with everything else in
+> the file, and entirely fictional.
+>
+> 📌 Final: **4× 3.28–3.70 %, 8× 5.98–6.81 %, 2× 1.91–2.13 %, 1× 0.73–0.83 %.** All 11 tests pass,
+> warning-free, `auval` passes. ⛔ Do NOT go to 2/3: it jumps to 3.1e-07 A and 0.00051 dB — still
+> inaudible, but the margin is shrinking an order of magnitude per step and that is where a measured
+> floor stops being one.
 
 ### 🗺️ Current plan
 
