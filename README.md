@@ -146,12 +146,18 @@ drives the JFET solve hardest.
 
 | OS factor | CPU % of realtime | Latency (samples) | Latency (ms @ 48 kHz) |
 |-----------|-------------------:|-------------------:|-----------------------:|
-| 1×        | 0.7–0.8%           | 0                   | 0.00                   |
-| 2×        | 1.9–2.1%           | 49                  | 1.02                   |
-| 4× (default) | 3.3–3.7%        | 60                  | 1.25                   |
-| 8×        | 6.0–6.8%           | 64                  | 1.33                   |
+| 1×        | 0.6–0.8%           | 0                   | 0.00                   |
+| 2×        | 1.8–2.0%           | 49                  | 1.02                   |
+| 4× (default) | 3.2–3.6%        | 60                  | 1.25                   |
+| 8×        | 5.9–6.8%           | 64                  | 1.33                   |
 
-CPU is mildly level-dependent, because the JFET stage's triode branch — entered only by the top
+Those are measured with a swept sine. **Real programme material costs about 0.35 points more — a
+plucked-chord proxy at the same RMS reads 3.58% against the sine's 3.23% at 4×**, roughly 11%.
+`PerfBenchmark` reports five stimuli (sine, tone, pink noise, white noise, chord) at matched RMS so
+that is measured rather than assumed: a periodic stimulus is the best case for the branch predictor,
+and this DSP branches every sample. Add ~0.35 points to the table for a realistic worst case.
+
+CPU is also mildly level-dependent, because the JFET stage's triode branch — entered only by the top
 few dB at a high VOLUME setting — costs more than its saturation branch. Measured at the stage,
 192 kHz: 56 ns/sample at ordinary playing levels against 93 ns at a 0 dBFS peak, against 148 and
 226 ns before the solve was reworked.

@@ -7,6 +7,7 @@
 // a slow runner and pass on a fast one regardless of whether the DSP got cheaper or dearer. The
 // ratios between rows are the durable part; the absolute figures are this machine's.
 
+#include <cmath>
 #include <cstdio>
 
 #include "ProbeHarness.h"
@@ -68,6 +69,51 @@ int main()
         s.bypass = true;
         const double bypassed = cpuPercent(proc, s, kSeconds, &finite);
         std::printf("  %6dx %-10s %9.2f%% %9.2f%%\n", kOsFactors[osIdx], "Dark", active, bypassed);
+    }
+
+    // ⚠⚠ DOES THE STIMULUS MATTER? The rows above use a swept sine, which is the BEST case for the
+    // branch predictor -- and this solve branches every sample (cutoff early-return,
+    // saturation-versus-triode, Halley's denominator fallback, two clamps). A tone makes all of
+    // those perfectly predicted, so the headline figure could be flattering real programme
+    // material. All five programmes below are normalised to the SAME RMS, which is what separates
+    // complexity from level: the drive decides which branch a sample takes, and only the
+    // predictability differs. The Chord row is the guitar proxy (six plucked strings, six harmonics
+    // each, decaying envelopes) and is the one to read as "real playing".
+    std::printf("\n  Does the STIMULUS matter? All at the same RMS (-9 dBFS), 4x, Dark:\n");
+    std::printf("  %-14s %10s %10s %14s\n", "programme", "4x CPU", "8x CPU", "vs swept sine");
+    {
+        double base4 = 0.0;
+        struct Row { const char* name; Programme p; };
+        const Row rows[] = { { "swept sine", Programme::SweptSine },
+                             { "1 kHz tone", Programme::Tone1k },
+                             { "pink noise", Programme::PinkNoise },
+                             { "white noise", Programme::WhiteNoise },
+                             { "guitar chord", Programme::Chord } };
+        for (const auto& r : rows)
+        {
+            Setup s4;
+            s4.osIndex = 2; // 4x
+            const double c4 = cpuPercent(proc, s4, kSeconds, &finite, r.p);
+            Setup s8;
+            s8.osIndex = 3;
+            const double c8 = cpuPercent(proc, s8, kSeconds, &finite, r.p);
+            if (base4 == 0.0)
+                base4 = c4;
+            std::printf("  %-14s %9.2f%% %9.2f%% %13.2f%%\n", r.name, c4, c8, c4 - base4);
+        }
+    }
+
+    // And at a realistic tracking level rather than a hot one: -18 dBFS RMS is ordinary DI guitar,
+    // where the stage sits in saturation for nearly every sample and never reaches triode.
+    std::printf("\n  Guitar chord at three levels (4x, Dark) -- the triode branch is what a hot\n"
+                "  signal pays for, so CPU is expected to RISE with level:\n");
+    std::printf("  %-16s %10s\n", "RMS", "4x CPU");
+    for (const double rms : { 0.0398, 0.1259, 0.3536 }) // -28, -18, -9 dBFS
+    {
+        Setup s4;
+        s4.osIndex = 2;
+        const double c = cpuPercent(proc, s4, kSeconds, &finite, Programme::Chord, rms);
+        std::printf("  %-16.1f %9.2f%%\n", 20.0 * std::log10(rms), c);
     }
 
     if (! finite)

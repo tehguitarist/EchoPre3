@@ -12,6 +12,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <random>
 #include <complex>
 #include <vector>
 
@@ -209,14 +210,106 @@ inline Spectrum toneSpectrum(PedalAudioProcessor& proc, const Setup& s, double a
     return out;
 }
 
+/** What to feed cpuPercent(). ⚠⚠ A SWEPT SINE IS THE BEST CASE FOR THE BRANCH PREDICTOR, and the
+ *  JFET solve branches every sample (cutoff early-return, saturation-versus-triode, Halley's
+ *  denominator fallback, two clamps). A periodic stimulus makes every one of those perfectly
+ *  predicted, so a tone-only benchmark can flatter the figure that ends up in the README. These
+ *  exist so that claim is MEASURED rather than assumed -- see PerfBenchmark's programme section.
+ *
+ *  All of them are normalised to the same RMS, which is what isolates *complexity* from *level*:
+ *  the drive sets which branch each sample takes, and only the predictability should differ. */
+enum class Programme
+{
+    SweptSine,  // 80 Hz - 5 kHz log sweep: the historical stimulus, and the most predictable
+    Tone1k,     // a fixed tone: even more predictable, the floor of the effect
+    WhiteNoise, // maximally unpredictable sample to sample
+    PinkNoise,  // broadband but spectrally realistic
+    Chord       // six plucked strings with harmonics and decaying envelopes -- a guitar proxy
+};
+
+/** Fill `dst` with `n` samples of the chosen programme, scaled to `targetRms` (full-scale units).
+ *  Generated OUTSIDE any timed region -- see cpuPercent(). */
+inline void fillProgramme(float* dst, int n, Programme p, double targetRms, double fs = kFs)
+{
+    std::mt19937 rng(12345u);
+    std::uniform_real_distribution<double> uni(-1.0, 1.0);
+    double phase = 0.0, b0 = 0.0, b1 = 0.0, b2 = 0.0;
+
+    for (int i = 0; i < n; ++i)
+    {
+        const double t = (double) i / fs;
+        double y = 0.0;
+        switch (p)
+        {
+            case Programme::SweptSine:
+            {
+                const double f = 80.0 * std::pow(62.5, (double) i / (double) n);
+                phase += 2.0 * M_PI * f / fs;
+                y = std::sin(phase);
+                break;
+            }
+            case Programme::Tone1k:
+                y = std::sin(2.0 * M_PI * 1000.0 * t);
+                break;
+            case Programme::WhiteNoise:
+                y = uni(rng);
+                break;
+            case Programme::PinkNoise:
+            {
+                // three one-pole sections: a standard -3 dB/octave approximation
+                const double w = uni(rng);
+                b0 = 0.99765 * b0 + w * 0.0990460;
+                b1 = 0.96300 * b1 + w * 0.2965164;
+                b2 = 0.57000 * b2 + w * 1.0526913;
+                y = b0 + b1 + b2 + w * 0.1848;
+                break;
+            }
+            case Programme::Chord:
+            {
+                // E2 A2 D3 G3 B3 E4, six harmonics each, staggered plucks, 1.6 s repeat
+                static const double kOpen[6] = { 82.41, 110.0, 146.83, 196.0, 246.94, 329.63 };
+                const double cyc = std::fmod(t, 1.6);
+                for (int st = 0; st < 6; ++st)
+                {
+                    const double onset = 0.012 * (double) st;
+                    const double age = cyc - onset;
+                    if (age < 0.0)
+                        continue;
+                    const double env = std::exp(-age * 2.2);
+                    for (int h = 1; h <= 6; ++h)
+                        y += env * std::sin(2.0 * M_PI * kOpen[st] * h * age + 0.7 * st + 0.3 * h) / (double) (h * h);
+                }
+                break;
+            }
+        }
+        dst[i] = (float) y;
+    }
+
+    double sum = 0.0;
+    for (int i = 0; i < n; ++i)
+        sum += (double) dst[i] * (double) dst[i];
+    const double rms = std::sqrt(sum / (double) std::max(1, n));
+    const float g = (float) (targetRms / std::max(rms, 1.0e-12));
+    for (int i = 0; i < n; ++i)
+        dst[i] *= g;
+}
+
 /** CPU as a percentage of realtime for one configuration: wall clock over audio duration.
- *  The stimulus is a sweep at a realistic level, not silence -- a denormal-flushed silent block is
- *  far cheaper than real audio, and timing one measures the wrong thing entirely. */
-inline double cpuPercent(PedalAudioProcessor& proc, const Setup& s, double seconds, bool* finite = nullptr)
+ *  The stimulus is real audio at a realistic level, not silence -- a denormal-flushed silent block
+ *  is far cheaper than real audio, and timing one measures the wrong thing entirely.
+ *
+ *  📌 The stimulus is PRE-GENERATED. It used to be computed inside the timed loop, which charged
+ *  every reading a std::pow and a std::sin per sample (~0.06 points of the total -- small, but it
+ *  is the harness's cost, not the plugin's). */
+inline double cpuPercent(PedalAudioProcessor& proc, const Setup& s, double seconds,
+                         bool* finite = nullptr, Programme prog = Programme::SweptSine,
+                         double targetRms = 0.3536)
 {
     configure(proc, s);
 
     const int totalSamples = (int)(seconds * kFs);
+    std::vector<float> stim((size_t) totalSamples);
+    fillProgramme(stim.data(), totalSamples, prog, targetRms);
     juce::AudioBuffer<float> buf(2, kBlock);
     juce::MidiBuffer midi;
 
@@ -229,19 +322,15 @@ inline double cpuPercent(PedalAudioProcessor& proc, const Setup& s, double secon
         proc.processBlock(buf, midi);
     }
 
-    double phase = 0.0;
     const auto t0 = std::chrono::steady_clock::now();
     for (int start = 0; start < totalSamples; start += kBlock)
     {
         const int m = juce::jmin(kBlock, totalSamples - start);
         for (int i = 0; i < m; ++i)
         {
-            // 80 Hz .. 5 kHz, so the shaper's sign-dependent branches are all exercised rather than
-            // one narrow slice of the curve.
-            const double f = 80.0 * std::pow(62.5, (double)(start + i) / totalSamples);
-            phase += 2.0 * M_PI * f / kFs;
-            buf.setSample(0, i, 0.5f * (float)std::sin(phase));
-            buf.setSample(1, i, 0.5f * (float)std::sin(phase));
+            const float v = stim[(size_t)(start + i)];
+            buf.setSample(0, i, v);
+            buf.setSample(1, i, v);
         }
         juce::AudioBuffer<float> sub(buf.getArrayOfWritePointers(), 2, 0, m);
         midi.clear();
