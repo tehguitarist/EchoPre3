@@ -85,26 +85,34 @@ high, execute routine work cheap) is what should persist.
 - **`analysis/`** — the reusable harness: `gen_test_signal.py` (comprehensive A/B signal) +
   `analyze.py` (load/align, FR, THD, Farina swept-THD, sub-sample null, filename parser).
 - **`docs/ui-peripheral-spec.md`** — full visual spec for the reusable UI elements.
-- **`src/PluginEditor.{h,cpp}`** — working sample editor: three-column layout, side-panel trims +
-  VU + 2-dp value readouts, oversampling/scale strip (LIVE/RENDER, HQ + Trim Link toggles,
-  self-updating version stamp), full resizable-UI scaling with per-session + debounced
-  cross-session persistence, TooltipWindow. Binds to the canonical APVTS IDs.
-- **`src/PluginProcessor.{h,cpp}`** — a PLACEHOLDER pass-through processor: it declares the full
-  canonical APVTS layout the UI binds to and exposes the input/output peak meters, but does NO
-  circuit modelling. It exists so the UI compiles/loads/renders today (verified: builds clean, the
-  headless `tests/UISnapshot.cpp` renders it at 0.5×/1×/2.5×). Replace its guts during the DSP build
-  sequence, keeping the parameter IDs stable.
-- **`src/ui/PedalFace.{h,cpp}`** — sample single-channel centre face (GAIN/TONE/VOLUME knobs with
-  2-dp tooltips, a param-bound 3-position mode switch, LED, bypass footswitch, logo). This is the
-  one per-pedal piece — rename labels/IDs and re-arrange `resized()`. Dual-stage pedals instantiate
-  it per stage (architecture.md).
+- **`src/PluginEditor.{h,cpp}`** — the editor: three-column layout, side-panel trims + VU + 2-dp
+  value readouts, bottom strip (LIVE/RENDER oversampling, Trim Link, output LOAD, self-updating
+  version stamp, UI size), full resizable-UI scaling clamped to the display, with per-session +
+  debounced cross-session persistence, TooltipWindow. ⚠ The strip's width budget is tuned, not
+  decorative — re-do the arithmetic if anything is added, and check the headless render at 0.5× as
+  well as 2.5× (a previous addition silently squeezed the UI SIZE label to nothing).
+- **`src/PluginProcessor.{h,cpp}`** — the real processor: APVTS layout, the gain staging
+  (`kInputRef` volts in, `kOutputMakeup` out), per-channel DSP chain, oversampling with separate
+  live/render factors, true bypass with the DSP skipped, and the trim link. ⚠ Its `processBlock`
+  SLICES the buffer while VOLUME is moving and calls `processChunk` per slice — see the comment
+  there; the slicing is skipped when VOLUME is static, which is what keeps every render and null in
+  this project bit-for-bit stable.
+- **`src/ui/PedalFace.{h,cpp}`** — the centre pedal face: one VOLUME knob, the param-bound
+  three-position EQ switch with its BRIGHT/DARK/MID labels ringing the switch art, LED, bypass
+  footswitch, logo. This is the one per-pedal piece.
 - **`src/ui/`** — drop-in `PedalLookAndFeel`, `VUMeter`, `ThreePositionSwitch`, `LEDIndicator`,
   each **image-first with a procedural (vector) fallback**. Art is embedded via `Assets.h` +
   `juce_add_binary_data(PedalAssets ...)`; reskin by replacing the source PNGs in `ui/` and running
   `tools/process_ui_assets.sh` (→ `assets/ui/`). Remove the images to fall back to the vector look.
 - **`src/utils/TaperUtils.h`** — taper helpers (note `audioTaperR0` for large gain pots).
 
-## Build sequence (validate each step before the next — do not skip ahead)
+## Build sequence — ALL TEN STEPS ARE COMPLETE
+
+> ✅ **Steps 1–10 below are done, and the model is calibrated against a real unit.** The list is
+> kept because it records the ORDER the work had to happen in and why each step gated the next —
+> which is the reusable part, and what a reader reconstructing a decision needs. It is no longer a
+> to-do list. Where it says "validate before the next step", that validation happened; the
+> measurements are in `.claude/rules/circuit.md` and `docs/build-plan.md`.
 
 1. **Schematic analysis** → fill `circuit.md`. Heed the schematic-reading gotchas there. Use the
    `schematic-checker` agent to cross-check any value/topology question against what's already
@@ -134,9 +142,21 @@ high, execute routine work cheap) is what should persist.
 10. **Final sweep** — all controls full range: no instability, clicks, or NaN/Inf. (Output > 0 dBFS
     at extreme drive+volume is faithful, not a fault — the output trim manages it.)
 
-## Current step
+## Session log — APPEND-ONLY HISTORY, NOT CURRENT STATE
 
-> Update this at the start/end of each session so progress doesn't rely on conversation history.
+> ⚠⚠ **EVERYTHING BELOW THIS LINE IS DATED HISTORY AND IS NEVER RETROACTIVELY EDITED.** Entries were
+> written as each session ended, so early ones say things like "BLOCKED on the renders",
+> "uncalibrated", "still open" and "CURRENT: step 1" — all of which were true when written and are
+> not true now. **Read it for the REASONING behind a decision** (method lessons, traps already
+> found, why a value was chosen), never for the current value of anything. For current values see
+> `.claude/rules/circuit.md`; for what is left to do, `docs/build-plan.md`.
+>
+> ✅ **Where the project actually stands (2026-09-11): the model is complete and calibrated.** Every
+> constant is measured, including both absolute level anchors and the VOLUME taper. Against the
+> owner's own unit it meets its frequency-response, phase, absolute-level and per-band THD targets
+> (see the README's table). 12 tests pass, `auval` passes, the build is warning-free. What remains
+> is one parked item that needs a capture session nobody is planning: the twin-tone segment cannot
+> measure intermodulation, because its two tones are harmonically related.
 > **CURRENT: Step 1 (Schematic analysis) — COMPLETE, re-verified 2026-09-07, no open blockers.
 > `schematics/schematic.png` is traced and `.claude/rules/circuit.md` is fully filled in (values,
 > node graphs, triage, corners, validation targets). Both open questions resolved against the
@@ -215,8 +235,10 @@ high, execute routine work cheap) is what should persist.
 > 2. **Base-rate (1× OS) top octave droops** −2.1 dB @ 12 kHz, −3.6 dB @ 16 kHz. Prewarp pins the
 >    corner but cannot invert the bilinear zero at Nyquist; that is why the input network was moved
 >    inside the oversampled region. `dsp.md`'s low-OS shelf restore is the remedy, at step 6.
-> 3. **VOLUME updates per block, not per sample** (it re-solves WDF impedances). Fast automation may
->    zipper. Normal WDF practice; revisit only if it is audible.
+> 3. ~~**VOLUME updates per block, not per sample.** Fast automation may zipper.~~ ✅ **MEASURED AND
+>    FIXED 2026-09-11 — and it WAS audible, by several dB.** See the final session entry and
+>    `docs/build-plan.md` §21.6: VOLUME is applied every 16 samples while it moves, plus a
+>    20 → 100 ms ramp. `tests/VolumeAutomationTest.cpp` guards it.
 > 4. **The ~2 dB VOLUME fall-back discrepancy is still open** (as-drawn 3.9 dB vs the maker's 1–2 dB).
 >    `OutputNetworkTest` prints the maker's four points every run so it stays visible. Do NOT tune
 >    other constants to close it — it needs a real VOLUME sweep capture.
@@ -2231,8 +2253,95 @@ high, execute routine work cheap) is what should persist.
 >   looked plausible rather than broken. Re-do the arithmetic if anything else is ever added, and
 >   check the headless render at 0.5x as well as 2.5x.
 
-### 🗺️ Current plan
+### 🗺️ Where the plan lives
 
-> The session-by-session plan — priority order, what's parked, what's explicitly out of scope —
-> lives in `docs/build-plan.md`'s final section, kept current in place. This file stays the
-> chronological log; don't duplicate the plan here. See `docs/build-plan.md` §19.
+> Priority order, what's parked and what's explicitly out of scope live in `docs/build-plan.md` §19,
+> which is kept current in place. ⚠ Note the section order there: §19 is the live plan and the dated
+> log CONTINUES after it at §20, because "build-plan §19 item N" is referenced from this file,
+> `circuit.md` and several scripts, so renumbering it would invalidate all of them. This file stays
+> the chronological log; don't duplicate the plan here.
+
+> ### ⭐⭐ SESSION 2026-09-11 (part 5): THE BAND EDGES CLOSE, AND VOLUME AUTOMATION WAS A REAL BUG
+>
+> Detail: `.claude/rules/circuit.md` note **#32**, `docs/build-plan.md` **§20–§21**. Build-plan §19
+> items 4, 5a and 7 are closed. **12 tests pass, warning-free; `auval` passes; VERSION 0.7.0.**
+> ⚠ One DSP behaviour changed (VOLUME's update rate — see below); no fitted constant moved, and the
+> static render is **bit-for-bit identical** to the previous build in all three modes.
+>
+> **1. ⭐⭐ `goal_check.py --gm`, and note #30's claim is measured rather than expected.** Note #30
+> said BRIGHT's 6.5–10 kHz FR miss and its two phase misses share one cause with the per-band THD
+> offset — the voicing decision — and flagged that the FR/phase halves had never been measured
+> because the script could not move `gm`. At P4's own gm: FR core worst **1.10–1.57 → 0.27–0.59 dB**,
+> phase **6.14°/5.95° → 3.60°/3.43°, both passing**. ⭐ The flag validates itself three ways — DARK
+> comes back **byte-identical** (gm only moves the mode shelf), DARK's level shifts **+0.456 dB**
+> against note #28's independently-predicted ~0.46, and the capture-only floor does not move.
+> ⛔ Not a reason to move `gm`; note #28 records that decision as closed with this as its price.
+>
+> **2. ⛔⭐⭐ THE SUB-200 Hz BAND HAD NO DEFECT, AND TWO THINGS WERE HIDING THAT.** All four axes are
+> at target below 200 Hz (FR: no band over ±1.0 dB; phase: 2.74° worst over 40 Hz–16 kHz; THD:
+> 0.48 dB RMS against the core's 0.41; compression: median −0.117 dB, **better** than the core's
+> 0.206). ⭐ At the shipped gm the LF residual is 2.00 dB RMS and **FLAT across three decades** —
+> which is the voicing offset, not an LF mechanism. Note #13's finding (valid only from 125 Hz up, on
+> NAM captures whose sub-100 Hz data was unusable) now extends to 20 Hz on a raw capture.
+>
+> **3. ⭐⭐ A RECORDED FLOOR WAS OVERSTATED 7×, AND NOTE #30a's DIAGNOSIS WAS THE WRONG KIND.** The
+> BRIGHT-vs-DARK known-answer probe was being read over every band below the shelf ZERO, but its
+> premise needs the bypass cap effectively out of circuit — at the zero the cap's impedance equals
+> R5, and at 800 Hz it is still only 2.5× it. The measured "floor" tracks the circuit's own
+> `40·log10(k_dark/k_bright)` across a **4-decade span**, which no measurement floor does. Restricted
+> to where the premise holds the floor is **0.034 dB median** against the recorded 0.23.
+> ⚠⚠ **Note #30a called that distribution heavy-tailed and prescribed the median. The median was
+> right for the wrong reason: it is a monotone frequency TREND, not a tail, so no robust statistic
+> fixes it — the probe has to be restricted.** ➡ *Before choosing a statistic to tame a spread, check
+> whether the spread is a distribution at all.* A two-population mixture and a heavy tail look
+> identical in a summary and want opposite fixes.
+>
+> **4. ⚠⚠ AN H3 INVERSION DISQUALIFIES H2 TOO — one cell was producing a whole band's worst case.**
+> `dark LF<200`'s 6.34 dB worst was entirely `p4_V0900_dark`'s `tone_20_-1` cell: pad 0 at −1 dBFS is
+> 3.58 V at the gate, 5.3 dB past cutoff, the deepest-clipping cell in the dataset. Two known-answer
+> arguments say the CELL is corrupted and the MODEL is right there — the output high-pass must LIFT
+> H2 in dBc at 20 Hz by ~4 dB whatever the transistor does (the plugin tracks that to 0.5 dB, the
+> capture FALLS 2.9), and in DARK `k` is frequency-independent so the harmonic ORDERING cannot change
+> with frequency (the capture flips from H2- to H3-dominant at the same drive). **The gate detected
+> the inversion and kept the cell anyway**, because truncating above H3 assumes the contaminant lives
+> only above it — but `H3 ≥ H2` means H2 is *inside* it. ⛔ Both tests are CAPTURE-INTERNAL; a gate
+> that dropped cells for disagreeing with the model would be circular and must never be added.
+>
+> **5. ⭐⭐ VOLUME AUTOMATION: residual #3 is CLOSED, and it was a real audible defect.** Filed since
+> day one as "may zipper; revisit only if it is audible" — it is, and "zipper" understates it. A
+> once-per-block update on a control law that runs to −∞ at full CCW gave steps of **1.2–8.6 dB
+> scaling with the host's block size**, and even a leisurely **1-second automated sweep stepped
+> 2.4 dB at 512 samples and 10.8 dB at 2048**. Fixed in two halves that neither work alone:
+> `processBlock` slices the buffer into **16-sample** chunks and applies VOLUME per chunk (the old
+> body moved unchanged into `processChunk`), and the ramp goes **20 → 100 ms**. ⚠ A longer ramp alone
+> cannot fix a 2048-sample block (one block > the ramp, so one block is one step); chunking alone
+> leaves the host's own once-per-block writes as the limit. Now **0.07–0.10 dB** on that sweep and
+> **independent of block size**. ⭐ Sliced only while the control moves, so the static path is
+> bit-for-bit identical (verified against the previous binary, peak difference exactly 0).
+>
+> **6. ⚠⚠ THAT INSTRUMENT WAS WRONG TWICE AND BOTH ERRORS READ AS RESULTS — the general lessons.**
+> (a) **An asymmetric comparison, the fourth on this project:** "peak jump minus the same render
+> with no move" does not cancel the tone's slew, because the moved render ends at a different
+> amplitude. It read 0.126 against the 0.131 a steady tone's own slew gives — all signal.
+> (b) ⭐⭐ **A read grid coarser than the effect made the test blind to its own fix:** reading the
+> envelope once per host block reports the change *across* the block however finely the gain moved
+> inside it, so the fix produced byte-identical figures. The tell was that the same build nulled
+> bit-for-bit against the previous one, so the code HAD changed. ➡ **A metric's sample grid must be
+> finer than the quantisation it is meant to detect** — and the earlier attempt to dodge boundary
+> straddling by settling one block returned **0.000 dB for the largest possible step**. A metric that
+> returns zero for the worst case is not conservative, it is broken.
+> ⭐⭐ **The verdict is a CONVERGENCE test, not a dB threshold**, because a fixed bound cannot tell
+> quantisation from trajectory: a 26 dB move in 100 ms legitimately moves the gain ~1.4 dB per
+> period, so any bound tight enough to catch a staircase would fail an ideal per-sample
+> implementation. Quarter the chunk and re-measure — ratios 1.06–1.15. 📌 That is also what chose
+> 16 over 32: modelling the step as `trajectory + quantisation × chunk` put chunk-32's quantisation
+> at a third of the total.
+>
+> **7. 📌 Harness and docs.** Two parked defects closed: the render caches now temp-and-rename (a
+> concurrent run could read a truncated wav, which analyses without complaint), and
+> `check_capture.py`'s H2-clearance column is reference-only — on an active capture it compared the
+> pedal against itself and flagged agreement as BAD. `thd_band_audit_p4.py` was also deconvolving
+> against `sweep_clean`, note #29's fault surviving in a second script (worth 0.02 dB at LF but
+> **0.37 dB at 8 kHz**) — ➡ when a fault is found in one script, grep for the pattern rather than
+> fixing the instance. README rewritten: it had been claiming both level constants were unanchored,
+> describing a square-law shaper, and advertising ADAA, which note #26 removed from the codebase.

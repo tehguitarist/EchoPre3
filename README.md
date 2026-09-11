@@ -16,26 +16,58 @@ rather than curve-fit.
 
 <img src="docs/images/screenshot.png"/>
 
-## Status
+## How close is it?
 
-The DSP chain is fully wired end-to-end and host-verified (`auval -v aufx Ep3p Lprc` passes,
-plugin runs clean in a real host). Every linear stage matches its analytic transfer function to a
-fraction of a dB and a fraction of a degree; the JFET stage's `gm` and both tone-shelf time
-constants are fitted from reference NAM captures of three physical units, not guessed from a
-datasheet. **What's still open:** absolute input/output level calibration (`kInputRef`,
-`kOutputMakeup`) and full reference validation against real-pedal captures are blocked on a couple
-of additional recordings (a within-rig VOLUME sweep and a bypass anchor) — see
-[`CLAUDE.md`](CLAUDE.md) for the detailed log. Until then, treat the shaper's absolute drive level
-and the VOLUME taper's exact shape as provisional; everything else described below is measured.
+Every constant in the model is measured rather than assumed, including the two absolute level
+anchors and the VOLUME taper. They come from a dedicated capture session on a real unit: a full knob
+rotation in both switch positions through a measured, near-flat recording chain, with both of that
+chain's calibration figures written down, plus loop and true-bypass references and a set of
+tone and twin-tone probe captures that reach the circuit's clipping region.
+
+Measured against that pedal at the shipped 4×/8× oversampling, with the rig deconvolved and the
+interface's input loading undone, at matched drive:
+
+| target | result |
+|---|---|
+| frequency response, ±0.5 dB over 80 Hz–12 kHz | ✅ **0.18–0.43 dB** worst, every knob position |
+| frequency response, ±1.0 dB over 20 Hz–20 kHz | ✅ no band over target at any knob position |
+| phase, ±5° over 40 Hz–16 kHz | ✅ **2.74°** worst |
+| absolute level, ±0.5 dB | ✅ all 15 captures pass |
+| per-band THD/H2, ±5 % (0.42 dB), 20 Hz–8 kHz | ✅ **0.41 dB RMS** core, 0.48 dB below 200 Hz † |
+
+Those are the DARK figures, which are the model's own error. **BRIGHT runs up to ~1.5 dB bright at
+6.5–10 kHz and makes ~1.3 dB less second harmonic, and that is deliberate:** the model is voiced to
+the newer three-position units, measured from a rig-cancelling differential across two of them,
+while the unit used for the absolute calibration above is an earlier two-position variant whose JFET
+is about 25 % weaker. One constant reverses that choice if you want the other voicing; the trade is
+recorded in [`.claude/rules/circuit.md`](.claude/rules/circuit.md) note #28.
+
+† The THD row is the one figure that needs that voicing difference taken out before it means
+anything, since a transconductance difference is a distortion difference: it is measured with the
+model rendered at the calibration unit's own transconductance. Against the shipped voicing the same
+measurement reads 2.0–2.3 dB, essentially flat from 20 Hz to 8 kHz — and a residual that is constant
+across three decades is the voicing offset, not a band-edge defect. The other four rows are at the
+shipped voicing as-is.
+
+Two things rest on thinner evidence than the rest, and are documented rather than hidden: the
+transistor's **triode branch** is constrained by a single capture cell, because the recording chain
+couples drive depth to output level and only one knob setting reaches that region; and the **MID**
+switch position is scaled from the three-position units, since the calibration unit does not have
+one. The per-band THD figure is also structurally unmeasurable above 8 kHz at 48 kHz, because a
+tone's second harmonic is past Nyquist there. [`CLAUDE.md`](CLAUDE.md) carries the full
+measurement log, and [`.claude/rules/circuit.md`](.claude/rules/circuit.md) every value the model
+uses and where it came from.
 
 ## Overview
 
 The signal path is one gain stage: `input LPF → JFET common-source stage (2N5457) → 3-way
 source-bypass tone switch → coupled output/VOLUME network`. There's no VREF divider and no
-op-amps — the JFET self-biases off a 22 V charge-pumped rail, and its square-law curvature is the
-only nonlinearity in the circuit. `chowdsp_wdf` has no native JFET element, so the gain stage is a
-fitted Norton-source model (current out, not voltage out — a degenerated common-source stage is a
-current source) with an independently-verified implicit solve backing the fit.
+op-amps — the JFET self-biases off a 22 V charge-pumped rail, and the transistor's own transfer
+curve is the only nonlinearity in the circuit. `chowdsp_wdf` has no native JFET element, so the
+stage solves the device's equations directly: a Norton current source (not a voltage source — a
+degenerated common-source stage is a current source), with the transistor's transfer law, its
+source-degeneration network and its drain load all solved together, per sample, by a safeguarded
+implicit solve that is asserted against an independent oracle at machine precision.
 
 A few things this pedal's build surfaced that were worth solving properly rather than
 approximating:
@@ -44,10 +76,20 @@ approximating:
   positions reach the same HF plateau; they only differ in where the lift starts. Fitting that
   shelf (rather than reading a plateau off an FFT) also caught that the switch's own printed
   labels were backwards.
-- **Degeneration suppresses distortion twice, not once.** The same feedback network that sets the
-  JFET's gain also filters the second-harmonic product it generates — missing the second pass was
-  worth 16 dB of excess distortion, and only an independent implicit solve of the transistor
-  equation caught it; every linear frequency-response test passed the whole time.
+- **Degeneration suppresses distortion twice, not once.** The feedback network that sets the JFET's
+  gain also filters the harmonic product it generates, and an early version of the stage applied it
+  only once — worth 16 dB of excess distortion. Only an independent solve of the transistor equation
+  caught it; every linear frequency-response test passed the whole time. That finding is what
+  eventually replaced the fitted shaper with the solved device equations described above.
+
+- **The transfer law isn't square.** Textbook JFET models use an exponent of 2; fitted against tone
+  captures that actually reach the clipping region this unit comes out at **1.60**, and the fit is
+  load-bearing rather than cosmetic — it was made on the second harmonic at one frequency, and the
+  third harmonic, a 14× different frequency and the compression of the fundamental all improved
+  out-of-sample, with their offsets going to zero rather than merely shrinking. A happy accident
+  followed: 1.60 is exactly 8/5, so a change of variable turns the per-sample solve into a
+  polynomial one and removes the transcendental from the inner loop — an identity, not an
+  approximation, and worth 2× the chain's CPU.
 - **A source-port WDF read silently inverted the input network's polarity.** Magnitude was
   perfect at every frequency; only a phase/DC-step check caught the missing 180°, which would have
   cancelled the JFET's own inversion and left the plugin backwards.
@@ -57,9 +99,10 @@ approximating:
 
 ## Features
 
-- **Single fitted JFET gain stage** — 2N5457 common-source stage with a measured transconductance
-  and a two-stage shelf structure (drive shelf + a second shelf on the shaper's nonlinear excess)
-  that reproduces the circuit's own double degeneration
+- **Single solved JFET gain stage** — 2N5457 common-source stage with a measured transconductance,
+  a measured transfer-law exponent and a measured pinch-off voltage, solved implicitly against both
+  its source-degeneration network and its VOLUME-dependent drain load, so compression, the harmonic
+  series and the clipping onset all fall out of the device rather than being fitted separately
 - **Three-position MODE switch** (Bright / Dark / Mid) — three precomputed source-bypass
   topologies, each a fitted first-order shelf against the un-bypassed stage
 - **Non-monotonic VOLUME control**, faithfully reproduced — the pot grounds its wiper and shunts
@@ -68,9 +111,13 @@ approximating:
 - **Oversampling on the linear-phase FIR path** (1×/2×/4×/8×, separate live/render factors) with a
   closed-form low-OS top-octave droop restore, so the base-rate response tracks the oversampled
   one instead of needing a high factor to sound right
-- **ADAA implemented and measured, shipped off** — proven exact against an independent Simpson
-  integral; left disabled because at this pedal's operating point it costs more wanted second
-  harmonic than the alias floor it buys back (see `docs/build-plan.md` §9 for the measurements)
+- **Output load selector** (68k / 1M / None) — this pedal's output impedance is 59–102 kΩ and moves
+  with the knob, so how much boost it actually delivers depends on what it drives, by about 10 dB
+  end to end. See [Output load](#output-load) below
+- **A per-sample implicit solve with no tolerance to tune** — the solve's iteration counts are set
+  on audibility (a full-plugin null against a fully-converged build sits at −120 to −150 dB), while
+  the tests separately assert the *algorithm* against an independent oracle at machine precision, so
+  a structural error still shows up immediately instead of hiding inside a loosened bound
 - **Calibrated I/O** — input and output trim with VU-style metering, Trim Link to hold overall
   loudness while pushing drive
 - **True bypass** with a crossfade and a deterministic oversampler reset, so post-bypass output
@@ -95,7 +142,8 @@ src/
 tests/                      Per-stage validation executables (frequency response + phase,
                             JFET shelf/shaper checks, bypass click, oversampling fidelity)
 analysis/                   Offline render tool + Python harness used to compare the plugin
-                            against reference NAM captures (FR, THD, phase, compression, null)
+                            against real-pedal captures (FR, THD, phase, compression, null),
+                            including the capture set the calibration constants are fitted from
 schematics/                 Source schematic images
 
 .claude/rules/              Detailed circuit/DSP/architecture/UI/build references — read
@@ -162,10 +210,10 @@ drives the JFET solve hardest.
 
 | OS factor | CPU % of realtime | Latency (samples) | Latency (ms @ 48 kHz) |
 |-----------|-------------------:|-------------------:|-----------------------:|
-| 1×        | 0.6–0.8%           | 0                   | 0.00                   |
-| 2×        | 1.8–2.0%           | 49                  | 1.02                   |
-| 4× (default) | 3.2–3.6%        | 60                  | 1.25                   |
-| 8×        | 5.9–6.8%           | 64                  | 1.33                   |
+| 1×        | 0.65–0.79%         | 0                   | 0.00                   |
+| 2×        | 1.82–2.00%         | 49                  | 1.02                   |
+| 4× (default) | 3.16–3.54%      | 60                  | 1.25                   |
+| 8×        | 5.85–6.58%         | 64                  | 1.33                   |
 
 Those are measured with a swept sine. **Real programme material costs about 0.35 points more — a
 plucked-chord proxy at the same RMS reads 3.58% against the sine's 3.23% at 4×**, roughly 11%.
@@ -178,8 +226,15 @@ few dB at a high VOLUME setting — costs more than its saturation branch. Measu
 192 kHz: 56 ns/sample at ordinary playing levels against 93 ns at a 0 dBFS peak, against 148 and
 226 ns before the solve was reworked.
 
-Bypass is a flat **~0.10%** at every factor (the DSP chain, including the oversampler, is skipped
+Bypass is a flat **~0.01%** at every factor (the DSP chain, including the oversampler, is skipped
 rather than run and crossfaded).
+
+VOLUME is applied every 16 samples while it is moving, rather than once per host block, because the
+control law is steep enough near full CCW that a once-per-block update is an audible staircase — a
+one-second automated sweep stepped 2.4 dB per block at a 512-sample buffer and 10.8 dB at 2048.
+Chunked, the step is 0.08–0.10 dB and no longer depends on the host's buffer size at all. The cost is
+paid only while the control is actually moving, so none of it appears in the table above, and the
+static render is bit-for-bit identical to the unchunked one.
 
 ## License
 

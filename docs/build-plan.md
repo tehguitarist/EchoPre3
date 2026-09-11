@@ -1533,19 +1533,42 @@ The whole miss is 200–500 Hz, the tail of the missing LF pole, already confoun
 already blocked on the VOLUME sweep. §18.2 also removes the minimum-phase companion that was
 suspected: there is no model-side magnitude dip at 4–8 kHz for phase to be carrying.
 
-## 19. Current plan (2026-09-11) — the model-tightening phase
+## 19. The plan of record — ✅ COMPLETE except for one parked item
 
-> ⚠⚠ **UNLIKE EVERY SECTION ABOVE, THIS ONE IS LIVE.** Sections 1–18 are a dated log and are never
-> rewritten after the fact. This section IS rewritten in place as items complete or the priority
-> order changes — it is the plan of record, not a log entry. Update it at the start/end of a
-> session the same way `CLAUDE.md`'s old "Current step" block used to be updated, so progress
-> doesn't rely on conversation history.
+> ⚠⚠ **UNLIKE EVERY OTHER SECTION, THIS ONE IS LIVE.** The dated log is never rewritten after the
+> fact (it runs §1–§18 and then continues at §20, after this section — see the note above §20 for
+> why the numbering works that way). This section IS rewritten in place as items complete, so it is
+> the plan of record rather than a log entry.
 
-The DSP is now close enough that the remaining work is tightening and deciding, not discovering.
-FR, harmonics, phase (core bands) and compression are all already close; what was missing was a
-per-band THD picture. The owner set this priority order. **No more captures are coming — the rig
-is gone** — so anything below that would need one stays a best-guess/theoretical call in the
-direction the data points, not a fit, and is not a reason to stop.
+✅ **All seven items below are closed as of 2026-09-11.** The model is complete and calibrated:
+every constant is measured, and against the owner's own unit it meets its frequency-response, phase,
+absolute-level and per-band THD targets (the README carries the table). 12 tests pass, `auval`
+passes, the build is warning-free.
+
+📌 **Build-sequence step 10 ("all controls full range: no instability, clicks, or NaN/Inf") is now
+verified at the PROCESSOR level rather than inferred.** `ChainTest` swept modes × volume for
+finiteness, but at the DSP level and over those two controls only — so it could not see the output
+LOAD (added later, and it moves the drain-node impedance, which is the load line's slope), the
+trims, the oversampling factor, or the block slicing `processBlock` does while VOLUME moves. New
+`tests/FullSweepTest.cpp` covers all of it: **166 configurations, 1.36 M samples, all finite and
+bounded**, worst peak 4.36 FS (+12.8 dBFS) at the deliberately daft corner of both trims maxed at
+the volume peak. ⛔ That is faithful, not a fault — the bound is set to catch a divergence
+(a solve escaping its bracket), not to police loudness.
+⚠ It also closed a gap in `ProbeHarness::Setup`, which set every parameter explicitly EXCEPT
+`output_load` — harmless while no probe changed it, and a leak waiting to happen the moment one did,
+against the harness's own stated principle.
+
+**One item is parked and needs data that does not exist:** the test signal's twin-tone segment
+cannot measure intermodulation at all, because its two tones are harmonically related (660 = 3 × 220,
+so every product lands on the 220 Hz harmonic grid — §14.2). Fixing it needs a new inharmonic
+segment in the signal, and the signal is append-only, so it needs a capture session. **No more
+captures are coming — the rig is gone.** Two further things rest on thin evidence for the same
+reason and are documented rather than hidden: the transistor's triode branch (one capture cell,
+§27 §4) and the MID switch position (scaled from the three-position units, since the calibration
+unit has none).
+
+The items below are kept as a record of what was done and in what order, with the reasoning and the
+measurements that closed each one.
 
 **In order:**
 
@@ -1599,23 +1622,31 @@ direction the data points, not a fit, and is not a reason to stop.
    constant. Run `goal_check --sweep sweep_-26`'s level section first; then either move the fitters
    to −16 and re-measure `kOutputMakeup` (note #23 lists its couplings), or settle both on −26.
    ⛔ Do not move `kOutputMakeup` before that comparison exists.
-4. **<200 Hz cleanup** — FR, THD, phase, and compression below 200 Hz, within the limits already on
-   record (the LF pole is confounded across the three NAM units and not fittable further without a
-   capture that does not exist — notes #19/#19a/#20/#20a; the taper and C10 are already settled
-   against P4 — note #21). Close whatever is left that is **not** blocked by those limits; theorise
-   or best-guess the rest rather than stalling on it.
+4. ✅ **<200 Hz cleanup — DONE 2026-09-11, §21.4 and circuit.md note #32. No DSP constant changed,
+   and the answer is that there was never an LF defect.** All four axes are at target below 200 Hz:
+   FR (no band over ±1.0 dB anywhere), phase (DARK worst 2.74° over 40 Hz–16 kHz), THD/H2 (0.48 dB
+   RMS against the core's 0.41), compression (median −0.117 dB, RMS 0.181 — *better* than the core's
+   0.206), absolute level (all 15 captures pass). ⭐ At the shipped `gm` the LF residual is 2.00 dB
+   RMS and **flat with frequency across three decades**, which is the voicing offset of item 2, not
+   an LF mechanism. Two things had been hiding that: the known-answer floor was being quoted over
+   bands where its own premise fails (§21.2), and one corrupted capture cell was carrying the whole
+   `dark LF<200` 6.34 dB worst case (§21.3). ⛔ The confounded LF pole of notes #19/#19a/#20/#20a is
+   moot — note #21 measured the rig as having no LF pole at all, and C10 is as drawn.
 5. **>12 kHz cleanup** (>8 kHz for THD, per item 1's ceiling) — same treatment, same standard: fix
    what's fixable, best-guess what a capture would be needed to pin down. Expect the BRIGHT
    mode-shelf gap to show up here (circuit.md note #25/#26c) — that is item 2's decision surfacing,
    not a separate defect to chase twice. ⛔ **Item 2 is now DECIDED (note #28), so that gap is
    ACCEPTED and explicitly out of scope here** — do not close it by moving `gm`.
-5a. 📌 **The voicing decision's price is now measured on FOUR axes, not two — circuit.md note #30.**
-   No action, and the decision is unchanged. Recorded here because items 4 and 5 will keep meeting
-   it: at P4's own gm the per-band THD error collapses from 2.27 to 0.41 dB RMS (DARK core, against
-   a 0.42 dB target), and the same single cause carries BRIGHT's 6.5-10 kHz FR miss and BRIGHT's two
-   phase misses. ⛔ **So band-edge work in BRIGHT above ~4 kHz has nothing to find** — that residual
-   is the decision, not a defect. ⚠ The FR/phase halves of that table are *expected*, not measured:
-   `goal_check.py` has no `--gm`. Add one before acting on it.
+5a. ✅ **The voicing decision's price is measured on all FOUR axes — DONE 2026-09-11, §21.1.** The
+   caveat this item carried ("the FR/phase halves are *expected*, not measured: `goal_check.py` has
+   no `--gm`") is discharged — it has one now, and both halves measure as predicted. At the
+   calibration unit's own gm, BRIGHT's FR core worst goes **1.10–1.57 → 0.27–0.59 dB** (4–5 bands
+   over target → 0–1) and its two phase misses **6.14°/5.95° → 3.60°/3.43°, both passing**; the
+   per-band THD collapse from 2.27 to 0.41 dB RMS was already measured in note #30. ⭐ The flag
+   validates itself: DARK comes back byte-identical (gm only moves the mode shelf) and DARK's level
+   shifts +0.456 dB against note #28's independently-predicted ~0.46. ⛔ **So band-edge work in
+   BRIGHT above ~4 kHz has nothing to find** — that residual is the decision, not a defect, and
+   `gm` must not be moved to close it.
 
 6. ✅ **Optimisation pass — DONE 2026-09-11. CPU at the 4× default 6.70–7.48 % → 3.72–4.36 %, the
    audio BIT-FOR-BIT unchanged (null −242 to −272 dB against the pre-change build across all three
@@ -1704,12 +1735,29 @@ direction the data points, not a fit, and is not a reason to stop.
    the two-jack Fender divider that DOES load overshoots to −0.66 dB. ⚠ "None" is load-bearing in
    the harness — see the note. Also fixed a stale `RO = 1.44e6` in `lf_pole_attribution.py` that had
    biased six scripts by 0.025 dB, plus three UI faults including a genuine resize lockout.
-7. **Everything else**, once 1–6 are settled: refresh the README (the performance table and the new
-   output-load section are done; the status text is still stale), write up everything since §18 into new dated sections here (the capture session,
-   the device-law rewrite, the three anchored constants — currently only in `circuit.md` and
-   `CLAUDE.md`'s chronological log), check VOLUME automation for zipper noise, and the two parked
-   harness defects (`check_capture.py`'s meaningless H2-clearance column on active captures; the
-   twin-tone segment's inability to measure IMD at all).
+7. **Everything else**, once 1–6 are settled. Progress 2026-09-11:
+   - ✅ **README refreshed.** The Status section had been claiming both level constants were still
+     unanchored and the reference set was NAM captures of three units; it now carries the measured
+     target table, the accepted voicing price, and the two documented non-model gaps (the triode
+     branch's single cell, MID's estimate). Also corrected: the Overview's "square-law curvature"
+     and "fitted Norton-source model" (the stage solves the device equations now), and a Features
+     bullet advertising ADAA, which note #26 **removed** from the codebase entirely. Screenshot
+     re-rendered at 150 % via `UISnapshot`.
+   - ✅ **Written up:** §20 (the capture session, the refuted `Vov` fit, the device law, the voicing
+     decision) and §21 (this session). ⚠ Note the section-order warning above §20 — the live plan
+     stays at §19 because "build-plan §19 item N" is referenced from `circuit.md`, `CLAUDE.md` and
+     several scripts.
+   - ✅ **One parked harness defect closed:** the render caches' non-atomic writes (note #29c).
+   - ✅ **VOLUME automation: measured, and it was a real defect — §21.6/§21.7.** Not a zipper but a
+     several-dB staircase. Fixed by applying VOLUME every 16 samples while it moves (`processChunk`)
+     plus a 20 → 100 ms ramp, with the static render verified bit-for-bit identical. Guarded by
+     `tests/VolumeAutomationTest.cpp`. `CLAUDE.md`'s residual #3 is closed.
+   - ✅ **`check_capture.py`'s H2-clearance column** is now printed only for REFERENCE captures. It
+     is a headroom check ("is this chain's own distortion far enough below the pedal's?"), which on
+     an active capture compares the pedal against itself and flags agreement as BAD.
+   - ⬜ **Parked, needs a re-capture:** the twin-tone segment cannot measure IMD at all (660 = 3 ×
+     220 exactly, so every product lands on the harmonic grid — §14.2). Fixing it needs a new
+     inharmonic segment, and the signal is append-only, so it is not worth a capture session alone.
 
 **Explicitly parked, not forgotten, not to be re-raised without new information:**
 - Asking the P2/P3 NAM trainers for their calibration figures — **not happening.**
@@ -1720,3 +1768,308 @@ direction the data points, not a fit, and is not a reason to stop.
   entirely from P1/P2, since P4 has no MID position and nothing from P4 can inform it. This is an
   accepted, documented estimate guided by the NAM data, not a gap.
 - Re-capturing anything — the rig is gone.
+
+---
+
+> ⚠ **SECTION ORDER FROM HERE.** §19 above is the LIVE plan and stays where it is: `circuit.md`,
+> `CLAUDE.md` and several scripts refer to "build-plan §19 item N", and renumbering it to keep the
+> dated log contiguous would invalidate every one of those. So the dated log continues below the
+> plan. §20 onwards are log entries and are never rewritten after the fact.
+
+## 20. The capture session and what it settled (2026-09-10 / 09-11)
+
+Sections 1–18 were written against a reference set of seven **NAM model renders** of three physical
+units, captured by three different people through three unmeasured rigs. Everything that dataset
+structurally could not do is in §1's limits L1–L3 and in `circuit.md` notes #7–#20: no absolute
+level anchor, no within-rig VOLUME sweep, and — decisively — a **systematic** harmonic/compression
+error floor (note #15) that no amount of averaging reduces.
+
+The owner then captured their own unit directly: raw recordings of this project's own test signal,
+not a neural model. Full detail is `circuit.md` notes **#21–#28**; this section records what it
+changed about the *plan*, which is the part that does not belong in a circuit reference.
+
+**The floor problem simply disappeared.** Every "floor" §13–§18 fought — 4–9 dB on the harmonics,
+0.145–0.210 dB on compression, 1.9–20.2 dB per band on LF THD — was NAM model error. The
+known-answer probe that reads 0.20–0.60 dB on the best NAM model reads **≤0.08 dB** on these
+captures, and (see §21) **0.034 dB** once the probe's own validity condition is applied properly.
+`Vov` had been pinned no tighter than a factor of 1.3–1.5 (§18.1) *because of that floor and
+nothing else*.
+
+**Three constants were anchored, and one of them had never had a route to an answer at all.**
+`kVolumeTaperP` 2.0 → **2.30** (two independent bands agreeing to 2 %), `kOutputMakeup` 1.0 →
+**1.1562**, and `kInputRef`'s comment corrected from ASSUMPTION to MEASURED. `gm` was re-checked
+against a second estimator and deliberately left where it was. ⭐ The taper then confirmed itself
+through a quantity it does not appear in: `kOutputMakeup` must be constant across the knob, and its
+per-position scatter collapsed **2.73 → 0.42 dB** when the taper moved — stronger evidence than
+either taper fit's own residual.
+
+**⛔ And the most important thing the session did was REFUTE a fit this plan had already decided to
+apply.** §18.1 fitted `Vov` twice from the NAM set, got 0.126 and 0.165 from two independent routes
+that agreed to a factor of 1.31, validated the estimator against a plugin render, and deferred
+applying it only pending a capture that reached the load line. That capture arrived and put the
+answer at **~0.94**, i.e. applying the fit would have made H2 **13–20 dB wrong**. The cause was
+already on this project's record and was reasoned past: note #7's M5 says P1's H2 does not move with
+level at all, i.e. it is floor throughout — and route A fitted P1's H2 anyway, because the deficit
+cleared its per-band floor *in magnitude*. ➡ **Clearing a floor in magnitude is not the same as
+carrying signal, and a fit whose input is floor returns a confident number with a good residual.**
+Two agreeing routes did not help, because both read the same floor.
+
+**Then the device law itself turned out to be wrong, which no constant could have fixed.** With
+captures that reach clipping, no single `Vov` could match both ends of the drive range: the
+small-signal curvature wanted ~0.90 and the clipping onset wanted ~0.63. Freeing the exponent
+instead gives **m = 1.60** against Shichman-Hodges' 2, and the amplitude parameter became **|Vp|**
+rather than `Vov` (which also retires §16's collapsing-bias-point trap by construction, since
+`Id0 = gm·|Vp|/(m + gm·R5)` is bounded for any `gm`). Fitted on H2 at 220 Hz alone, all five
+other observables improved and their offsets went to zero. Full derivation: `circuit.md` note #26.
+
+📌 **A reusable instrument came out of it and is worth knowing about before any future nonlinear
+fit.** In DARK the source one-port is the bare resistor with no state, so the whole stage is
+memoryless and one period of gate sine through the solve is the *exact* steady-state spectrum. That
+oracle reproduces the shipped plugin at 8× to 0.01 dB and runs in 6 ms per cell against ~40 s for a
+render — which is the only reason a two-parameter family was explorable at all.
+
+**The voicing decision was then made explicitly, in writing, because the calibration unit is not the
+unit the plugin is of.** The owner's pedal is an earlier two-position variant whose JFET is ~25 %
+weaker. The rule of record (`circuit.md` note #28) is: **voice to the newer three-position units,
+fall back to the calibration unit wherever the newer units' data does not make sense, is ambiguous,
+or is a calibration question NAM cannot answer** — which measurement sharpens into *the newer units
+are evidence only where the observable is a within-unit ratio; on every absolute axis the measured
+unit wins by default*. ⛔ Its price is accepted and is not a defect: BRIGHT up to +1.5 dB bright at
+6.5–10 kHz and ~1.3 dB less H2. §21 measures that price on four axes rather than two.
+
+## 21. Closing the band edges (2026-09-11): a flag, and two recorded claims corrected
+
+§19 items 4 and 5a. **No DSP constant changed, and none should.** Instrument changes only:
+`analysis/goal_check.py` gained `--gm`, `analysis/thd_band_audit_p4.py` gained a validity condition,
+a per-cell dump and a corrected gate, and three render caches gained a temp-and-rename.
+
+### 21.1 ⭐⭐ `goal_check.py --gm`, and what it turns from "expected" into measured
+
+§19 item 5a flagged that note #30's claim — BRIGHT's 6.5–10 kHz FR miss and its two phase misses at
+12:00/13:30 are the voicing decision, not defects — was **expected on the strength of a shared
+cause, never measured**, because `goal_check.py` had no way to move `gm`. It does now. Rendering at
+the calibration unit's own measured `gm` = 1146 µS:
+
+| BRIGHT, against the owner's own pedal | shipped `gm` | at the unit's own `gm` |
+|---|---|---|
+| FR core worst (80 Hz–12 kHz) | 1.10–1.57 dB | **0.27–0.59 dB** |
+| FR, bands over the ±0.5 dB core target | 4–5 per capture | **0–1** |
+| phase worst, 40 Hz–16 kHz | **6.14°** (12:00), 5.95° (13:30) | **3.60° / 3.43° — both pass** |
+| phase worst, 200 Hz–12 kHz | 4.05° | **1.67°** |
+
+So the claim holds on both axes, and item 5a's caveat is discharged. ⛔ It is **not** a reason to
+move `gm`: note #28 records that decision as closed, with this as its accepted price.
+
+⭐ **The flag validates itself three ways, which is why the result is trustworthy rather than merely
+favourable.** (a) DARK's FR and phase come back **byte-identical** — `gm` only moves the mode shelf,
+so anything else moving would mean the flag was doing more than it claims. (b) DARK's *level* shifts
+by **+0.456 dB**, against note #28's independently-derived "P4's own weaker JFET makes it ~0.46 dB
+quieter" — a prediction on record before this measurement existed. (c) The known-answer floor is
+unchanged, as it must be, since it never touches a render.
+
+⚠ The absolute-level section is *reported* under `--gm` but is not meaningful there: `kOutputMakeup`
+was fitted at the shipped `gm` and the two are coupled (note #23), so DARK's mean moves +0.151 →
++0.607 dB. The flag's help text and the run banner both say so, because a level table that reads
+"miss" for a documented reason is exactly the kind of output a later reader mines for a defect.
+
+### 21.2 ⭐⭐ The known-answer probe's validity condition was wrong, and note #30a's diagnosis with it
+
+The BRIGHT-vs-DARK probe — below the shelf zero both modes see `Zs = R5`, so their H2 in dBc must
+read identical — was being evaluated over every band **below the shelf zero (1800 Hz)**. That is the
+wrong condition. The premise needs the bypass cap effectively *out* of circuit, `|1/jωC| >> R5`; at
+the zero itself the two are equal, and at 800 Hz the cap is still only 2.5× R5. The contamination is
+computable from shipped constants with no free parameters, `40·log10(k_dark/k_bright)`:
+
+```
+  Hz       20    50   125   200   315   500   800  1250  1600
+  predicted (circuit, no free params)
+         0.00  0.01  0.03  0.08  0.24  0.59  1.43  3.14  4.65
+  measured "floor"
+         0.02  0.01  0.09  0.21  0.52  1.21  2.70  5.44  7.32
+```
+
+⭐⭐ **A measurement floor does not track a circuit prediction across a 4-decade span.** Every band
+from ~200 Hz up was reporting the mode shelf as though it were error. Restricted to where the
+premise holds, the floor is **0.034 dB median / 0.32 dB worst** — against note #30a's recorded
+**0.23 dB median, 2.67 dB RMS, 5.49 p90**.
+
+⚠⚠ **And note #30a's method lesson was right by accident.** It read that distribution as
+heavy-tailed and prescribed quoting the MEDIAN over the RMS. The median *is* the better statistic,
+but the distribution is not a tail — it is a monotone frequency **trend**, so **no choice of robust
+statistic fixes it**: a robust statistic over a mixture of valid and invalid cells still reports the
+invalid ones, just less loudly. The fix is to restrict the probe. ➡ The general form: *before
+choosing a statistic to tame a distribution, check whether the spread is a distribution at all.* A
+mixture of two populations and a heavy tail look the same in a summary and want opposite fixes.
+📌 Consequence for the target: the dataset resolves ~0.03 dB, not ~0.25, so the 0.42 dB per-band THD
+target is comfortably measurable and note #30a's worry about it is withdrawn.
+
+### 21.3 ⭐⭐ An H3 inversion disqualifies H2 too — one cell was producing a whole band's worst case
+
+`dark LF<200` was the worst group in item 1's audit (2.15 dB RMS / **6.34 dB worst**), and it was the
+one group that did *not* collapse when the voicing offset was removed. The per-cell dump localises
+all of it to **one capture at one level cell**: `p4_V0900_dark`'s `tone_20_-1`, decaying with
+frequency (+6.70 / +4.80 / +2.45 / +0.87 / +0.37 dB at 20 / 31.5 / 50 / 80 / 125 Hz) while every
+other cell in the band sits at ≤0.83 dB. It is the deepest-clipping cell in the entire dataset —
+pad 0 at −1 dBFS is **3.58 V at the gate, 5.3 dB past cutoff** — because the rig couples drive depth
+to recorded level (note #27 §4), so nothing else comes near it.
+
+**Two independent known-answer arguments say that cell is corrupted and the MODEL is right there:**
+
+1. The output high-pass (48.8 Hz at this knob setting, *measured* — note #21) is passive and sits
+   after the JFET, so it attenuates `f` more than `2f` and must **lift** H2 in dBc at 20 Hz by
+   ~4.0 dB whatever the transistor does. The plugin tracks that to 0.5 dB (+3.50 measured against
+   +4.01 predicted, re 125 Hz); the capture **falls** 2.9 dB. No transistor model can produce the
+   capture's sign.
+2. In DARK, `Zs = R5` at every frequency, so `k` is frequency-independent and the harmonic
+   **ordering** cannot change with frequency. The capture is H2-dominant at 125 Hz and H3-dominant
+   at 20 Hz (H3 sitting 8.2 dB *above* H2) at the same drive. The circuit forbids it.
+
+⚠⚠ **The gate already detected the inversion and kept the cell anyway.** The order-inversion test
+truncated the series above H3 and then reported H2 from the same cell as a valid +6.70 dB model
+error. Truncating assumes the contaminant lives only in the orders *above* the inversion — but
+`H3 ≥ H2` means the contaminant is at least as large as H2 itself, so H2 is *inside* it, not above
+it. The gate now drops H2 as well when the inversion is at H3 specifically; an inversion at H4 or
+above is still only a truncation, which is the case the test was written for.
+
+Result: `dark LF<200` worst **6.34 → 2.90 dB** shipped, and at the unit's own `gm` the band reads
+**0.48 dB RMS** against the core's 0.41. Excluding that one deep-clip capture entirely: **n = 70,
+worst 0.83 dB, RMS 0.42 dB** — exactly the 5 % target.
+
+⛔ **This is a capture-internal gate, and that distinction is the whole safety argument.** Both
+tests compare the capture against *itself* (H3 vs H2 in one cell; the same capture's H2 at two
+frequencies) or against a *topology* constant measured independently of the transistor. A gate that
+dropped cells for disagreeing with the model would be circular and must never be added.
+
+### 21.4 ✅ §19 item 4 — the sub-200 Hz cleanup closes on all four axes
+
+With 21.2 and 21.3 applied, and read at the calibration unit's own `gm` so the voicing offset is not
+sitting in the middle of it:
+
+| axis, below 200 Hz | result |
+|---|---|
+| FR | ✅ every DARK capture passes; **no band over ±1.0 dB anywhere**, 20 Hz reads −0.26 to +0.29 dB |
+| phase | ✅ DARK worst **2.74°** over 40 Hz–16 kHz; the 23 Hz cells read −3.3° |
+| THD / H2 | ✅ **0.48 dB RMS** (core 0.41); 0.42 dB RMS / 0.83 worst excluding the deep-clip capture |
+| compression | ✅ median **−0.117 dB**, RMS 0.181 — *better* than the core band's 0.206 |
+| absolute level | ✅ all 15 captures pass ±0.5 dB |
+
+⭐ **At the shipped `gm` the LF residual is 2.00 dB RMS and FLAT with frequency** — 2.37 / 2.19 /
+2.05 / 2.06 / 2.10 dB at 20 / 31.5 / 50 / 80 / 125 Hz, and 2.10–2.48 dB right across the core to
+8 kHz. A residual that is constant across three decades is not an LF defect; it is the voicing
+offset, and §20's decision is what it is. ➡ **There is no frequency-dependent LF distortion
+mechanism missing from the model.** That confirms note #13's finding (which held only from 125 Hz up,
+on a NAM capture whose sub-100 Hz data was unusable) all the way down to 20 Hz on a raw capture.
+
+📌 Compression below 200 Hz had never been read as its own band. It is now available from the same
+instrument: H1's corrected level is kept per cell and the statistic is the **increment across
+level**, which cancels the reference's level-independent gain error (note #16). ⚠ The cell dump
+deliberately covers all four tone levels rather than the audit's two hot ones — the aggregates are
+restricted to hot cells because a quiet cell cannot carry a trustworthy *harmonic*, but compression
+is read on the fundamental and *needs* the quiet cell as its reference.
+
+### 21.5 📌 Two harness faults fixed in passing
+
+- ⚠ **`thd_band_audit_p4.py` was deconvolving against `sweep_clean`** — note #29's fault, surviving
+  in a second script after `goal_check.py` was fixed. The rule existed (`p4_corners.FIT_SWEEP`
+  avoids it, `CLAUDE.md` says never to deconvolve against it); this script explicitly overrode the
+  sane default. Measured cost: 0.02 dB at 20–125 Hz, so it never explained anything at LF — but
+  **0.25 / 0.37 / 0.48 dB at 5 / 8 / 16 kHz**, comparable to the whole 0.42 dB target at the top
+  band it reports. ➡ When a fault is found in one script, grep for the pattern rather than fixing
+  the instance.
+- ⚠ **The render caches wrote straight to their final path** (note #29c's parked defect), so two
+  concurrent runs sharing a key could have one read a truncated wav — which analyses without
+  complaint, because a short capture still aligns. All three now render to a
+  pid-suffixed temp path and `os.replace()` into position, which is atomic. This was parked as
+  "not hit yet"; it became load-bearing the moment two audits could usefully run at once.
+- ⭐ `thd_band_audit_p4.py` also routes through `p4_corners.render`'s keyed cache now (guarded to
+  the default binary, as `goal_check` is), so a re-run costs ~11 s rather than ~10 minutes of
+  renders, and a `--gm` run **reuses** `goal_check --gm`'s renders instead of repeating them.
+  ⭐ `p4_corners.render`'s `extra` argument is cache-safe by construction rather than by
+  remembering: the key hashes the whole argument list, so any flag added is in it automatically.
+  That is the shape both historic cache faults (a key that was a display tag, then a key that
+  omitted the binary) argue for — **hash the command, not a summary of it.**
+
+### 21.6 ⭐⭐ VOLUME automation was a real audible defect, not the "zipper" it was filed as
+
+`CLAUDE.md` carried this as residual #3 from the day the chain was built: *"VOLUME updates per
+block, not per sample (it re-solves WDF impedances). Fast automation may zipper. Normal WDF
+practice; revisit only if it is audible."* Measured (`tests/VolumeAutomationTest.cpp`, new), it is
+audible, and "zipper" understates it — the control law is steep near full CCW (the network is
+non-monotonic and its gain runs to −∞ as `Ra → 0`), so a once-per-block update produces a
+staircase with steps of several dB:
+
+| case (DARK, 8×) | before | after |
+|---|---|---|
+| 0.15 → 0.35 jump | 1.2–8.6 dB, **scaling with block size** | **0.11 dB**, block-size independent |
+| 0.35 → 0.75 jump (across the peak) | 0.4–2.0 dB | **0.04 dB** |
+| automated 1 s full sweep | 0.29–10.75 dB | **0.07–0.10 dB** |
+| automated 200 ms full sweep | 0.87–25.4 dB | **0.19–0.43 dB** |
+| instantaneous full-range jump | 14.6–29.7 dB | **1.65 dB** (the trajectory itself — see below) |
+
+**The fix is two independent halves, and neither works alone.** (a) `processBlock` now slices the
+buffer into `kVolumeChunk` = 16 base-rate samples and applies VOLUME per chunk, the original body
+moving unchanged into `processChunk`. (b) The smoothing ramp goes 20 ms → 100 ms. ⚠ Lengthening the
+ramp cannot fix it by itself — the step is `(block / ramp) × range`, and at a 2048-sample block one
+block is already 42.7 ms, so no ramp shorter than that produces more than one step. Conversely
+chunking alone leaves the host's own update rate as the limit: a host writes the parameter once per
+block, so at 2048 samples each write is a fresh jump that a 20 ms ramp completes inside one block.
+The ramp bounds how fast the target moves; the chunk bounds how coarsely the journey is sampled.
+
+⭐⭐ **The slicing is skipped entirely unless VOLUME is moving, which is what makes this safe to do
+this late.** Verified rather than asserted: `OfflineRender` against the pre-change binary is
+**bit-for-bit identical** in all three modes (peak difference exactly 0.000e+00), so every render,
+null and calibration measurement in this project is untouched. The cost is likewise paid only while
+the control moves, so it appears in no steady-state CPU figure.
+
+### 21.7 ⚠⚠ THE INSTRUMENT WAS WRONG TWICE, IN TWO DIFFERENT WAYS, AND BOTH READ AS RESULTS
+
+Worth more than the fix, because both are general.
+
+**(a) An asymmetric comparison, for the fourth time on this project.** The first metric was "peak
+per-sample jump, minus the same render with no parameter move" — which looks like it cancels the
+tone's own slew and does not, because the moved render ends at a *different amplitude* and so has a
+larger legitimate slew. It reported **0.126** on a full sweep at a 64-sample block, against the
+**0.131** a steady 1 kHz tone's own slew gives at that amplitude: essentially all of it was the
+tone. ➡ **The reference must differ from the signal in ONLY the thing being measured.** A zipper is
+a staircase in the applied GAIN, so the metric became the gain trajectory (a one-period matched
+filter) and the question became the height of its largest step.
+
+**(b) ⭐⭐ A read grid coarser than the effect, which made the test blind to its own fix.** With the
+metric reading the envelope once per host block, the fix changed **nothing** — byte-identical
+figures — because a per-block read reports the gain change *across* that block whether it happened
+in one step or in sixty-four. The tell that it was the instrument and not the fix: the same build
+nulls bit-for-bit against the previous one on a static render, so the code had definitely changed.
+➡ **A metric's sample grid must be finer than the quantisation it is meant to detect**, and the
+temptation runs the other way, because a coarse grid is what avoids straddling boundaries. The
+earlier version had a settle offset of one block for exactly that reason — and that offset skipped
+the transition entirely, returning **0.000 dB for the largest possible step** (the smoother fully
+defeated). A metric that returns zero for the worst case is not conservative, it is broken.
+
+**⭐ Three self-checks were added because of that, and all three earn their place:**
+- **A mutation guard**: the same measurement with the ramp defeated must read materially worse.
+  ⚠ It has to be evaluated at the SMALLEST block — at 2048 samples one block exceeds the ramp, so
+  shipped and defeated are equal *by construction* there, and taking the worst over all block sizes
+  picks exactly that case and reports a working instrument as blind.
+- **Block-size independence**: since VOLUME now updates finer than any block under test, the step
+  must not depend on the block size. It reads a spread of 0.000 dB across 64–2048. That is a
+  stronger statement that the fix is engaged than "the number got smaller".
+- **⭐⭐ A convergence test instead of a dB threshold.** The real question is whether a residual step
+  is the *quantisation* or the *trajectory* — those want opposite responses, and a fixed dB bound
+  cannot tell them apart, because a 26 dB move completed in 100 ms legitimately changes the gain by
+  ~1.4 dB in every one-period window and *any* bound tight enough to catch a staircase would fail an
+  ideal per-sample implementation of the same move. So the chunk is quartered and the measurement
+  repeated: a step that does not fall is the trajectory. Ratios come back **1.06–1.15**.
+  📌 That test is also what set the chunk. Modelling the step as `trajectory + quantisation × chunk`
+  against the sweep put chunk-32's quantisation at ~0.8 dB of a 2.17 dB total — a third of it, still
+  the dominant error — so 32 was halved to 16, where the ratio converges. **The constant was chosen
+  by the measurement, not by taste.**
+
+**⭐ All three were then verified to FAIL with the fix reverted, not assumed to.** With the chunk set
+past every block size, block-size independence read a **22.3 dB spread** and the realistic bound
+**15.3 dB** — both caught it. ⚠⚠ **The convergence section did NOT: it reported ratios of exactly
+1.00 and passed**, because neither the shipped nor the quartered chunk slices a 512-sample block
+when both exceed it, so the two renders were identical. A section that passes by doing nothing is
+worse than no section, so its precondition (chunk < the block it measures at) is now asserted.
+➡ **A convergence test has a validity condition of its own, and "the two configurations agree" is
+indistinguishable from "the two configurations were the same".** This is the exactly-zero
+self-comparison trap from §17's `satOverdrivePow` bug, in a different costume.
