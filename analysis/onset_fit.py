@@ -224,7 +224,11 @@ def render(parsed):
     key = hashlib.sha1(("|".join(args) + "|" + C.render_bin_key()).encode()).hexdigest()[:10]
     out = f"{CACHE}/{key}.wav"
     if not os.path.exists(out):
-        subprocess.run([C.RENDER_BIN, SIG, out] + args, check=True, capture_output=True)
+        # Temp-and-rename, so a concurrent run cannot read a half-written wav as a short render
+        # (p4_corners.render carries the full reasoning).
+        tmp_out = f"{out}.{os.getpid()}.tmp"
+        subprocess.run([C.RENDER_BIN, SIG, tmp_out] + args, check=True, capture_output=True)
+        os.replace(tmp_out, out)
     return out
 
 

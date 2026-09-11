@@ -1,392 +1,1161 @@
 {
-  "generated": "2026-09-11T02:29:36.561046+00:00",
+  "generated": "2026-09-11T08:56:29.419948+00:00",
   "os": 8,
   "floor_margin_db": 10.0,
   "gm_override": 0.001146,
   "group_summary": {
     "bright_LF<200": {
       "n": 70,
-      "thd_rms_dbc": 0.44876062805964456,
-      "thd_worst_dbc": 0.8945810234923002,
-      "h2_rms_dbc": 0.44574048653412446,
-      "h2_worst_dbc": 0.8532394287000571
+      "thd_rms_dbc": 0.44251424812070345,
+      "thd_worst_dbc": 0.8884632442706,
+      "h2_rms_dbc": 0.43948524669090583,
+      "h2_worst_dbc": 0.8471581820938603
     },
     "bright_CORE": {
       "n": 154,
-      "thd_rms_dbc": 0.6429160790438232,
-      "thd_worst_dbc": 1.4146376856319591,
-      "h2_rms_dbc": 0.6506643580301263,
-      "h2_worst_dbc": 1.4146376856319591
+      "thd_rms_dbc": 0.7355960323764089,
+      "thd_worst_dbc": 1.5287689547648498,
+      "h2_rms_dbc": 0.7429878700760729,
+      "h2_worst_dbc": 1.5287689547648498
     },
     "dark_LF<200": {
-      "n": 80,
-      "thd_rms_dbc": 1.0408401886137344,
-      "thd_worst_dbc": 6.7036807707606805,
-      "h2_rms_dbc": 1.0473655094820462,
-      "h2_worst_dbc": 6.703680770760679
+      "n": 78,
+      "thd_rms_dbc": 0.4832629583058783,
+      "thd_worst_dbc": 2.2066262905221716,
+      "h2_rms_dbc": 0.49738325883628776,
+      "h2_worst_dbc": 2.4514014332164624
     },
     "dark_CORE": {
       "n": 152,
-      "thd_rms_dbc": 0.4076525176357456,
-      "thd_worst_dbc": 1.1118644048040807,
-      "h2_rms_dbc": 0.4037508572635947,
-      "h2_worst_dbc": 1.1118644048040807
+      "thd_rms_dbc": 0.40822618969515007,
+      "thd_worst_dbc": 1.0328873499662379,
+      "h2_rms_dbc": 0.40552438596338336,
+      "h2_worst_dbc": 1.0328873499662308
     }
   },
   "per_band": {
     "bright_20": {
       "n": 14,
-      "thd_rms_dbc": 0.6406662013139393,
-      "thd_worst_dbc": 0.8945810234923002,
-      "h2_rms_dbc": 0.6366254144303333,
-      "h2_worst_dbc": 0.8532394287000571
+      "thd_rms_dbc": 0.6348292361206269,
+      "thd_worst_dbc": 0.8884632442706,
+      "h2_rms_dbc": 0.630783202259456,
+      "h2_worst_dbc": 0.8471581820938603
     },
     "bright_31.5": {
       "n": 14,
-      "thd_rms_dbc": 0.4835545926407252,
-      "thd_worst_dbc": 0.8750668231079217,
-      "h2_rms_dbc": 0.47953534116252056,
-      "h2_worst_dbc": 0.8435338380545545
+      "thd_rms_dbc": 0.47548249158289985,
+      "thd_worst_dbc": 0.8663369738056161,
+      "h2_rms_dbc": 0.4714388811285359,
+      "h2_worst_dbc": 0.8348257398478474
     },
     "bright_50": {
       "n": 14,
-      "thd_rms_dbc": 0.37650264484019763,
-      "thd_worst_dbc": 0.6658414486003217,
-      "h2_rms_dbc": 0.37373422345205465,
-      "h2_worst_dbc": 0.6436359449107947
+      "thd_rms_dbc": 0.36587882737934524,
+      "thd_worst_dbc": 0.6532080964235156,
+      "h2_rms_dbc": 0.3630850467761675,
+      "h2_worst_dbc": 0.6310062641406802
     },
     "bright_80": {
       "n": 14,
-      "thd_rms_dbc": 0.3372137384541238,
-      "thd_worst_dbc": 0.5350345122464688,
-      "h2_rms_dbc": 0.3352174062483328,
-      "h2_worst_dbc": 0.5350345122464688
+      "thd_rms_dbc": 0.33092204130264935,
+      "thd_worst_dbc": 0.5257458022412749,
+      "h2_rms_dbc": 0.3289242579276916,
+      "h2_worst_dbc": 0.5257458022412749
     },
     "bright_125": {
       "n": 14,
-      "thd_rms_dbc": 0.3273911024120732,
-      "thd_worst_dbc": 0.5150573848392881,
-      "h2_rms_dbc": 0.32577425577349034,
-      "h2_worst_dbc": 0.5150573848392881
+      "thd_rms_dbc": 0.32653610270440153,
+      "thd_worst_dbc": 0.513510131069495,
+      "h2_rms_dbc": 0.3249191049425656,
+      "h2_worst_dbc": 0.513510131069495
     },
     "bright_200": {
       "n": 14,
-      "thd_rms_dbc": 0.33022429558989785,
-      "thd_worst_dbc": 0.5182568390476803,
-      "h2_rms_dbc": 0.3287654850505091,
-      "h2_worst_dbc": 0.5182568390476803
+      "thd_rms_dbc": 0.33222728951187663,
+      "thd_worst_dbc": 0.5220441407629437,
+      "h2_rms_dbc": 0.3307597004646847,
+      "h2_worst_dbc": 0.5220441407629508
     },
     "bright_315": {
       "n": 14,
-      "thd_rms_dbc": 0.3379120632469365,
-      "thd_worst_dbc": 0.5333898054819244,
-      "h2_rms_dbc": 0.33659420820195296,
-      "h2_worst_dbc": 0.5333898054819244
+      "thd_rms_dbc": 0.34257412567028317,
+      "thd_worst_dbc": 0.5415631505001528,
+      "h2_rms_dbc": 0.3412395034170258,
+      "h2_worst_dbc": 0.5415631505001528
     },
     "bright_500": {
       "n": 14,
-      "thd_rms_dbc": 0.38763527454185037,
-      "thd_worst_dbc": 0.6149820980708824,
-      "h2_rms_dbc": 0.3868351812068959,
-      "h2_worst_dbc": 0.6149820980708824
+      "thd_rms_dbc": 0.3992148101393953,
+      "thd_worst_dbc": 0.6318628314405004,
+      "h2_rms_dbc": 0.3983902327718854,
+      "h2_worst_dbc": 0.6318628314405004
     },
     "bright_800": {
       "n": 14,
-      "thd_rms_dbc": 0.48789440942249446,
-      "thd_worst_dbc": 0.7569773895181733,
-      "h2_rms_dbc": 0.48755609646894177,
-      "h2_worst_dbc": 0.7539195332779656
+      "thd_rms_dbc": 0.5148783653659252,
+      "thd_worst_dbc": 0.7905591244086274,
+      "h2_rms_dbc": 0.5144837638719061,
+      "h2_worst_dbc": 0.7869543185652894
     },
     "bright_1250": {
       "n": 14,
-      "thd_rms_dbc": 0.5968471264419459,
-      "thd_worst_dbc": 0.9454629875876286,
-      "h2_rms_dbc": 0.597606560018964,
-      "h2_worst_dbc": 0.9521553319694256
+      "thd_rms_dbc": 0.6585688602759034,
+      "thd_worst_dbc": 1.01918516630084,
+      "h2_rms_dbc": 0.6587413711814342,
+      "h2_worst_dbc": 1.02074478129461
     },
     "bright_1600": {
       "n": 14,
-      "thd_rms_dbc": 0.6486652503300517,
-      "thd_worst_dbc": 0.9577371373760606,
-      "h2_rms_dbc": 0.6526358597260967,
-      "h2_worst_dbc": 0.9947853246377889
+      "thd_rms_dbc": 0.7388181300510774,
+      "thd_worst_dbc": 1.0675380795211176,
+      "h2_rms_dbc": 0.7412827288687334,
+      "h2_worst_dbc": 1.0911954539881066
     },
     "bright_2000": {
       "n": 14,
-      "thd_rms_dbc": 0.6784965432391376,
-      "thd_worst_dbc": 0.9135449079351261,
-      "h2_rms_dbc": 0.6831282019602356,
-      "h2_worst_dbc": 0.9319236371650135
+      "thd_rms_dbc": 0.7963888550277153,
+      "thd_worst_dbc": 1.0385524875224768,
+      "h2_rms_dbc": 0.8004756963486154,
+      "h2_worst_dbc": 1.0568823004806909
     },
     "bright_2500": {
       "n": 14,
-      "thd_rms_dbc": 0.6918290093082354,
-      "thd_worst_dbc": 0.9030048665307859,
-      "h2_rms_dbc": 0.7208933427880254,
-      "h2_worst_dbc": 0.9350134412716216
+      "thd_rms_dbc": 0.8384504375463687,
+      "thd_worst_dbc": 1.0548969335886653,
+      "h2_rms_dbc": 0.865307269723011,
+      "h2_worst_dbc": 1.0868903665451803
     },
     "bright_3150": {
       "n": 14,
-      "thd_rms_dbc": 0.7199682370134411,
-      "thd_worst_dbc": 0.970113436296419,
-      "h2_rms_dbc": 0.7476202206187481,
-      "h2_worst_dbc": 0.970113436296419
+      "thd_rms_dbc": 0.8831038342959959,
+      "thd_worst_dbc": 1.1391150694701437,
+      "h2_rms_dbc": 0.9089825194691741,
+      "h2_worst_dbc": 1.1391150694701437
     },
     "bright_5000": {
       "n": 14,
-      "thd_rms_dbc": 0.8260903761049694,
-      "thd_worst_dbc": 1.1555238422191394,
-      "h2_rms_dbc": 0.8375298432935779,
-      "h2_worst_dbc": 1.1555238422191358
+      "thd_rms_dbc": 0.9822457061178165,
+      "thd_worst_dbc": 1.319715233251987,
+      "h2_rms_dbc": 0.9926955683227271,
+      "h2_worst_dbc": 1.319715233251987
     },
     "bright_8000": {
       "n": 14,
-      "thd_rms_dbc": 1.0091876012349192,
-      "thd_worst_dbc": 1.4146376856319591,
-      "h2_rms_dbc": 1.009187601234919,
-      "h2_worst_dbc": 1.4146376856319591
+      "thd_rms_dbc": 1.112849506945513,
+      "thd_worst_dbc": 1.5287689547648498,
+      "h2_rms_dbc": 1.1128495069455142,
+      "h2_worst_dbc": 1.5287689547648498
     },
     "dark_20": {
-      "n": 16,
-      "thd_rms_dbc": 1.7672912713520137,
-      "thd_worst_dbc": 6.7036807707606805,
-      "h2_rms_dbc": 1.7662111088158392,
-      "h2_worst_dbc": 6.703680770760679
+      "n": 15,
+      "thd_rms_dbc": 0.5739939560264924,
+      "thd_worst_dbc": 0.8338949920139385,
+      "h2_rms_dbc": 0.5701308894217306,
+      "h2_worst_dbc": 0.8338949920139385
     },
     "dark_31.5": {
-      "n": 16,
-      "thd_rms_dbc": 1.2732323097408258,
-      "thd_worst_dbc": 4.803882378504657,
-      "h2_rms_dbc": 1.272350932764644,
-      "h2_worst_dbc": 4.803882378504655
+      "n": 15,
+      "thd_rms_dbc": 0.42911108771479584,
+      "thd_worst_dbc": 0.7887834794917552,
+      "h2_rms_dbc": 0.42613315216644987,
+      "h2_worst_dbc": 0.7643207632711686
     },
     "dark_50": {
       "n": 16,
-      "thd_rms_dbc": 0.6518212313072137,
-      "thd_worst_dbc": 2.2196447398920274,
-      "h2_rms_dbc": 0.7033560540295943,
-      "h2_worst_dbc": 2.4640303641965975
+      "thd_rms_dbc": 0.6440090264985721,
+      "thd_worst_dbc": 2.2066262905221716,
+      "h2_rms_dbc": 0.6959603916616581,
+      "h2_worst_dbc": 2.4514014332164624
     },
     "dark_80": {
       "n": 16,
-      "thd_rms_dbc": 0.3784593865657302,
-      "thd_worst_dbc": 0.836981576931402,
-      "h2_rms_dbc": 0.3837652315475074,
-      "h2_worst_dbc": 0.8803171426385052
+      "thd_rms_dbc": 0.37232467844730155,
+      "thd_worst_dbc": 0.827758295143445,
+      "h2_rms_dbc": 0.3777778040829535,
+      "h2_worst_dbc": 0.8710361807714708
     },
     "dark_125": {
       "n": 16,
-      "thd_rms_dbc": 0.32280042431793077,
-      "thd_worst_dbc": 0.6372052391365735,
-      "h2_rms_dbc": 0.32327771894549323,
-      "h2_worst_dbc": 0.6208303685891607
+      "thd_rms_dbc": 0.3219382015913201,
+      "thd_worst_dbc": 0.6356787974540055,
+      "h2_rms_dbc": 0.3224531834499317,
+      "h2_worst_dbc": 0.6192849886131278
     },
     "dark_200": {
       "n": 16,
-      "thd_rms_dbc": 0.31862532081175826,
-      "thd_worst_dbc": 0.6202139797063886,
-      "h2_rms_dbc": 0.3202908210125506,
-      "h2_worst_dbc": 0.6040723032089055
+      "thd_rms_dbc": 0.3205289407085001,
+      "thd_worst_dbc": 0.6240341887320788,
+      "h2_rms_dbc": 0.3221035714821925,
+      "h2_worst_dbc": 0.6078552656679186
     },
     "dark_315": {
       "n": 16,
-      "thd_rms_dbc": 0.3137752991162178,
-      "thd_worst_dbc": 0.6100962644388233,
-      "h2_rms_dbc": 0.31641175441658026,
-      "h2_worst_dbc": 0.5946237198424811
+      "thd_rms_dbc": 0.31744427962923066,
+      "thd_worst_dbc": 0.618334882985156,
+      "h2_rms_dbc": 0.31986130163793647,
+      "h2_worst_dbc": 0.602008461846836
     },
     "dark_500": {
       "n": 16,
-      "thd_rms_dbc": 0.31107208088311045,
-      "thd_worst_dbc": 0.6448525004776613,
-      "h2_rms_dbc": 0.3139022624671831,
-      "h2_worst_dbc": 0.6448525004776613
+      "thd_rms_dbc": 0.3174263853552928,
+      "thd_worst_dbc": 0.6279874064632764,
+      "h2_rms_dbc": 0.3198509536509262,
+      "h2_worst_dbc": 0.6279874064632764
     },
     "dark_800": {
       "n": 16,
-      "thd_rms_dbc": 0.32598851449952404,
-      "thd_worst_dbc": 0.7068311317249751,
-      "h2_rms_dbc": 0.3287080119594188,
-      "h2_worst_dbc": 0.7068311317249751
+      "thd_rms_dbc": 0.3356805915599122,
+      "thd_worst_dbc": 0.6737965921190749,
+      "h2_rms_dbc": 0.3378799293227349,
+      "h2_worst_dbc": 0.673796592119082
     },
     "dark_1250": {
       "n": 14,
-      "thd_rms_dbc": 0.3735986912661098,
-      "thd_worst_dbc": 0.8493277301976292,
-      "h2_rms_dbc": 0.3741211224804885,
-      "h2_worst_dbc": 0.8493277301976292
+      "thd_rms_dbc": 0.3753393744092322,
+      "thd_worst_dbc": 0.7807373553018948,
+      "h2_rms_dbc": 0.3762269039155496,
+      "h2_worst_dbc": 0.7807373553019019
     },
     "dark_1600": {
       "n": 14,
-      "thd_rms_dbc": 0.4079868274667332,
-      "thd_worst_dbc": 0.9299614512870633,
-      "h2_rms_dbc": 0.40400225081749663,
-      "h2_worst_dbc": 0.9299614512870633
+      "thd_rms_dbc": 0.40350760404358665,
+      "thd_worst_dbc": 0.833551554606764,
+      "h2_rms_dbc": 0.4008730637055612,
+      "h2_worst_dbc": 0.833551554606764
     },
     "dark_2000": {
       "n": 14,
-      "thd_rms_dbc": 0.4591709925258499,
-      "thd_worst_dbc": 1.0212339676769204,
-      "h2_rms_dbc": 0.4465529393929205,
-      "h2_worst_dbc": 1.0212339676769204
+      "thd_rms_dbc": 0.44118048262792076,
+      "thd_worst_dbc": 0.8962852482570156,
+      "h2_rms_dbc": 0.4312859675159602,
+      "h2_worst_dbc": 0.8962852482570156
     },
     "dark_2500": {
       "n": 14,
-      "thd_rms_dbc": 0.4888082478559952,
-      "thd_worst_dbc": 1.0704138915691743,
-      "h2_rms_dbc": 0.4740722515240659,
-      "h2_worst_dbc": 1.0704138915691743
+      "thd_rms_dbc": 0.46623995667647083,
+      "thd_worst_dbc": 0.918615097635481,
+      "h2_rms_dbc": 0.4546301567850018,
+      "h2_worst_dbc": 0.918615097635481
     },
     "dark_3150": {
       "n": 14,
-      "thd_rms_dbc": 0.5084054637782377,
-      "thd_worst_dbc": 1.1118644048040807,
-      "h2_rms_dbc": 0.49537401534228126,
-      "h2_worst_dbc": 1.1118644048040807
+      "thd_rms_dbc": 0.4856399573998943,
+      "thd_worst_dbc": 0.9430027986968952,
+      "h2_rms_dbc": 0.47578969109179503,
+      "h2_worst_dbc": 0.943002798696881
     },
     "dark_5000": {
       "n": 10,
-      "thd_rms_dbc": 0.5040823659923112,
-      "thd_worst_dbc": 1.0458300475207665,
-      "h2_rms_dbc": 0.5040823659923112,
-      "h2_worst_dbc": 1.0458300475207665
+      "thd_rms_dbc": 0.5083926970634123,
+      "thd_worst_dbc": 0.8819271580056096,
+      "h2_rms_dbc": 0.5083926970634097,
+      "h2_worst_dbc": 0.8819271580056025
     },
     "dark_8000": {
       "n": 8,
-      "thd_rms_dbc": 0.5087237726055621,
-      "thd_worst_dbc": 0.9187696710476843,
-      "h2_rms_dbc": 0.5087237726055611,
-      "h2_worst_dbc": 0.9187696710476843
+      "thd_rms_dbc": 0.5866058399104087,
+      "thd_worst_dbc": 1.0328873499662379,
+      "h2_rms_dbc": 0.5866058399104083,
+      "h2_worst_dbc": 1.0328873499662308
     }
   },
   "floor_bright_vs_dark_below_shelf": [
-    0.010178706756413192,
-    0.0014711789223724736,
-    0.010099387020900963,
-    0.0002792329783716241,
-    0.010177126007917536,
-    0.007394913896803246,
-    0.012105692279888558,
-    0.02192374851616563,
-    0.043618423828100106,
-    0.06837355386159061,
-    0.16416195320436344,
-    0.19189884784422873,
-    0.43666365130459894,
-    0.4941093576939082,
-    1.088947719496801,
-    1.200328408933082,
-    2.499975536929597,
-    2.7092694560094657,
-    5.0544253229850895,
-    5.4624691416427495,
-    6.823280912877166,
-    7.4058126382679745,
-    0.0428290745611406,
-    0.04513406546038112,
-    0.06239602857090176,
-    0.017406270453840023,
-    0.09874041650898846,
-    0.01150799701288463,
-    0.17846706653962485,
-    0.0626600290544772,
-    0.23213156868267504,
-    0.10641034797075122,
-    0.3308101947776123,
-    0.23915578651178038,
-    0.6424593336997404,
-    0.5460579007890658,
-    1.3261023920101849,
-    1.2673890154369332,
-    2.7946720007888715,
-    2.76759666724881,
-    5.426488055336172,
-    5.563146991701927,
-    7.238614457401447,
-    7.53941373797106,
-    0.02524959424596318,
-    0.021734159933558317,
-    0.0399113750512754,
-    0.02951856494922822,
-    0.0330236766222356,
-    0.02817648494101377,
-    0.06260533977373228,
-    0.04761851740926204,
-    0.10453522213381916,
-    0.11703710298066738,
-    0.258753508433486,
-    0.2359836159834785,
-    0.5381904197054439,
-    0.5291563070350804,
-    1.2411597107769126,
-    1.2516726425881401,
-    2.6866264449866293,
-    2.7550575088328983,
-    0.3205666900219484,
-    0.0208600031764945,
-    0.17673608308010103,
-    0.06370133832863445,
-    0.2630667463282208,
-    0.04454585012704371,
-    0.28746368210566686,
-    0.05139053351594214,
-    0.2304100368220503,
-    0.0010611895727095089,
-    0.09493481427878692,
-    0.13445517496225534,
-    0.23352318046400455,
-    0.4607498256670155,
-    0.8873693403255629,
-    1.0682272347468285,
-    2.2422549735425577,
-    2.6585574031146493,
-    4.815469828020468,
-    5.450164506275108,
-    6.6458384619575455,
-    7.432984235984648,
-    0.11163222231409975,
-    0.002746006339663154,
-    0.13535346949282712,
-    0.026846553291932196,
-    0.0026567737209290954,
-    0.0009909523000004583,
-    0.02793742912379571,
-    0.029460752812873636,
-    0.07941554606711065,
-    0.07734830955129013,
-    0.2190807294823074,
-    0.22221605211492346,
-    0.5204262172607201,
-    0.5199375312562324,
-    1.180632708396061,
-    1.220466115586845,
-    2.6516607030177184,
-    2.7474842423925168,
-    5.304145975720807,
-    5.545981607856575,
-    7.071938975924986,
-    7.500497914350511,
-    0.001781206592994522,
-    0.000822403199812527,
-    0.004969117560968073,
-    0.0037073712801003467,
-    0.01314623618043953,
-    0.011812262898587278,
-    0.0353862158662821,
-    0.03289965519980598,
-    0.09214338941217903,
-    0.08353736038988302,
-    0.20396885539705778,
-    0.2104520099643139,
-    0.49407785746494426,
-    0.5161233996740933,
-    1.1671276878008925,
-    1.2268359696264497,
-    2.6007457487719634,
-    2.742805154752304,
-    5.198329089546618,
-    5.539476526574454,
-    6.983891606264052,
-    7.5076415360162585
-  ]
+    {
+      "band_hz": 20.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.010178706756406086,
+      "predicted_mode_diff_db": 0.0009765518187929659,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 20.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.0014711789223653682,
+      "predicted_mode_diff_db": 0.0009765518187929659,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 31.5,
+      "level_dbfs": -6.0,
+      "spread_db": 0.010099387020886752,
+      "predicted_mode_diff_db": 0.002422247757282161,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 31.5,
+      "level_dbfs": -1.0,
+      "spread_db": 0.00027923297836451866,
+      "predicted_mode_diff_db": 0.002422247757282161,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 50.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.010177126007917536,
+      "predicted_mode_diff_db": 0.006101563517114942,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 50.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.007394913896803246,
+      "predicted_mode_diff_db": 0.006101563517114942,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 80.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.012105692279888558,
+      "predicted_mode_diff_db": 0.015611049415710137,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 80.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.021923748516172736,
+      "predicted_mode_diff_db": 0.015611049415710137,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 125.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.043618423828100106,
+      "predicted_mode_diff_db": 0.03806133992730414,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 125.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.06837355386159061,
+      "predicted_mode_diff_db": 0.03806133992730414,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 200.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.16416195320436344,
+      "predicted_mode_diff_db": 0.09709040312817324,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 200.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.19189884784423583,
+      "predicted_mode_diff_db": 0.09709040312817324,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 315.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.43666365130459894,
+      "predicted_mode_diff_db": 0.23878843577698067,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 315.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.4941093576939153,
+      "predicted_mode_diff_db": 0.23878843577698067,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 500.0,
+      "level_dbfs": -6.0,
+      "spread_db": 1.088947719496801,
+      "predicted_mode_diff_db": 0.5889461368728024,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 500.0,
+      "level_dbfs": -1.0,
+      "spread_db": 1.2003284089330748,
+      "predicted_mode_diff_db": 0.5889461368728024,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 800.0,
+      "level_dbfs": -6.0,
+      "spread_db": 2.499975536929611,
+      "predicted_mode_diff_db": 1.4312986095755906,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 800.0,
+      "level_dbfs": -1.0,
+      "spread_db": 2.7092694560094657,
+      "predicted_mode_diff_db": 1.4312986095755906,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1250.0,
+      "level_dbfs": -6.0,
+      "spread_db": 5.054425322985097,
+      "predicted_mode_diff_db": 3.1352582792672026,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1250.0,
+      "level_dbfs": -1.0,
+      "spread_db": 5.4624691416427495,
+      "predicted_mode_diff_db": 3.1352582792672026,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1600.0,
+      "level_dbfs": -6.0,
+      "spread_db": 6.823280912877166,
+      "predicted_mode_diff_db": 4.647701176874828,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1600.0,
+      "level_dbfs": -1.0,
+      "spread_db": 7.4058126382679745,
+      "predicted_mode_diff_db": 4.647701176874828,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 20.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.042829074561147706,
+      "predicted_mode_diff_db": 0.0009765518187929659,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 20.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.04513406546037402,
+      "predicted_mode_diff_db": 0.0009765518187929659,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 31.5,
+      "level_dbfs": -6.0,
+      "spread_db": 0.06239602857090176,
+      "predicted_mode_diff_db": 0.002422247757282161,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 31.5,
+      "level_dbfs": -1.0,
+      "spread_db": 0.017406270453847128,
+      "predicted_mode_diff_db": 0.002422247757282161,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 50.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.09874041650898846,
+      "predicted_mode_diff_db": 0.006101563517114942,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 50.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.01150799701288463,
+      "predicted_mode_diff_db": 0.006101563517114942,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 80.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.17846706653961775,
+      "predicted_mode_diff_db": 0.015611049415710137,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 80.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.0626600290544772,
+      "predicted_mode_diff_db": 0.015611049415710137,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 125.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.23213156868268214,
+      "predicted_mode_diff_db": 0.03806133992730414,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 125.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.10641034797074411,
+      "predicted_mode_diff_db": 0.03806133992730414,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 200.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.3308101947775981,
+      "predicted_mode_diff_db": 0.09709040312817324,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 200.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.23915578651178038,
+      "predicted_mode_diff_db": 0.09709040312817324,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 315.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.6424593336997475,
+      "predicted_mode_diff_db": 0.23878843577698067,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 315.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.5460579007890658,
+      "predicted_mode_diff_db": 0.23878843577698067,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 500.0,
+      "level_dbfs": -6.0,
+      "spread_db": 1.3261023920101707,
+      "predicted_mode_diff_db": 0.5889461368728024,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 500.0,
+      "level_dbfs": -1.0,
+      "spread_db": 1.2673890154369332,
+      "predicted_mode_diff_db": 0.5889461368728024,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 800.0,
+      "level_dbfs": -6.0,
+      "spread_db": 2.7946720007888715,
+      "predicted_mode_diff_db": 1.4312986095755906,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 800.0,
+      "level_dbfs": -1.0,
+      "spread_db": 2.76759666724881,
+      "predicted_mode_diff_db": 1.4312986095755906,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1250.0,
+      "level_dbfs": -6.0,
+      "spread_db": 5.426488055336158,
+      "predicted_mode_diff_db": 3.1352582792672026,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1250.0,
+      "level_dbfs": -1.0,
+      "spread_db": 5.563146991701927,
+      "predicted_mode_diff_db": 3.1352582792672026,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1600.0,
+      "level_dbfs": -6.0,
+      "spread_db": 7.238614457401447,
+      "predicted_mode_diff_db": 4.647701176874828,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1600.0,
+      "level_dbfs": -1.0,
+      "spread_db": 7.53941373797106,
+      "predicted_mode_diff_db": 4.647701176874828,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 20.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.02524959424596318,
+      "predicted_mode_diff_db": 0.0009765518187929659,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 20.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.02173415993355121,
+      "predicted_mode_diff_db": 0.0009765518187929659,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 31.5,
+      "level_dbfs": -6.0,
+      "spread_db": 0.0399113750512754,
+      "predicted_mode_diff_db": 0.002422247757282161,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 31.5,
+      "level_dbfs": -1.0,
+      "spread_db": 0.029518564949221116,
+      "predicted_mode_diff_db": 0.002422247757282161,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 50.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.03302367662222849,
+      "predicted_mode_diff_db": 0.006101563517114942,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 50.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.028176484941020874,
+      "predicted_mode_diff_db": 0.006101563517114942,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 80.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.06260533977373228,
+      "predicted_mode_diff_db": 0.015611049415710137,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 80.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.04761851740926204,
+      "predicted_mode_diff_db": 0.015611049415710137,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 125.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.10453522213381916,
+      "predicted_mode_diff_db": 0.03806133992730414,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 125.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.11703710298067449,
+      "predicted_mode_diff_db": 0.03806133992730414,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 200.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.2587535084334789,
+      "predicted_mode_diff_db": 0.09709040312817324,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 200.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.2359836159834643,
+      "predicted_mode_diff_db": 0.09709040312817324,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 315.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.5381904197054439,
+      "predicted_mode_diff_db": 0.23878843577698067,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 315.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.5291563070350804,
+      "predicted_mode_diff_db": 0.23878843577698067,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 500.0,
+      "level_dbfs": -6.0,
+      "spread_db": 1.2411597107769126,
+      "predicted_mode_diff_db": 0.5889461368728024,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 500.0,
+      "level_dbfs": -1.0,
+      "spread_db": 1.251672642588133,
+      "predicted_mode_diff_db": 0.5889461368728024,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 800.0,
+      "level_dbfs": -6.0,
+      "spread_db": 2.6866264449866435,
+      "predicted_mode_diff_db": 1.4312986095755906,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 800.0,
+      "level_dbfs": -1.0,
+      "spread_db": 2.7550575088328912,
+      "predicted_mode_diff_db": 1.4312986095755906,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 20.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.3205666900219484,
+      "predicted_mode_diff_db": 0.0009765518187929659,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 20.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.0208600031764945,
+      "predicted_mode_diff_db": 0.0009765518187929659,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 31.5,
+      "level_dbfs": -6.0,
+      "spread_db": 0.17673608308010103,
+      "predicted_mode_diff_db": 0.002422247757282161,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 31.5,
+      "level_dbfs": -1.0,
+      "spread_db": 0.06370133832865577,
+      "predicted_mode_diff_db": 0.002422247757282161,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 50.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.2630667463282208,
+      "predicted_mode_diff_db": 0.006101563517114942,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 50.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.04454585012706502,
+      "predicted_mode_diff_db": 0.006101563517114942,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 80.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.28746368210566686,
+      "predicted_mode_diff_db": 0.015611049415710137,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 80.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.05139053351594214,
+      "predicted_mode_diff_db": 0.015611049415710137,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 125.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.2304100368220503,
+      "predicted_mode_diff_db": 0.03806133992730414,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 125.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.0010611895727166143,
+      "predicted_mode_diff_db": 0.03806133992730414,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 200.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.0949348142787727,
+      "predicted_mode_diff_db": 0.09709040312817324,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 200.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.13445517496226955,
+      "predicted_mode_diff_db": 0.09709040312817324,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 315.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.23352318046400455,
+      "predicted_mode_diff_db": 0.23878843577698067,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 315.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.4607498256670155,
+      "predicted_mode_diff_db": 0.23878843577698067,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 500.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.8873693403255629,
+      "predicted_mode_diff_db": 0.5889461368728024,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 500.0,
+      "level_dbfs": -1.0,
+      "spread_db": 1.0682272347468285,
+      "predicted_mode_diff_db": 0.5889461368728024,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 800.0,
+      "level_dbfs": -6.0,
+      "spread_db": 2.2422549735425577,
+      "predicted_mode_diff_db": 1.4312986095755906,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 800.0,
+      "level_dbfs": -1.0,
+      "spread_db": 2.6585574031146564,
+      "predicted_mode_diff_db": 1.4312986095755906,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1250.0,
+      "level_dbfs": -6.0,
+      "spread_db": 4.815469828020468,
+      "predicted_mode_diff_db": 3.1352582792672026,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1250.0,
+      "level_dbfs": -1.0,
+      "spread_db": 5.450164506275108,
+      "predicted_mode_diff_db": 3.1352582792672026,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1600.0,
+      "level_dbfs": -6.0,
+      "spread_db": 6.6458384619575455,
+      "predicted_mode_diff_db": 4.647701176874828,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1600.0,
+      "level_dbfs": -1.0,
+      "spread_db": 7.432984235984648,
+      "predicted_mode_diff_db": 4.647701176874828,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 20.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.11163222231409975,
+      "predicted_mode_diff_db": 0.0009765518187929659,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 20.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.002746006339648943,
+      "predicted_mode_diff_db": 0.0009765518187929659,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 31.5,
+      "level_dbfs": -6.0,
+      "spread_db": 0.13535346949283422,
+      "predicted_mode_diff_db": 0.002422247757282161,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 31.5,
+      "level_dbfs": -1.0,
+      "spread_db": 0.026846553291932196,
+      "predicted_mode_diff_db": 0.002422247757282161,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 50.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.0026567737209290954,
+      "predicted_mode_diff_db": 0.006101563517114942,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 50.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.0009909522999862475,
+      "predicted_mode_diff_db": 0.006101563517114942,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 80.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.02793742912379571,
+      "predicted_mode_diff_db": 0.015611049415710137,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 80.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.02946075281286653,
+      "predicted_mode_diff_db": 0.015611049415710137,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 125.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.07941554606711065,
+      "predicted_mode_diff_db": 0.03806133992730414,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 125.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.07734830955128302,
+      "predicted_mode_diff_db": 0.03806133992730414,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 200.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.2190807294823074,
+      "predicted_mode_diff_db": 0.09709040312817324,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 200.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.22221605211493056,
+      "predicted_mode_diff_db": 0.09709040312817324,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 315.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.5204262172607272,
+      "predicted_mode_diff_db": 0.23878843577698067,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 315.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.5199375312562466,
+      "predicted_mode_diff_db": 0.23878843577698067,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 500.0,
+      "level_dbfs": -6.0,
+      "spread_db": 1.180632708396061,
+      "predicted_mode_diff_db": 0.5889461368728024,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 500.0,
+      "level_dbfs": -1.0,
+      "spread_db": 1.220466115586845,
+      "predicted_mode_diff_db": 0.5889461368728024,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 800.0,
+      "level_dbfs": -6.0,
+      "spread_db": 2.6516607030177255,
+      "predicted_mode_diff_db": 1.4312986095755906,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 800.0,
+      "level_dbfs": -1.0,
+      "spread_db": 2.747484242392524,
+      "predicted_mode_diff_db": 1.4312986095755906,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1250.0,
+      "level_dbfs": -6.0,
+      "spread_db": 5.3041459757208,
+      "predicted_mode_diff_db": 3.1352582792672026,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1250.0,
+      "level_dbfs": -1.0,
+      "spread_db": 5.545981607856568,
+      "predicted_mode_diff_db": 3.1352582792672026,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1600.0,
+      "level_dbfs": -6.0,
+      "spread_db": 7.071938975924986,
+      "predicted_mode_diff_db": 4.647701176874828,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1600.0,
+      "level_dbfs": -1.0,
+      "spread_db": 7.500497914350504,
+      "predicted_mode_diff_db": 4.647701176874828,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 20.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.0017812065929874166,
+      "predicted_mode_diff_db": 0.0009765518187929659,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 20.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.000822403199812527,
+      "predicted_mode_diff_db": 0.0009765518187929659,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 31.5,
+      "level_dbfs": -6.0,
+      "spread_db": 0.004969117560975178,
+      "predicted_mode_diff_db": 0.002422247757282161,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 31.5,
+      "level_dbfs": -1.0,
+      "spread_db": 0.0037073712801003467,
+      "predicted_mode_diff_db": 0.002422247757282161,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 50.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.013146236180432425,
+      "predicted_mode_diff_db": 0.006101563517114942,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 50.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.011812262898587278,
+      "predicted_mode_diff_db": 0.006101563517114942,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 80.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.0353862158662821,
+      "predicted_mode_diff_db": 0.015611049415710137,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 80.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.03289965519981308,
+      "predicted_mode_diff_db": 0.015611049415710137,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 125.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.09214338941217193,
+      "predicted_mode_diff_db": 0.03806133992730414,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 125.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.08353736038988302,
+      "predicted_mode_diff_db": 0.03806133992730414,
+      "probe_valid": true
+    },
+    {
+      "band_hz": 200.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.20396885539706489,
+      "predicted_mode_diff_db": 0.09709040312817324,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 200.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.2104520099643139,
+      "predicted_mode_diff_db": 0.09709040312817324,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 315.0,
+      "level_dbfs": -6.0,
+      "spread_db": 0.49407785746493715,
+      "predicted_mode_diff_db": 0.23878843577698067,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 315.0,
+      "level_dbfs": -1.0,
+      "spread_db": 0.5161233996740933,
+      "predicted_mode_diff_db": 0.23878843577698067,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 500.0,
+      "level_dbfs": -6.0,
+      "spread_db": 1.1671276878008925,
+      "predicted_mode_diff_db": 0.5889461368728024,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 500.0,
+      "level_dbfs": -1.0,
+      "spread_db": 1.2268359696264426,
+      "predicted_mode_diff_db": 0.5889461368728024,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 800.0,
+      "level_dbfs": -6.0,
+      "spread_db": 2.6007457487719634,
+      "predicted_mode_diff_db": 1.4312986095755906,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 800.0,
+      "level_dbfs": -1.0,
+      "spread_db": 2.7428051547523182,
+      "predicted_mode_diff_db": 1.4312986095755906,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1250.0,
+      "level_dbfs": -6.0,
+      "spread_db": 5.198329089546618,
+      "predicted_mode_diff_db": 3.1352582792672026,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1250.0,
+      "level_dbfs": -1.0,
+      "spread_db": 5.539476526574454,
+      "predicted_mode_diff_db": 3.1352582792672026,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1600.0,
+      "level_dbfs": -6.0,
+      "spread_db": 6.983891606264045,
+      "predicted_mode_diff_db": 4.647701176874828,
+      "probe_valid": false
+    },
+    {
+      "band_hz": 1600.0,
+      "level_dbfs": -1.0,
+      "spread_db": 7.507641536016266,
+      "predicted_mode_diff_db": 4.647701176874828,
+      "probe_valid": false
+    }
+  ],
+  "cells": []
 }

@@ -107,6 +107,22 @@ def main():
                          "-16 dBFS is the loudest sweep that is still LINEAR for every "
                          "capture in the matrix -- sweep_-6 puts 2.013 V on the gate of "
                          "a pad-0 capture, past the 1.94 V cutoff onset.")
+    ap.add_argument("--gm", type=float, default=None,
+                    help="render at this transconductance (S) instead of the shipped one. ⭐ THIS "
+                         "IS A MEASUREMENT FLAG, NOT A TUNING ONE. It exists to test ONE recorded "
+                         "claim: circuit.md note #30 says BRIGHT's 6.5-10 kHz FR miss and its two "
+                         "phase misses are the voicing decision (P4's JFET is ~25 %% weaker, K0 "
+                         "5.06-5.19 against the shipped 6.59) rather than model defects -- and it "
+                         "flags that the FR/phase halves of that claim were EXPECTED, never "
+                         "measured, because this script had no way to move gm. Pass P4's measured "
+                         "1146e-6 to check it. ⛔ A pass at P4's gm is NOT a reason to move the "
+                         "shipped constant: note #28 records the voicing decision and its price as "
+                         "closed. ⚠ Setting gm rebuilds the mode shelf (the discrete source "
+                         "one-port is derived from the shelf coefficients -- note #12), which is "
+                         "exactly why it can move BRIGHT at all. ⚠ It does NOT re-anchor "
+                         "kOutputMakeup, which was fitted at the shipped gm and is coupled to it "
+                         "(note #23), so the absolute-level section is expected to shift by the "
+                         "DARK gain difference and is reported but not meaningful under --gm.")
     args = ap.parse_args()
     unit = args.unit
     SWEEP = args.sweep
@@ -162,18 +178,27 @@ def main():
     # one level further in. With --bin overridden we render uncached, as before.
     _cacheable = os.path.abspath(args.bin) == os.path.abspath(C.RENDER_BIN)
 
+    # Measurement flags appended to every render. Empty in the normal acceptance-gate case, so the
+    # default path and its cache keys are untouched.
+    _extra = ["--gm", f"{args.gm}"] if args.gm is not None else []
+
     def render_for(parsed, name):
         if _cacheable:
-            return P.render(parsed, name, args.os)
+            return P.render(parsed, name, args.os, extra=_extra)
         out = os.path.join(tmp, name + ".wav")
         if not os.path.exists(out):
-            subprocess.run([args.bin, A.ORIG, out, "--os", str(args.os)] + C.render_args(parsed),
+            subprocess.run([args.bin, A.ORIG, out, "--os", str(args.os)]
+                           + C.render_args(parsed, extra_args=_extra),
                            check=True, capture_output=True)
         return out
 
     _rendered = {}
 
     print(f"Goal check | OS {args.os}x | kInputRef {C.plugin_vfs()} V/FS (read from the header)")
+    if args.gm is not None:
+        print(f"⚠ gm OVERRIDDEN to {args.gm} S -- this is NOT the shipped model. The shipped "
+              f"voicing is gm = 1.5531069e-3 (circuit.md note #28); the absolute-level section is "
+              f"not meaningful here (kOutputMakeup is coupled to gm).")
     print(f"Anchor: {unit.upper()}"
           + ("  (owner's own unit; rig deconvolved, interface load undone, matched drive)"
              if unit == "p4" else "  (NAM model -- historic comparison only)") + "\n")

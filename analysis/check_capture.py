@@ -117,8 +117,15 @@ def main():
         self_thd[seg] = (float(np.nanmedian(t0[np.isfinite(t0)])), float(np.nanmedian(t1[s])))
     print(f"   estimator's own floor (reference vs itself): "
           f"{max(v[0] for v in self_thd.values()):.4f} %  <- must be 0.0000")
+    # ⚠⚠ THE CLEARANCE COLUMN IS ONLY MEANINGFUL ON A REFERENCE CAPTURE, and printing it on an
+    # active one reads BAD exactly when the pedal AGREES with the model. It is a HEADROOM check:
+    # "is this chain's own distortion far enough below the pedal's, for the pedal's to be
+    # measurable?" That question needs the chain measured with no pedal in it. On an active capture
+    # the measured H2 IS the pedal's, so `expected - measured` is ~0 by construction for a correct
+    # model, and the column would flag a good capture of a well-modelled pedal as unusable.
     print(f"   {'segment':13s} {'fund':>8s} {'THD':>8s} {'noise-only':>11s} | "
-          + " ".join(f"{'H%d dBc' % k:>8s}" for k in (2, 3)) + " | H2 clearance")
+          + " ".join(f"{'H%d dBc' % k:>8s}" for k in (2, 3))
+          + (" | H2 clearance" if is_ref else " | (clearance: N/A on an active capture)"))
     for db, seg in segs.items():
         x = A.seg_of(cap, seg, settled=False)
         fr, thd, Hn = A.harmonic_thd_curve(x, A.seg_of(orig, seg, settled=False))
@@ -126,15 +133,24 @@ def main():
         H1 = np.nanmedian(Hn[1][s])
         dbc = {k: 20 * np.log10(np.nanmedian(Hn[k][s]) / H1) for k in (2, 3) if k in Hn}
         f0 = 20 * np.log10(np.max(np.abs(x)))
-        exp = PEDAL_H2_DBC[-6] if db >= -10 else PEDAL_H2_DBC[-12]
-        clear = exp - dbc.get(2, np.nan)
-        flag = OK if clear > 12 else (WARN if clear > 6 else BAD)
-        print(f"   {seg:13s} {f0:7.1f}  {np.nanmedian(thd[s]):7.4f}% "
-              f"{self_thd[seg][1]:10.4f}% | "
-              + " ".join(f"{dbc.get(k, np.nan):8.1f}" for k in (2, 3))
-              + f" |{flag}{clear:+.0f} dB")
-    print("   ^ clearance = the pedal's expected H2 minus this chain's. Under ~6 dB the cell")
-    print("     cannot measure harmonics; it is still fine for frequency response.")
+        row = (f"   {seg:13s} {f0:7.1f}  {np.nanmedian(thd[s]):7.4f}% "
+               f"{self_thd[seg][1]:10.4f}% | "
+               + " ".join(f"{dbc.get(k, np.nan):8.1f}" for k in (2, 3)))
+        if is_ref:
+            exp = PEDAL_H2_DBC[-6] if db >= -10 else PEDAL_H2_DBC[-12]
+            clear = exp - dbc.get(2, np.nan)
+            flag = OK if clear > 12 else (WARN if clear > 6 else BAD)
+            row += f" |{flag}{clear:+.0f} dB"
+        print(row)
+    if is_ref:
+        print("   ^ clearance = the pedal's expected H2 minus this chain's. Under ~6 dB the cell")
+        print("     cannot measure harmonics; it is still fine for frequency response.")
+    else:
+        print("   ^ the H2/H3 dBc figures above are THE PEDAL'S OWN distortion and are the useful")
+        print("     numbers here. No clearance column: see the comment above -- on an active")
+        print("     capture it would compare the pedal against itself and flag agreement as BAD.")
+        print("     For a per-order plugin-vs-pedal comparison use probe_compare.py or")
+        print("     thd_band_audit_p4.py, which apply the rig correction per harmonic order.")
 
     # --- 5. calibration ----------------------------------------------------------------------
     print("\n5. CALIBRATION")

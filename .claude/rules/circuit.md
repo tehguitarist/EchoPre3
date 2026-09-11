@@ -2684,3 +2684,124 @@ first, and does not.
 hard-clipping regions generate high orders disproportionately. ➡ **H4/H5 in the clean region:
 probably fine. In the load-line region — the top ~7 dB of a hot take at a high VOLUME setting —
 genuinely unknown.**
+
+### 32. ⭐⭐ The band edges below 200 Hz (2026-09-11) — there was never an LF defect, and note #30a
+### diagnosed the floor's spread as the wrong KIND of problem
+
+Instruments: `analysis/goal_check.py --gm` (new flag), `analysis/thd_band_audit_p4.py` (validity
+condition, per-cell dump, corrected gate). Write-up `docs/build-plan.md` §21. **No DSP constant
+changed, and none should.** This closes build-plan §19 items 4 and 5a.
+
+#### ⛔⭐⭐ (a) The known-answer probe was being read outside its own validity region
+
+This file's most-reused instrument is the BRIGHT-vs-DARK probe: below the shelf zero both modes see
+`Zs = R5`, so their H2 in dBc must read identical, and whatever they read instead is the dataset's
+own error. It was being evaluated over **every band below the shelf zero (1800 Hz)**, which is the
+wrong condition — the premise needs the bypass cap effectively OUT of circuit, `|1/jωC| >> R5`. At
+the zero itself the two are equal; at 800 Hz the cap is still only 2.5× R5.
+
+The contamination is computable from shipped constants with no free parameters,
+`40·log10(k_dark/k_bright)` with `k = 1 + gm·Zs` (H2/H1 goes as `1/k²` at matched gate drive —
+note #8's "suppressed twice"):
+
+| Hz | 20 | 50 | 125 | 200 | 315 | 500 | 800 | 1250 | 1600 |
+|---|---|---|---|---|---|---|---|---|---|
+| **predicted** (circuit) | 0.00 | 0.01 | 0.03 | 0.08 | 0.24 | 0.59 | 1.43 | 3.14 | 4.65 |
+| **measured "floor"** | 0.02 | 0.01 | 0.09 | 0.21 | 0.52 | 1.21 | 2.70 | 5.44 | 7.32 |
+
+⭐⭐ **A measurement floor does not track a circuit prediction across a 4-decade span.** Every band
+from ~200 Hz up was reporting the mode shelf as though it were error. Restricted to where the
+premise holds (≤125 Hz), the floor is **0.034 dB median / 0.177 p90 / 0.32 worst**.
+
+⚠⚠ **THAT CORRECTS NOTE #30a, WHICH WAS RIGHT BY ACCIDENT.** #30a read the same distribution as
+heavy-tailed (median 0.23, RMS 2.67, p90 5.49) and prescribed quoting the MEDIAN rather than the
+RMS. The median is indeed the better statistic — but the spread is **not a tail, it is a monotone
+frequency TREND**, so no choice of robust statistic fixes it: a robust statistic over a mixture of
+valid and invalid cells still reports the invalid ones, just more quietly. ➡ **Before choosing a
+statistic to tame a spread, check whether the spread is a distribution at all.** A two-population
+mixture and a heavy tail look identical in a summary and want opposite fixes — restrict the
+measurement versus change the estimator.
+📌 Consequence: the dataset resolves **~0.03 dB**, not ~0.25, so the 0.42 dB (5 %) per-band THD
+target is comfortably measurable and note #30a's stated worry about it is withdrawn.
+⚠ The prediction under-reads the measurement by a consistent ~2× (it is a small-signal expansion
+evaluated on hot cells). That is fine for its one job — deciding where the probe stops being a
+floor — and makes the cut conservative. ⛔ Do NOT repurpose it as a correction to subtract off.
+
+#### ⚠⚠ (b) An H3 inversion disqualifies H2 as well — one cell carried a whole band's worst case
+
+`dark LF<200` was the worst group in the per-band THD audit (2.15 dB RMS / **6.34 worst**) and the
+one group that did not collapse when the voicing offset was removed. A per-cell dump puts **all of
+it in one capture at one level cell**: `p4_V0900_dark`'s `tone_20_-1`, decaying with frequency
+(+6.70 / +4.80 / +2.45 / +0.87 / +0.37 dB at 20 / 31.5 / 50 / 80 / 125 Hz) against ≤0.83 dB for
+every other cell in the band. It is the deepest-clipping cell in the whole dataset — pad 0 at
+−1 dBFS is **3.58 V at the gate, 5.3 dB past the 1.942 V cutoff onset** — and note #27 §4's
+anti-correlation (VOLUME sets both the load line and the recorded level) is why nothing else is
+near it.
+
+**Two known-answer arguments say the CELL is corrupted and the MODEL is right there:**
+1. The output high-pass (48.8 Hz at this knob setting, measured — note #21) is passive and sits
+   AFTER the JFET, so it attenuates `f` more than `2f` and must **LIFT** H2 in dBc at 20 Hz by
+   ~4.0 dB whatever the transistor does. The plugin tracks that to 0.5 dB (+3.50 measured against
+   +4.01 predicted, re 125 Hz); the capture **FALLS** 2.9 dB. No transistor model can produce the
+   capture's sign.
+2. In DARK, `Zs = R5` at every frequency, so `k` is frequency-independent and the harmonic
+   **ORDERING** cannot change with frequency. The capture is H2-dominant at 125 Hz and H3-dominant
+   at 20 Hz — H3 sitting **8.2 dB above H2** — at the same drive. The circuit forbids it.
+
+⚠⚠ **The gate detected the inversion and kept the cell anyway.** The order-inversion test truncated
+the series above H3 and then reported that cell's H2 as a valid +6.70 dB model error. Truncating
+assumes the contaminant lives only in the orders ABOVE the inversion — but `H3 >= H2` means the
+contaminant is at least as large as H2 itself, so **H2 is inside it, not above it**. The gate now
+drops H2 too when the inversion is at H3 specifically; an inversion at H4 or above remains a plain
+truncation, which is the case the test was written for.
+⛔ **Both tests are CAPTURE-INTERNAL, and that is the whole safety argument.** They compare a
+capture against itself (H3 vs H2 in one cell; one capture's H2 at two frequencies) or against a
+topology constant measured independently of the transistor. **A gate that dropped cells for
+disagreeing with the model would be circular and must never be added.**
+
+#### ✅ (c) Where the sub-200 Hz band now stands
+
+Read at P4's own `gm` so the voicing offset is not sitting in the middle of it:
+
+| axis, below 200 Hz | result |
+|---|---|
+| FR | ✅ every DARK capture passes; no band over ±1.0 dB anywhere; 20 Hz −0.26 to +0.29 dB |
+| phase | ✅ DARK worst **2.74°** over 40 Hz–16 kHz; the 23 Hz cells read −3.3° |
+| THD / H2 | ✅ **0.48 dB RMS** (core 0.41); **0.42 RMS / 0.83 worst** excluding the deep-clip capture |
+| compression | ✅ median **−0.117 dB**, RMS 0.181 — *better* than the core band's 0.206 |
+| absolute level | ✅ all 15 captures pass ±0.5 dB |
+
+⭐⭐ **At the SHIPPED `gm` the LF residual is 2.00 dB RMS and FLAT with frequency** — 2.37 / 2.19 /
+2.05 / 2.06 / 2.10 dB at 20 / 31.5 / 50 / 80 / 125 Hz, continuing 2.10–2.48 dB across the core to
+8 kHz. **A residual constant across three decades is not a band-edge defect; it is note #28's
+voicing offset.** ➡ **There is no frequency-dependent LF distortion mechanism missing from the
+model**, which extends note #13's finding (valid only from 125 Hz up, on NAM captures whose
+sub-100 Hz data was unusable) down to 20 Hz on a raw capture.
+📌 Note #18's 6.8–8.0° phase miss at 200–500 Hz was against **P1, a NAM model**; anchored to P4 the
+same band passes with ~2× margin. The confounded LF pole of notes #19/#19a/#20/#20a is moot — note
+#21 measured the rig as having no LF pole at all and C10 as drawn.
+
+#### ⭐ (d) `goal_check.py --gm` — and note #30's FR/phase halves are measured now, not expected
+
+Note #30 recorded that BRIGHT's 6.5–10 kHz FR miss and its two phase misses at 12:00/13:30 share a
+single cause with the per-band THD offset, and flagged that the FR/phase halves were **expected
+rather than measured** because `goal_check.py` could not move `gm`. Measured:
+
+| BRIGHT vs P4 | shipped `gm` | at P4's own `gm` = 1146 µS |
+|---|---|---|
+| FR core worst, 80 Hz–12 kHz | 1.10–1.57 dB | **0.27–0.59 dB** |
+| core bands over the ±0.5 dB target | 4–5 per capture | **0–1** |
+| phase worst, 40 Hz–16 kHz | **6.14° / 5.95°** (12:00 / 13:30) | **3.60° / 3.43° — both PASS** |
+| phase worst, 200 Hz–12 kHz | 4.05° | **1.67°** |
+
+⭐ **The flag validates itself three ways, which is what makes the result evidence rather than a
+favourable render.** (a) DARK's FR and phase come back **byte-identical** — `gm` only moves the mode
+shelf, so anything else moving would mean the flag did more than it claims. (b) DARK's *level*
+shifts **+0.456 dB**, against note #28's independently-derived "P4's weaker JFET makes it ~0.46 dB
+quieter", a prediction already on record. (c) The known-answer floor does not move, as it must not,
+since it never touches a render.
+⚠ **`--gm` is a MEASUREMENT flag. The absolute-level section is not meaningful under it** —
+`kOutputMakeup` was fitted at the shipped `gm` and note #23 records them as coupled, so DARK's mean
+moves +0.151 → +0.607 dB. The help text and the run banner both say so.
+⛔ **None of this is a reason to move `gm`.** Note #28 records that decision as closed with exactly
+this as its accepted price.

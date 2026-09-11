@@ -184,7 +184,7 @@ def fit_hf(f, cap_minus_plugin_db, band=(2000.0, 19000.0)):
 RENDER_CACHE = "/tmp/p4c"
 
 
-def render(parsed, tag, os_factor=8):
+def render(parsed, tag, os_factor=8, extra=None):
     """Render the plugin at this capture's settings. Positional in/out, per offline_render.cpp.
 
     ⚠⚠ THE CACHE IS KEYED ON THE RENDER ARGUMENTS, NOT ON `tag`, AND THAT IS NOT FUSSINESS.
@@ -192,14 +192,27 @@ def render(parsed, tag, os_factor=8):
     self-test -- where the capture and the comparison ARE the same render and the answer must be
     exactly 0.000 -- reported -1.382 dB. That reads as a real measurement, not as a cache fault.
     `tag` now only makes the filename legible; correctness comes from the hash.
+
+    `extra` appends measurement flags (--gm, --vov, --vp, --exponent). ⭐ It is cache-safe BY
+    CONSTRUCTION rather than by remembering to update a key: the key hashes the whole `args_tail`,
+    so any flag added here is in it automatically. That is the shape the two historic cache faults
+    (a key that was a display tag, then a key that omitted the binary) argue for -- hash the
+    command, not a summary of it.
     """
     os.makedirs(RENDER_CACHE, exist_ok=True)
-    args_tail = ["--os", str(os_factor)] + C.render_args(parsed)
+    args_tail = ["--os", str(os_factor)] + C.render_args(parsed, extra_args=extra)
     # The BINARY is part of the key too -- see captures.render_bin_key().
     key = hashlib.sha1(("|".join(args_tail) + "|" + C.render_bin_key()).encode()).hexdigest()[:10]
     out = f"{RENDER_CACHE}/{tag}_{key}.wav"
     if not os.path.exists(out):
-        subprocess.run([C.RENDER_BIN, A.ORIG, out] + args_tail, check=True, capture_output=True)
+        # ⚠⚠ RENDER TO A UNIQUE TEMP PATH AND os.replace() INTO PLACE. Writing straight to `out`
+        # means a second process sharing this key can open a half-written wav and read it as a
+        # SHORT render -- which every caller then reports as a measurement, because a truncated
+        # capture aligns and analyses without complaint. os.replace is atomic within a filesystem,
+        # so a concurrent reader sees either no file or a complete one, never a partial.
+        tmp_out = f"{out}.{os.getpid()}.tmp"
+        subprocess.run([C.RENDER_BIN, A.ORIG, tmp_out] + args_tail, check=True, capture_output=True)
+        os.replace(tmp_out, out)
     return out
 
 
