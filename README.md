@@ -11,6 +11,8 @@ common-source gain stage and a three-position source-bypass tone switch, both so
 sample as a [Wave Digital Filter](https://en.wikipedia.org/wiki/Wave_digital_filter) network
 rather than curve-fit.
 
+**[⬇ Download the latest release](https://github.com/tehguitarist/EchoPre3/releases/latest)**
+
 > Echo Pre 3 is an independent circuit emulation built from schematic analysis and is not
 > affiliated with or endorsed by Echoplex, Oberheim, or Chase Tone.
 
