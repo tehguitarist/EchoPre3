@@ -4,9 +4,53 @@
 
 using namespace juce;
 
-namespace
+namespace pedal::params
 {
 const StringArray kOsChoices { "1x", "2x", "4x", "8x" };
+
+// OUTPUT LOAD choices, in ohms, with "None" meaning effectively open.
+//
+// ⭐⭐ WHY A LOAD CONTROL EXISTS AT ALL: the pedal's output impedance is 59-102 kOhm (measured,
+// circuit.md note #22), so how much boost it delivers depends enormously on what it drives -- about
+// 10 dB end to end. Measured at VOLUME 1:30 in DARK:
+//
+//     load     boost    fall-back to 5 o'clock    what it represents
+//     68k     +2.7 dB        1.60 dB              a typical amp front end. Reproduces all four of
+//                                                 the maker's published control points and the
+//                                                 consensus of user reports  <- DEFAULT
+//     1M      +9.7 dB        3.60 dB              a modern amp or line input -- and what P4's
+//                                                 captures were taken into
+//     None   +10.5 dB        3.91 dB              the raw circuit, open-circuit
+//
+// ⚠⚠ "None" IS NOT DECORATIVE AND MUST NOT BE REMOVED TO TIDY THE LIST. The analysis harness pins
+// it (captures.render_args() emits --load none) because P4's captures were taken into the
+// interface's 1 MOhm and p4_corners.loading_correction_complex() already corrects that out of the
+// CAPTURE side. Rendering the plugin at "1M" instead is NOT close enough to skip it: 1 MOhm still
+// costs 0.50-0.84 dB of level depending on the knob, against a +/-0.5 dB FR target and a
+// kOutputMakeup anchored to an sd of 0.178 dB.
+//
+// ⚠ A grid stopper ALONE does not load anything: it sits in series with a near-infinite grid, so
+// the amp still presents ~1 MOhm and costs 0.8 dB. It is the SECOND stopper, grounded via the
+// unused jack's shorting switch on a classic two-jack input, that forms a real divider -- and that
+// lands near UNITY at the volume peak, overshooting the maker's +3 dB. So the 68k default is
+// fitted to the published claims, NOT derived from an identified component.
+const StringArray kLoadChoices { "68k", "1M", "None" };
+
+double loadOhmsForIndex(int index)
+{
+    switch (index)
+    {
+        case 0: return 68.0e3;
+        case 1: return 1.0e6;
+        default: break;
+    }
+    return pedal::circuit::kNoLoad;
+}
+} // namespace pedal::params
+
+namespace
+{
+using namespace pedal::params;
 constexpr double kBypassRampSeconds = 0.005;
 } // namespace
 
@@ -37,6 +81,18 @@ AudioProcessorValueTreeState::ParameterLayout PedalAudioProcessor::createParamet
     // saved sessions. The editor's toggle is param-guarded, so it simply never appears.
     // Revisit at build step 6: ADAA is the one plausible lever this pedal may actually acquire.
 
+    // OUTPUT LOAD. ⭐⭐ Not a tone control -- a statement about what the pedal is driving, and on
+    // this circuit that genuinely matters: the VOLUME wiper is grounded and R9 bridges node E to
+    // the jack, so the output impedance is 59-102 kOhm (measured, circuit.md note #22) instead of
+    // the few kOhm a normal pedal presents. See OutputNetwork::setLoad for the full reasoning and
+    // circuit.md note #31 for why the default is 68 k rather than open.
+    //
+    // ⚠ The default is 68k, NOT None, so the plugin ships the behaviour the maker publishes and
+    // that user reports corroborate (~3 dB of boost, unity near 10-11 o'clock). "None" is the raw
+    // circuit as captured into the interface's 1 MOhm, and is what the analysis harness pins so its
+    // comparisons against the captures stay like-for-like.
+    layout.add(std::make_unique<AudioParameterChoice>("output_load", "Output Load", kLoadChoices, 0));
+
     layout.add(std::make_unique<AudioParameterBool>("bypass", "Bypass", false));
 
     return layout;
@@ -55,6 +111,7 @@ PedalAudioProcessor::PedalAudioProcessor()
     pOversampling       = apvts.getRawParameterValue("oversampling");
     pRenderOversampling = apvts.getRawParameterValue("render_oversampling");
     pBypass             = apvts.getRawParameterValue("bypass");
+    pOutputLoad         = apvts.getRawParameterValue("output_load");
     pTrimLink           = apvts.getRawParameterValue("trim_link");
 
     inputTrimParam  = dynamic_cast<AudioParameterFloat*>(apvts.getParameter("input_trim"));
@@ -336,9 +393,15 @@ void PedalAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer&)
     dspIsIdle = false;
 
     const auto mode = (pedal::dsp::Mode) jlimit(0, 2, (int) pMode->load());
+    // ⚠ The LOAD must be set BEFORE the volume, not after. Both write the same network, and each of
+    // them re-pushes the drain-node impedance into the JFET stage -- so whichever runs last is the
+    // one whose view of that impedance the load line gets. setVolume() reads the load that is
+    // already in place; setLoad() would read a stale Ra if it ran first on a changed knob.
+    const double loadOhms = loadOhmsForIndex((int) pOutputLoad->load());
     for (auto& d : dsp)
     {
         d.setMode(mode);
+        d.setLoad(loadOhms);
         d.setVolume(volume);
     }
 

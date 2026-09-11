@@ -23,12 +23,16 @@ using cplx = std::complex<double>;
 
 // V_OUT / V_SRC for a source behind rSrc feeding node D. Norton-equivalent to a current source of
 // V_SRC/rSrc in parallel with rSrc, which is how OutputNetwork is actually driven.
-cplx analyticResponse(double freq, double ra, double rSrc)
+// `rl` is the resistive load at the jack; kNoLoad is effectively open. It enters in TWO places --
+// it lowers the E -> GND chain's resistance AND it re-divides E to OUT -- which is why the network
+// has to be re-solved rather than the result simply scaled. See OutputNetwork::setLoad.
+cplx analyticResponse(double freq, double ra, double rSrc, double rl = pedal::circuit::kNoLoad)
 {
     using namespace pedal::circuit;
     const cplx s { 0.0, 2.0 * M_PI * freq };
     const double rb = kVolumePot - ra;
-    const double rChain = kR9 + kR8 + rb; // E -> GND via R9, R8, Rb with OUT tapped inside
+    const double rJack = (rl * (kR8 + rb)) / (rl + kR8 + rb); // OUT -> GND: the load ∥ R8+Rb
+    const double rChain = kR9 + rJack;    // E -> GND via R9 with OUT tapped inside
 
     const double yE = 1.0 / kR10 + 1.0 / ra + 1.0 / rChain;
     const cplx zE = 1.0 / yE;
@@ -37,7 +41,7 @@ cplx analyticResponse(double freq, double ra, double rSrc)
     const cplx zBranch = zC10 + zE;
     const cplx vD = (cplx(rSrc) * zBranch) / (rSrc + zBranch) / cplx(rSrc); // per amp of Norton current
     const cplx vE = vD * (zE / zBranch);
-    return vE * cplx((kR8 + rb) / rChain);
+    return vE * cplx(rJack / rChain);
 }
 
 std::complex<double> measureResponseAt(pedal::dsp::OutputNetwork& net, double freq, double volumeX)
@@ -199,6 +203,76 @@ int main()
     }
     std::printf("  Peak of the taper-mapped curve lands at %.0f%% rotation.\n",
                 volumeXforRa(bestRa) * 100.0);
+    // ---- 6. THE OUTPUT LOAD -----------------------------------------------------------------
+    //
+    // ⭐⭐ Not a tone control: a statement about what the pedal drives, and worth ~10 dB on this
+    // circuit because the VOLUME wiper is grounded and R9 bridges node E to the jack, leaving a
+    // 59-102 kOhm output impedance (measured -- circuit.md note #22). See OutputNetwork::setLoad
+    // and circuit.md note #31 for why it exists and why the default is 68 k.
+    //
+    // ⚠ The load also has to appear in drainNodeImpedance(), because that is the load line's
+    // slope -- a load that changed the linear response but not the clipping behaviour would be
+    // audible in only half the model. Asserted separately below.
+    {
+        std::printf("\n6. Output load: WDF tree vs the same network's closed form (1 kHz)\n");
+        std::printf("   %-9s %-6s %12s %12s %9s %9s %13s\n", "load", "vol", "closed form", "WDF",
+                    "err dB", "vs open", "drain Z kOhm");
+        double worst = 0.0;
+        // The three SHIPPED choices, plus 220 k -- which no user can select, and is here because
+        // it proves the network is right BETWEEN the shipped values rather than only at them.
+        for (const double rl : { 68.0e3, 220.0e3, 1.0e6, pedal::circuit::kNoLoad })
+        {
+            for (const double x : { 0.20, 0.65, 1.00 })
+            {
+                pedal::dsp::OutputNetwork net;
+                net.prepare(kFs);
+                // ⚠ kDrainZ, explicitly. rOut DEFAULTS to R6 = 22 k, and the closed form above is
+                // written for circuit.md's 20 k drive -- leaving it defaulted made every row read
+                // 0.3-0.68 dB out, growing with the knob, which looks exactly like a load error and
+                // is not one. 22k||88k against 20k||88k IS 0.67 dB.
+                net.setDrainImpedance(kDrainZ);
+                net.setLoad(rl);
+                const double ra = std::pow(x, pedal::circuit::kVolumeTaperP) * pedal::circuit::kVolumePot;
+                const double want = std::abs(analyticResponse(1000.0, ra, kDrainZ, rl));
+                const double got = measureGainAt(net, 1000.0, x);
+                const double openRef = std::abs(analyticResponse(1000.0, ra, kDrainZ));
+                const double errDb = 20.0 * std::log10(got / want);
+                worst = std::max(worst, std::abs(errDb));
+                std::printf("   %-9.0f %-6.2f %12.5f %12.5f %9.4f %9.2f %13.2f\n", rl, x, want, got,
+                            errDb, 20.0 * std::log10(want / openRef), net.drainNodeImpedance() / 1.0e3);
+            }
+        }
+        std::printf("   worst |error| vs the closed form: %.5f dB\n", worst);
+        if (worst > 0.02)
+        {
+            std::printf("  <-- FAIL: the loaded output network does not match the closed form of "
+                        "the same circuit\n");
+            ok = false;
+        }
+
+        // The load must reach the LOAD LINE, not only the audio path.
+        pedal::dsp::OutputNetwork openNet, loadedNet;
+        for (auto* n : { &openNet, &loadedNet })
+        {
+            n->prepare(kFs);
+            n->setDrainImpedance(kDrainZ);
+        }
+        openNet.setLoad(pedal::circuit::kNoLoad);
+        openNet.setVolume(0.65);
+        loadedNet.setLoad(68.0e3);
+        loadedNet.setVolume(0.65);
+        const double zOpen = openNet.drainNodeImpedance(), zLoaded = loadedNet.drainNodeImpedance();
+        const double drop = 100.0 * (1.0 - zLoaded / zOpen);
+        std::printf("   drain-node impedance at 1:30: %.2f -> %.2f kOhm into 68 k (-%.1f%%)\n",
+                    zOpen / 1.0e3, zLoaded / 1.0e3, drop);
+        if (drop < 3.0)
+        {
+            std::printf("  <-- FAIL: the jack load is not reaching drainNodeImpedance() -- the load "
+                        "line would be computed as if the pedal were unloaded, so the clipping "
+                        "onset would ignore it\n");
+            ok = false;
+        }
+    }
 
     std::printf(ok ? "\nPASS: output / VOLUME network\n" : "\nFAILED: output / VOLUME network\n");
     return ok ? 0 : 1;

@@ -39,17 +39,26 @@ OUT  = os.path.join(HERE, "reports", "lf_pole_attribution.json")
 _SRC_H = open(os.path.join(HERE, "..", "src", "dsp", "CircuitValues.h")).read()
 
 
-def _const(name):
-    m = re.search(rf"{name}\s*=\s*([0-9.eE+-]+)", _SRC_H)
+_SRC_JFET = open(os.path.join(HERE, "..", "src", "dsp", "JfetStage.h")).read()
+
+
+def _const(name, src=None, where="CircuitValues.h"):
+    m = re.search(rf"{name}\s*=\s*([0-9.eE+-]+)", src if src is not None else _SRC_H)
     if m is None:
-        raise RuntimeError(f"{name} not found in CircuitValues.h -- the header was restructured")
+        raise RuntimeError(f"{name} not found in {where} -- the header was restructured")
     return float(m.group(1))
 
 
 R6, R10, R9, R8, POT = 22e3, 240e3, 110e3, 110e3, 500e3
 C10 = _const("kC10")
 TAPER_P = _const("kVolumeTaperP")
-RO = 1.44e6                      # JfetStage ro
+# ⚠⚠ PARSED, NOT HARDCODED. This was pinned at 1.44e6 -- the value ro had before circuit.md note #26
+# re-derived it to 1.1921e6 at the new bias point -- and six scripts route through out_network(), so
+# every one of them carried a 0.025 dB bias against the shipped model. Caught by comparing the WDF
+# tree against this nodal solve and finding a disagreement that was IDENTICAL at every load, which
+# is the signature of a constant mismatch rather than a topology error. Exactly note #23 fault 4
+# (TAPER_P) one file over: a shipped constant with a second definition drifts the moment it moves.
+RO = _const("double ro", _SRC_JFET, "JfetStage.h")
 R4, C4 = 1e6, 22e-9              # input high-pass, 7.2 Hz as drawn
 F_IN = 1.0 / (2 * np.pi * R4 * C4)
 

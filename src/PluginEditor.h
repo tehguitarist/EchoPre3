@@ -37,6 +37,7 @@ private:
     void refreshFonts(float sc);           // re-set every label font (fonts must scale with the window)
     void showScaleMenu();
     void saveDefaultScale();               // cross-session default via ApplicationProperties
+    static float maxScaleForDisplay();     // 2.5x, or less if the screen cannot show it
 
     // Base (1x) window size, 1.5x the plugin's original base -- every literal pixel constant in
     // resized()/refreshFonts() (panel/knob/VU sizes, OS-strip spacing, font points) is scaled up
@@ -83,10 +84,11 @@ private:
 
     // ---- Oversampling / scale strip ------------------------------------------------------------
     juce::Label      osLabel, osLiveLabel, osRenderLabel, osSizeLabel, versionLabel;
-    juce::ComboBox   osRealtimeBox, osRenderBox;
+    juce::Label      loadLabel;
+    juce::ComboBox   osRealtimeBox, osRenderBox, loadBox;
     juce::TextButton hqButton, trimLinkButton;     // optional toggles (componentID "os")
     juce::TextButton scaleBtn;                      // componentID "os-selector"
-    std::unique_ptr<juce::ComboBoxParameterAttachment> osRealtimeAttach, osRenderAttach;
+    std::unique_ptr<juce::ComboBoxParameterAttachment> osRealtimeAttach, osRenderAttach, loadAttach;
     std::unique_ptr<juce::ButtonParameterAttachment>   hqAttach, trimLinkAttach;
 
     std::unique_ptr<PedalFace> pedalFace;

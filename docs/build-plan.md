@@ -1690,8 +1690,22 @@ direction the data points, not a fit, and is not a reason to stop.
    a ~6 KB table in L1 on every sample. Two smaller ideas measured BACKWARDS and are recorded in
    `dsp.md` so they are not retried: a `switch` instead of the binary-powering loop (76.2 vs
    68.6 ns/sample) and hoisting loop-invariant struct fields (~0.3 ns — the compiler already had).
-7. **Everything else**, once 1–6 are settled: refresh the README (the performance table was
-   refreshed with item 6; the status text is still stale), write up everything since §18 into new dated sections here (the capture session,
+6a. ✅ **THE OUTPUT LOAD — DONE 2026-09-11, circuit.md note #31. A new user control, and it
+   REVERSES three "refuted" verdicts on this project's record.** The owner found the plugin at
+   +12 dB at 1:30 against the maker's published ~3 dB, and reported that many independent user
+   reviews agree with the maker. P4's measured gain is a ratio against a bare loop (so
+   calibration-independent, and very hard to be wrong) and nothing in the model is 7 dB out — so the
+   difference is downstream of the output, which is what a load is. ⭐ One value, 68–75 kΩ,
+   reproduces **all four** of the maker's published control points, including the fall-back going
+   3.91 → 1.70 dB, which is pure tilt and the one independent test. Shipped as `output_load`
+   (68k / 1M / None, default 68k) because the pedal's 59–102 kΩ output impedance means the boost
+   genuinely spans ~10 dB across ordinary rigs. ⛔ The 68k is FITTED to the published claims, not
+   derived: the owner's grid-stopper candidate does not load (series with a near-infinite grid), and
+   the two-jack Fender divider that DOES load overshoots to −0.66 dB. ⚠ "None" is load-bearing in
+   the harness — see the note. Also fixed a stale `RO = 1.44e6` in `lf_pole_attribution.py` that had
+   biased six scripts by 0.025 dB, plus three UI faults including a genuine resize lockout.
+7. **Everything else**, once 1–6 are settled: refresh the README (the performance table and the new
+   output-load section are done; the status text is still stale), write up everything since §18 into new dated sections here (the capture session,
    the device-law rewrite, the three anchored constants — currently only in `circuit.md` and
    `CLAUDE.md`'s chronological log), check VOLUME automation for zipper noise, and the two parked
    harness defects (`check_capture.py`'s meaningless H2-clearance column on active captures; the

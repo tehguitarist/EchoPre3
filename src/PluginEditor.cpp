@@ -13,7 +13,8 @@ using namespace juce;
 
 namespace
 {
-const StringArray kOsChoices { "1x", "2x", "4x", "8x" };
+using pedal::params::kOsChoices;
+using pedal::params::kLoadChoices;
 
 constexpr float kScales[] = { 0.50f, 0.75f, 1.00f, 1.25f, 1.50f, 1.75f, 2.00f, 2.25f, 2.50f };
 constexpr const char* kScaleLabels[] = { "50%", "75%", "100%", "125%", "150%",
@@ -30,9 +31,13 @@ PedalAudioProcessorEditor::PedalAudioProcessorEditor(PedalAudioProcessor& p)
 
     // Cross-session default scale via ApplicationProperties; per-session via APVTS state.
     PropertiesFile::Options opts;
-    opts.applicationName     = "<Pedal>";          // <-- your product name
+    // ⚠ These were left as the template's "<Pedal>"/"<You>" placeholders, so the settings file
+    // landed at ~/Library/Application Support/<You>/<Pedal>.settings -- literal angle brackets.
+    // Matches the convention this author's other plugins already use on disk
+    // (~/Library/Application Support/LeighPierce/<Product>.settings), no spaces.
+    opts.applicationName     = "EchoPre3";
     opts.filenameSuffix      = ".settings";
-    opts.folderName          = "<You>";            // <-- your company name
+    opts.folderName          = "LeighPierce";
     opts.osxLibrarySubFolder = "Application Support";
     appProps.setStorageParameters(opts);
 
@@ -40,7 +45,12 @@ PedalAudioProcessorEditor::PedalAudioProcessorEditor(PedalAudioProcessor& p)
         currentScale = (float) (double) v;
     else
         currentScale = (float) appProps.getUserSettings()->getDoubleValue("defaultScale", 1.0);
-    currentScale = jlimit(0.5f, 2.5f, currentScale);
+    // ⚠⚠ CLAMPED TO WHAT THE DISPLAY CAN SHOW, not just to [0.5, 2.5]. A restored scale larger than
+    // the screen puts the resize corner AND the UI-SIZE button off-screen, at which point there is
+    // no in-plugin way back -- the only fix is editing the settings file by hand. It happened: a
+    // stored 2.249 is 1444 x 1215 logical, taller than the usable height of a 16-inch laptop
+    // display. maxScaleForDisplay() is what makes that unreachable rather than merely unlikely.
+    currentScale = jlimit(0.5f, maxScaleForDisplay(), currentScale);
 
     // ---- Side panels ---------------------------------------------------------------------------
     auto setupSectionLabel = [this](Label& l, const String& text) {
@@ -110,6 +120,7 @@ PedalAudioProcessorEditor::PedalAudioProcessorEditor(PedalAudioProcessor& p)
     setupOSLabel(osLiveLabel, "LIVE", Justification::centredRight);
     setupOSLabel(osRenderLabel, "RENDER", Justification::centredRight);
     setupOSLabel(osSizeLabel, "UI SIZE", Justification::centredRight);
+    setupOSLabel(loadLabel, "LOAD", Justification::centredRight);
 
     // Self-updating version stamp — from JucePlugin_VersionString (= CMake project VERSION). Muted,
     // non-interactive; given the leftover strip space in resized().
@@ -129,6 +140,21 @@ PedalAudioProcessorEditor::PedalAudioProcessorEditor(PedalAudioProcessor& p)
     setupOSBox(osRenderBox);
     osRealtimeAttach = std::make_unique<ComboBoxParameterAttachment>(*audioProcessor.apvts.getParameter("oversampling"), osRealtimeBox);
     osRenderAttach   = std::make_unique<ComboBoxParameterAttachment>(*audioProcessor.apvts.getParameter("render_oversampling"), osRenderBox);
+
+    // OUTPUT LOAD. In the OS strip rather than on the pedal face because it is not a pedal control
+    // -- the hardware has no such knob. It says what the plugin is pretending to drive, which on
+    // this circuit is worth about 10 dB of boost (its output impedance is ~95 kOhm, so a load
+    // actually loads it). Styled exactly like the OS combo boxes, per ui.md's parity rule.
+    if (auto* loadParam = audioProcessor.apvts.getParameter("output_load"))
+    {
+        setupOSBox(loadBox);
+        loadBox.clear(dontSendNotification);
+        loadBox.addItemList(kLoadChoices, 1);
+        loadBox.setTooltip("What the pedal is driving. Its output impedance is ~95 kOhm, so this is "
+                           "worth ~8 dB of boost: 68k is a typical amp front end (and the maker's "
+                           "published +3 dB), 1M a modern amp or line input, None open-circuit.");
+        loadAttach = std::make_unique<ComboBoxParameterAttachment>(*loadParam, loadBox);
+    }
 
     // Optional quality/behaviour toggles — only shown if the pedal actually declares the param
     // (HQ: dsp.md "HQ / Eco mode"; Trim Link: architecture.md "Input/output trim link", whose
@@ -162,14 +188,39 @@ PedalAudioProcessorEditor::PedalAudioProcessorEditor(PedalAudioProcessor& p)
     setResizable(true, true);
     if (auto* c = getConstrainer())
     {
+        const float maxSc = maxScaleForDisplay();
         c->setFixedAspectRatio((double) kBaseW / (double) kBaseH);
         c->setSizeLimits(roundToInt(kBaseW * 0.5f), roundToInt(kBaseH * 0.5f),
-                         roundToInt(kBaseW * 2.5f), roundToInt(kBaseH * 2.5f));
+                         roundToInt(kBaseW * maxSc), roundToInt(kBaseH * maxSc));
     }
     setSize(roundToInt(kBaseW * currentScale), roundToInt(kBaseH * currentScale));
 
     scaleSaveDebounce.action = [this] { saveDefaultScale(); };
     startTimerHz(33);
+}
+
+/** The largest UI scale this display can actually show, capped at the design maximum of 2.5x.
+ *
+ *  ⭐ Leaves 6 % of the usable area as headroom for the host's own window chrome (a plugin window
+ *  has a title bar, and some hosts wrap it in a further frame), because a window sized to exactly
+ *  the user area still ends up with its bottom edge under the dock or off-screen. Falls back to the
+ *  design maximum if JUCE cannot report a display, which is the right way round: a too-large limit
+ *  on a headless/unknown display is recoverable, and refusing to resize at all is not.
+ */
+float PedalAudioProcessorEditor::maxScaleForDisplay()
+{
+    constexpr float kDesignMax = 2.5f;
+    if (auto* d = Desktop::getInstance().getDisplays().getPrimaryDisplay())
+    {
+        const auto area = d->userBounds;
+        if (area.getWidth() > 0 && area.getHeight() > 0)
+        {
+            const float fit = jmin((float) area.getWidth() / (float) kBaseW,
+                                   (float) area.getHeight() / (float) kBaseH) * 0.94f;
+            return jlimit(0.5f, kDesignMax, fit);
+        }
+    }
+    return kDesignMax;
 }
 
 PedalAudioProcessorEditor::~PedalAudioProcessorEditor()
@@ -202,6 +253,7 @@ void PedalAudioProcessorEditor::refreshFonts(float sc)
     osLabel.setFont(bold(12.0f * sc));
     osLiveLabel.setFont(bold(10.5f * sc).withExtraKerningFactor(0.10f));
     osRenderLabel.setFont(bold(10.5f * sc).withExtraKerningFactor(0.10f));
+    loadLabel.setFont(bold(10.5f * sc).withExtraKerningFactor(0.10f));
     osSizeLabel.setFont(bold(10.5f * sc).withExtraKerningFactor(0.10f));
     versionLabel.setFont(Font(FontOptions(10.5f * sc, Font::plain)).withExtraKerningFactor(0.10f));
 }
@@ -261,31 +313,48 @@ void PedalAudioProcessorEditor::resized()
     auto os = osStripArea.reduced(i(9), 0);
     const int boxVPad = i(3);
 
-    // Left group: OS | LIVE [box] | RENDER [box] | HQ? | TRIM LINK?
-    osLabel.setBounds(os.removeFromLeft(i(30)));
-    os.removeFromLeft(i(12));
-    osLiveLabel.setBounds(os.removeFromLeft(i(39)));
-    os.removeFromLeft(i(8));
-    osRealtimeBox.setBounds(os.removeFromLeft(i(54)).reduced(0, boxVPad));
-    os.removeFromLeft(i(18));
-    osRenderLabel.setBounds(os.removeFromLeft(i(60)));
-    os.removeFromLeft(i(8));
-    osRenderBox.setBounds(os.removeFromLeft(i(54)).reduced(0, boxVPad));
+    // Left group: OS | LIVE [box] | RENDER [box] | HQ? | TRIM LINK? | LOAD [box]
+    //
+    // ⚠ THE HORIZONTAL BUDGET IS TIGHT AND THESE WIDTHS ARE TUNED, NOT DECORATIVE. Available at
+    // sc = 1 is kBaseW - 2*margin - 2*inset = 642 - 30 - 18 = 594 px, and the two groups plus the
+    // centred version stamp all have to live inside it. The original widths were generous -- 54 px
+    // of box for two characters of "4x" -- and adding LOAD at the same generosity overran by 62 px,
+    // which silently squeezed the UI SIZE label to nothing (the scale button still reads "250%", so
+    // it looked plausible rather than broken). Tightened to fit with ~55 px left for the version.
+    // ➡ If another control is ever added here, re-do this arithmetic rather than appending to it,
+    // and check the headless UISnapshot render at 0.5x as well as 2.5x -- rounding at the small end
+    // is what clips text first.
+    osLabel.setBounds(os.removeFromLeft(i(22)));
+    os.removeFromLeft(i(10));
+    osLiveLabel.setBounds(os.removeFromLeft(i(32)));
+    os.removeFromLeft(i(6));
+    osRealtimeBox.setBounds(os.removeFromLeft(i(46)).reduced(0, boxVPad));
+    os.removeFromLeft(i(14));
+    osRenderLabel.setBounds(os.removeFromLeft(i(50)));
+    os.removeFromLeft(i(6));
+    osRenderBox.setBounds(os.removeFromLeft(i(46)).reduced(0, boxVPad));
     if (hqButton.isVisible())
     {
-        os.removeFromLeft(i(15));
-        hqButton.setBounds(os.removeFromLeft(i(39)).reduced(0, boxVPad));
+        os.removeFromLeft(i(12));
+        hqButton.setBounds(os.removeFromLeft(i(34)).reduced(0, boxVPad));
     }
     if (trimLinkButton.isVisible())
     {
-        os.removeFromLeft(i(12));
-        trimLinkButton.setBounds(os.removeFromLeft(i(93)).reduced(0, boxVPad));
+        os.removeFromLeft(i(10));
+        trimLinkButton.setBounds(os.removeFromLeft(i(78)).reduced(0, boxVPad));
+    }
+    if (loadBox.isVisible())
+    {
+        os.removeFromLeft(i(14));
+        loadLabel.setBounds(os.removeFromLeft(i(34)));
+        os.removeFromLeft(i(6));
+        loadBox.setBounds(os.removeFromLeft(i(52)).reduced(0, boxVPad));
     }
 
     // Right group: UI SIZE [scale] — laid out from the right.
-    scaleBtn.setBounds(os.removeFromRight(i(72)).reduced(0, boxVPad));
-    os.removeFromRight(i(8));
-    osSizeLabel.setBounds(os.removeFromRight(i(63)));
+    scaleBtn.setBounds(os.removeFromRight(i(62)).reduced(0, boxVPad));
+    os.removeFromRight(i(7));
+    osSizeLabel.setBounds(os.removeFromRight(i(56)));
 
     // Version fills whatever is left between the two groups (centred).
     versionLabel.setBounds(os);
@@ -317,9 +386,15 @@ void PedalAudioProcessorEditor::timerCallback()
 
 void PedalAudioProcessorEditor::showScaleMenu()
 {
+    // ⚠ Presets the display cannot show are DISABLED rather than silently clamped by the
+    // constrainer -- picking "250%" and getting 194% reads as a bug, and offering a size that would
+    // put this very button off-screen is how a user gets locked out of resizing at all. See
+    // maxScaleForDisplay().
+    const float maxSc = maxScaleForDisplay();
     PopupMenu menu;
     for (int n = 0; n < 9; ++n)
-        menu.addItem(n + 1, kScaleLabels[n], true, std::abs(currentScale - kScales[n]) < 0.01f);
+        menu.addItem(n + 1, kScaleLabels[n], kScales[n] <= maxSc + 0.001f,
+                     std::abs(currentScale - kScales[n]) < 0.01f);
     menu.addSeparator();
     menu.addItem(100, "Set current scale as default");
 

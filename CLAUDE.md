@@ -2143,6 +2143,94 @@ high, execute routine work cheap) is what should persist.
 > inaudible, but the margin is shrinking an order of magnitude per step and that is where a measured
 > floor stops being one.
 
+> ### ⭐⭐ SESSION 2026-09-11 (part 4): THE OUTPUT LOAD. The maker was right all along, and three
+> ### "refutations" on this project's record were all made against an open-circuit pedal.
+>
+> Full detail and every number: `.claude/rules/circuit.md` note **#31**. New user control
+> `output_load` (68k / 1M / None, default **68k**), `OfflineRender --load`, `OutputNetworkTest`
+> section 6. **All 11 tests pass, warning-free; auval passes; VERSION 0.6.0.**
+>
+> **The trigger.** The owner tested the plugin and found unity at ~8:30 and **+12 dB at 1:30**,
+> against the maker's published ~3 dB — then checked many independent user reviews and videos and
+> reported they **all** agree with the maker. Two solid-looking measurements, 7 dB apart.
+>
+> ⭐ **What I could say with confidence, and it mattered:** P4's measured gain is a RATIO against a
+> bare loop, so it depends on no calibration figure at all — not `kInputRef`, not the +12.20 dBu
+> meter reading, not `output_level_dbu`. I also checked the model-side suspects (P4's weaker JFET is
+> worth 0.46 dB, `ro` ~1.6 dB even if badly wrong). **Nothing in the model is 7 dB out**, so the
+> difference had to be downstream of the pedal's output — which is exactly what a load is. That
+> reframed the change from "fudge the level" to "add a real effect that was deliberately omitted".
+>
+> ⭐⭐ **AND THE REASON IT WORKS IS THE CIRCUIT, NOT A FREE PARAMETER.** The grounded wiper plus R9
+> leaves a 59–102 kΩ output impedance that MOVES with the knob, so a load TILTS the control law
+> rather than just lowering it. One value, 68–75 kΩ, reproduces all four published claims —
+> including the peak-to-full-CW fall-back going **3.91 → 1.70 dB**, which is pure tilt and is the
+> one genuinely independent test. ⚠ Counted honestly that is **one parameter satisfying two
+> independent observables**, not four-for-one: unity and peak level are both the level shift, and
+> the peak position was already right. Real evidence, not proof.
+>
+> ⛔ **WHAT THE LOAD DOES NOT TOUCH, which is what made it safe to add:** with level removed, a
+> 75 kΩ load is worth **exactly 0.00 dB above 100 Hz, 0.00° above ~500 Hz, and 0.000 dB of H2 below
+> 2 V of gate drive**. It reaches the model through only C10's corner (−0.79 dB and +6.4° at 20 Hz)
+> and the drain-node impedance (−6.3 %, so triode onset +0.45 dB later). 📌 Both land in the two
+> places the model is least constrained, so the existing validation cannot rule a ~70 kΩ load out
+> either.
+>
+> ### ⚠ THE OWNER'S GRID-STOPPER HYPOTHESIS: right class, wrong component, and the test is the point
+> A 68 kΩ grid stopper is exactly the fitted value, which is a striking coincidence — but a stopper
+> sits in **SERIES** with a near-infinite grid, so the amp still presents ~1 MΩ and costs 0.81 dB.
+> ⭐ What does load is the **classic two-jack Fender input**, whose unused jack grounds a SECOND
+> stopper: a real 68k/68k divider, 132 kΩ presented, 11.15 dB total — which **overshoots to −0.66 dB
+> at the volume peak**, below unity. ➡ So the honest conclusion is better than either: **this pedal's
+> boost spans ~10 dB across ordinary rigs**, +9.7 dB into a modern 1 MΩ input down to roughly unity
+> into a vintage front end. Reviewers can disagree honestly. That is why it is a CONTROL and why the
+> 68k default is **fitted to the published claims, not derived from an identified component.**
+>
+> ### ⚠⚠ "None" IS LOAD-BEARING IN THE HARNESS — do not tidy it out of the choice list
+> `captures.render_args()` pins `--load none` for every capture comparison, because P4's captures
+> were taken into the interface's 1 MΩ and `loading_correction_complex()` already corrects that out
+> of the CAPTURE side. Rendering at "1M" is NOT close enough to skip it: 1 MΩ still costs
+> 0.50–0.84 dB depending on the knob, against a ±0.5 dB target and a `kOutputMakeup` anchored to an
+> sd of 0.178 dB. ⛔ And `OfflineRender` deliberately follows the PLUGIN's default rather than
+> defaulting to none — it drives a real processor and must not describe a different pedal than a
+> user hears, so the responsibility sits on the caller. ✅ Verified: `absolute_gain.py` still
+> reproduces `kOutputMakeup` at +0.019 dB, unchanged.
+>
+> ### ⚠⚠ A STALE CONSTANT THAT HAD BIASED SIX SCRIPTS, found by the load work
+> The first WDF-vs-nodal check disagreed by 0.0246 dB — **identically at every load**, which is the
+> signature of a CONSTANT mismatch rather than a topology error, and that one observation located it
+> in a single step. `lf_pole_attribution.py` carried `RO = 1.44e6`, the value `ro` held before
+> note #26 re-derived it to 1.1921e6, and six scripts route through `out_network()`. Parsed from
+> `JfetStage.h` now; agreement went to **0.00012 dB**. Same fault as note #23's `TAPER_P`, one file
+> over. ➡ **Load-independent disagreement = a constant. Load-dependent = the topology.**
+> 📌 A second instance the same hour: `OutputNetworkTest`'s new section read 0.3–0.68 dB out, growing
+> with the knob, because it never called `setDrainImpedance()` and so used the default R6 = 22 k
+> against the closed form's 20 k. **22k∥88k against 20k∥88k IS 0.67 dB.** Both of these look exactly
+> like a load error and are not one.
+>
+> ### 📌 UI, and a genuine lockout bug
+> - ⭐ **The user resized to 2.249x and could not get back.** That is 1444x1215 logical, taller than
+>   a 16-inch laptop's usable height, so the resize corner AND the UI-SIZE button were both
+>   off-screen — and the only route back was hand-editing the settings file. `maxScaleForDisplay()`
+>   now clamps the constrainer, the restored value and the preset menu (over-large presets are
+>   DISABLED rather than silently clamped, because picking 250% and getting 194% reads as a bug).
+>   On a 1728x1117 logical display the max is 1.94x. ⭐ It also un-sticks an already-saved session,
+>   since the restored `uiScale` goes through the same clamp.
+> - ⚠ **The settings file was at `~/Library/Application Support/<You>/<Pedal>.settings`** — literal
+>   angle brackets, the template placeholders `CLAUDE.md` says to replace and nobody had. Now
+>   `LeighPierce/EchoPre3.settings`, matching this author's other plugins. These were the ONLY
+>   functional placeholders left in the tree; the remaining `<...>` hits are deliberate generic
+>   instructions in `build.md` and CMakeLists comments.
+> - ⚠ **The TRIM LINK / HQ toggle font was hardcoded at 8 pt** while the `os-selector` branch beside
+>   it already scaled with its height — so resizing up grew every combo box and left the toggles
+>   behind. Now height-derived (0.36, against the selector's 0.38, because a toggle's label is a
+>   word or two rather than three characters).
+> - 📌 **The bottom strip's widths are now tuned, not decorative.** Adding LOAD at the original
+>   generosity (54 px of box for two characters of "4x") overran the 594 px budget by 62 px, which
+>   silently squeezed the UI SIZE label to nothing — and since the scale button still read "250%" it
+>   looked plausible rather than broken. Re-do the arithmetic if anything else is ever added, and
+>   check the headless render at 0.5x as well as 2.5x.
+
 ### 🗺️ Current plan
 
 > The session-by-session plan — priority order, what's parked, what's explicitly out of scope —

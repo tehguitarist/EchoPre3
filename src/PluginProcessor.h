@@ -9,6 +9,22 @@
 
 #include "dsp/EchoPreDsp.h"
 
+/** The APVTS choice lists, declared ONCE.
+ *
+ *  ⚠ `kOsChoices` used to be defined separately in PluginProcessor.cpp AND PluginEditor.cpp -- two
+ *  copies of a list whose order IS the parameter's wire format. It never drifted, but the project
+ *  has been bitten three times by a shipped constant with a second definition (dsp.md's one-
+ *  definition rule, and circuit.md note #23 fault 4). Adding the load list was the moment to fix
+ *  it rather than make it a third copy. */
+namespace pedal::params
+{
+extern const juce::StringArray kOsChoices;
+extern const juce::StringArray kLoadChoices;
+
+/** Output-load choice index -> ohms. Next to the list so the two cannot drift. */
+double loadOhmsForIndex(int index);
+} // namespace pedal::params
+
 /**
  * Echo Pre 3 -- circuit-modelled Echoplex EP-3 preamp (Chase Tone Secret Preamp topology).
  *
@@ -180,6 +196,7 @@ private:
     std::atomic<float>* pOversampling = nullptr;
     std::atomic<float>* pRenderOversampling = nullptr;
     std::atomic<float>* pBypass = nullptr;
+    std::atomic<float>* pOutputLoad = nullptr;
 
     std::array<std::atomic<float>, 2> inputLevel { 0.0f, 0.0f };
     std::array<std::atomic<float>, 2> outputLevel { 0.0f, 0.0f };

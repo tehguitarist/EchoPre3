@@ -140,6 +140,15 @@ public:
         jfet.setDrainLoad(outputNet.drainNodeImpedance());
     }
 
+    /** Resistive load at the output jack, in ohms (circuit::kNoLoad for unloaded). ⭐ Also re-pushes
+     *  the drain-node impedance, for the same reason setVolume does: the load changes node E's
+     *  impedance, which changes the load line's slope. See OutputNetwork::setLoad. */
+    void setLoad(double ohms)
+    {
+        outputNet.setLoad(ohms);
+        jfet.setDrainLoad(outputNet.drainNodeImpedance());
+    }
+
     /** Runs at the OVERSAMPLED rate. Volts at the input jack -> drain Norton current in amps.
      *
      *  The droop restore sits BETWEEN the input network and the JFET, undoing the input network's own

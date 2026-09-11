@@ -1463,6 +1463,90 @@ reversed wiring (x → 1−x) against the measured corners gives an RMS error of
 for the shipped CW-is-louder sense, and it puts P1 and P3 nearly 21 Hz out. Not proof, but the
 reversed hypothesis is clearly worse on all three units. **CW = louder stands.**
 
+### 31. ⭐⭐ THE OUTPUT LOAD (2026-09-11) — the maker's four published claims were never wrong,
+### and three "refutations" on this file's record were all made against an UNLOADED model
+
+Instruments: `analysis/lf_pole_attribution.out_network(..., rl=)`, `OutputNetworkTest` section 6,
+`OfflineRender --load`. **A new user control, `output_load`, defaulting to 68 k.**
+⛔ **This note SUPERSEDES the "refuted" verdicts in validation note #1 and in note #21's fall-back
+paragraph.** Both were correct arithmetic about an OPEN-CIRCUIT pedal, and neither claim was ever
+about an open-circuit pedal.
+
+**The observation that forced it.** P4's own captures put the pedal at **+10.60 dB (dark) /
++11.88 dB (bright) at VOLUME 1:30** into the interface's 1 MΩ — and that measurement is a ratio
+against a bare loop, so it depends on no calibration figure at all and is very hard to be wrong
+(notes #21, #23). The maker publishes ~+3 dB and unity at 10–11 o'clock. ⭐ The owner then checked
+many independent user reviews and videos and reports they **all** agree with the maker. So the
+model and the world disagreed by ~7 dB with a solid measurement on each side.
+
+**⭐⭐ ONE LOAD VALUE RECONCILES EVERY PUBLISHED CLAIM, and the reason it can is a property of this
+circuit rather than a free parameter.** The VOLUME wiper is grounded and R9 = 110 kΩ bridges node E
+to the jack, so the output impedance is **59–102 kΩ** (measured, note #22) instead of the few kΩ a
+normal pedal presents — and it MOVES with the knob (101 kΩ at 10:30, 59 kΩ at full CW). A load
+therefore does not merely lower the curve, it **TILTS** it:
+
+| claim | maker | open circuit | into 68 k | into 75 k |
+|---|---|---|---|---|
+| unity gain | 10:00–11:00 | ~8:39 | **10:14** | **10:05** |
+| max boost, 1–2 o'clock | "3 dB+" | +10.49 dB | **+2.72** | **+3.21** |
+| 3–5 o'clock level | +1 to +2 dB | +6.58 | **+1.13** | **+1.51** |
+| peak-to-full-CW fall-back | 1–2 dB | 3.91 dB | **1.59** | **1.70** |
+| peak POSITION | 1–2 o'clock | 1:30 | 1:30 | 1:30 |
+
+⚠⚠ **COUNT THE DEGREES OF FREEDOM BEFORE CALLING THAT FOUR-FOR-ONE.** A load does exactly two
+things: a ~7 dB level shift and a ~2.3 dB tilt. Unity and peak-level are both set by the shift, so
+they are ONE constraint; the peak position was already right unloaded, so it is free. The genuinely
+independent test is the **fall-back**, which is pure tilt and goes 3.91 → 1.70 dB. So this is one
+parameter satisfying **two** independent observables — real evidence, not proof.
+
+**⛔ WHAT THE LOAD DOES NOT CHANGE, measured, because this is what makes it safe to add.** With
+level removed, a 75 kΩ load is worth **exactly 0.00 dB above 100 Hz and 0.00° above ~500 Hz** (a
+resistive load is flat there), and **exactly 0.000 dB of H2 below 2 V of gate drive**. It reaches
+the model through only two routes:
+- **C10's high-pass corner** rises (14.6 → 18.3 Hz at 1:30), worth −0.79 dB at 20 Hz and +6.4° at
+  20 Hz, +4.4° at 40 Hz, +1.9° at 100 Hz. Zero at 7:30, worst at 1:30–3:00.
+- **The DRAIN-node impedance** falls up to 6.3 % (17.4 → 16.3 kΩ at 1:30), which IS the load line's
+  slope — so triode onset moves **+0.45 dB later**, and H2 in triode (≥3 V gate) rises 0.75–2.1 dB.
+  ⚠ That is why `OutputNetwork::drainNodeImpedance()` had to take the load too: a load that changed
+  the linear response but not the clipping behaviour would be audible in only half the model.
+📌 Both of those land in the two places the model is least constrained (the confounded LF pole, and
+the triode branch which rests on one capture cell — note #27 §4), so the existing validation cannot
+*rule out* a ~70 kΩ load in the maker's rig either. Suggestive, not settled.
+
+**⚠ THE 68 kΩ IS FITTED, NOT IDENTIFIED — do not record a component as its explanation.** The
+owner's candidate, a guitar amp's 68 kΩ grid stopper, was tested and does NOT load: a stopper sits
+in **series** with a near-infinite grid, so the amp still presents ~1 MΩ and costs 0.81 dB, leaving
++9.7 dB of boost. Its real job is a low-pass with the tube's Miller capacitance (12–47 kHz).
+⭐ What DOES load is the **classic two-jack Fender input**, whose unused jack grounds a *second*
+68 kΩ stopper: that is a real 68k-series/68k-shunt divider, presenting 132 kΩ and costing 11.15 dB
+in total — which overshoots to **−0.66 dB** at the volume peak, i.e. below unity.
+
+**➡ SO THE REAL FINDING IS THAT THERE IS NO SINGLE ANSWER: this pedal's boost spans ~10 dB across
+ordinary rigs** (+9.7 dB into a modern 1 MΩ input, roughly unity into a vintage Fender front end),
+entirely because of its own output impedance. That is why `output_load` is a **control** rather than
+a constant, and why reviewers can honestly disagree about how much boost it has.
+
+**📌 What shipped.** `kLoadChoices = { "68k", "1M", "None" }`, default 68k.
+⚠⚠ **"None" is not decorative.** `captures.render_args()` pins `--load none` for every capture
+comparison, because P4's captures were taken into 1 MΩ and `p4_corners.loading_correction_complex()`
+already corrects that out of the CAPTURE side. Rendering at "1M" instead is not close enough to
+skip: 1 MΩ still costs 0.50–0.84 dB depending on the knob, against a ±0.5 dB FR target and a
+`kOutputMakeup` anchored to an sd of 0.178 dB. ⛔ And OfflineRender deliberately follows the
+plugin's default rather than defaulting to none — it drives a real `PedalAudioProcessor` and must
+not describe a different pedal than a user hears.
+
+**✅ Validated against an independent nodal solve**, not the same WDF tree twice: `OutputNetworkTest`
+section 6 agrees with the closed form of the same three-node network to **0.00003 dB** over 4 loads
+× 3 knob positions, and asserts the drain-node impedance actually moves (−6.2 %).
+
+**⚠⚠ AND IT EXPOSED A STALE CONSTANT THAT HAD BIASED SIX SCRIPTS.** The first WDF-vs-nodal
+comparison disagreed by 0.0246 dB — **identically at every load**, which is the signature of a
+constant mismatch rather than a topology error. `lf_pole_attribution.py` had `RO = 1.44e6`, the
+value `ro` held before note #26 re-derived it to 1.1921e6, and six scripts route through
+`out_network()`. It parses `JfetStage.h` now, and the agreement went to 0.00012 dB. Same fault as
+note #23's `TAPER_P`, one file over. ➡ **A load-independent disagreement is a constant; a
+load-dependent one is the topology.** That distinction is what identified it in one step.
+
 ### 2a. 📌 BRIGHT and DARK are the two REAL Echoplex voicings; MID is the maker's invention
 
 Confirmed by the owner 2026-09-09, and it matches the maker's published naming already quoted in

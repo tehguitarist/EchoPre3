@@ -26,6 +26,11 @@ inline constexpr double kR5 = 3.6e3;    // source degeneration ("3k6" -- 3.6 kOh
 inline constexpr double kC1 = 22.0e-9;  // "BRIGHT" branch -> corner 1/(2*pi*R5*C1) ~ 2.01 kHz (measured 1.86 kHz)
 inline constexpr double kC2 = 10.0e-9;  // "MID" branch    -> corner ~ 4.42 kHz (measured 4.17 kHz)
 
+// A load large enough to be an open circuit: the divider it forms with the pedal's ~100 kOhm output
+// impedance is 1 - 1e-7, i.e. under 1e-6 dB. Used rather than a true infinity so the WDF parallel
+// adaptor never sees a non-finite impedance.
+inline constexpr double kNoLoad = 1.0e12;
+
 // --- Output / VOLUME network (circuit.md stage 3) ---
 inline constexpr double kC10 = 100.0e-9;   // drain output coupling cap
 inline constexpr double kR10 = 240.0e3;    // pulldown to GND at node E

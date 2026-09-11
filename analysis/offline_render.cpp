@@ -86,6 +86,12 @@ int main(int argc, char* argv[])
     double mArg = 0.0;  // 0 = leave the shipped JfetParams::mExp alone
     double gmOverride = 0.0; // 0 = leave the shipped JfetParams::gm alone
     int modeIndex = 1; // Dark -- the APVTS default
+    // ⚠⚠ DEFAULTS TO THE PLUGIN'S OWN DEFAULT (68k), deliberately, because this tool drives a real
+    // PedalAudioProcessor and must not quietly describe a different pedal than a user hears. The
+    // ANALYSIS SCRIPTS therefore have to pin it: every comparison against P4's captures wants
+    // "None", since those captures were taken into the interface's 1 MOhm and the harness already
+    // corrects that out. p4_corners.render() passes --load none for exactly this reason.
+    String loadChoice;
     bool bypass = false;
     int blockSize = 512;
 
@@ -124,6 +130,8 @@ int main(int argc, char* argv[])
             bypass = (v.getIntValue() != 0);
         else if (a == "--block")
             blockSize = jmax(1, v.getIntValue());
+        else if (a == "--load")
+            loadChoice = v;
         else if (a == "--mode")
         {
             // Accept the label the capture filenames carry, or a raw choice index.
@@ -193,6 +201,24 @@ int main(int argc, char* argv[])
 
     if (auto* modeParam = dynamic_cast<AudioParameterChoice*>(proc.apvts.getParameter("mode")))
         modeParam->setValueNotifyingHost(modeParam->convertTo0to1((float)modeIndex));
+
+    // --load: the jack load, by its parameter label ("68k", "130k", "470k", "1M", "None") or index.
+    if (loadChoice.isNotEmpty())
+    {
+        auto* lp = dynamic_cast<AudioParameterChoice*>(proc.apvts.getParameter("output_load"));
+        if (lp == nullptr)
+            return fail("the output_load parameter is missing");
+        int idx = -1;
+        for (int k = 0; k < lp->choices.size(); ++k)
+            if (lp->choices[k].equalsIgnoreCase(loadChoice))
+                idx = k;
+        if (idx < 0 && loadChoice.containsOnly("0123456789") && loadChoice.isNotEmpty())
+            idx = loadChoice.getIntValue();
+        if (idx < 0 || idx >= lp->choices.size())
+            return fail("unknown --load '" + loadChoice + "' (expected one of "
+                        + lp->choices.joinIntoString("|") + " or an index)");
+        lp->setValueNotifyingHost(lp->convertTo0to1((float)idx));
+    }
 
     // processBlock picks render_oversampling when isNonRealtime() is true and oversampling
     // otherwise. Set BOTH from --os so the factor is what was asked for either way, and the render
@@ -313,6 +339,10 @@ int main(int argc, char* argv[])
 
     std::cout << "OfflineRender: " << numSamples << " smp @ " << sampleRate << " Hz, " << osFactor << "x OS, latency "
               << latency << " smp compensated, "
-              << "volume " << volume << ", mode " << kModeNames[modeIndex] << (bypass ? ", BYPASSED" : "") << std::endl;
+              << "volume " << volume << ", mode " << kModeNames[modeIndex]
+              << ", load " << (dynamic_cast<AudioParameterChoice*>(proc.apvts.getParameter("output_load")) != nullptr
+                                   ? dynamic_cast<AudioParameterChoice*>(proc.apvts.getParameter("output_load"))->getCurrentChoiceName()
+                                   : String("?"))
+              << (bypass ? ", BYPASSED" : "") << std::endl;
     return 0;
 }

@@ -137,6 +137,22 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+### Output load
+
+The pedal's output impedance is **59–102 kΩ** — unusually high, because the VOLUME wiper is grounded
+and a 110 kΩ resistor bridges to the jack. So how much boost it delivers genuinely depends on what
+it drives, by about **10 dB end to end**. The `LOAD` selector in the bottom strip says what to model:
+
+| LOAD | boost at 1:30 (DARK) | peak-to-full-CW fall-back | represents |
+|---|---:|---:|---|
+| **68k** (default) | +2.7 dB | 1.6 dB | a typical amp front end — matches the maker's published control law |
+| 1M | +9.7 dB | 3.6 dB | a modern amp or line input |
+| None | +10.5 dB | 3.9 dB | open circuit — the raw measured circuit |
+
+Above 100 Hz the load is a pure level change (0.00 dB of shape), and it does not affect the
+harmonics at ordinary playing levels. What it does move is the low-frequency corner (−0.8 dB at
+20 Hz into 68k) and, through the drain-node impedance, the clipping onset (+0.45 dB later).
+
 ### Performance
 
 CPU usage (% of realtime, stereo, 4 s render) and algorithmic latency at each oversampling factor,

@@ -446,10 +446,18 @@ void PedalLookAndFeel::drawButtonText(juce::Graphics& g, juce::TextButton& butto
     }
 
     // OS / HQ / Trim Link toggles: lit-on (cOSBtnActive) / dim-off (cOSLabel).
+    //
+    // ⚠ THE SIZE IS DERIVED FROM THE BUTTON HEIGHT, NOT FIXED. It was a hardcoded 8 pt while the
+    // "os-selector" branch above already scaled with its height -- so as the UI was resized up,
+    // every combo box and the scale button grew and the TRIM LINK / HQ toggles did not, which at
+    // 2.5x left them visibly undersized next to controls they are meant to match (ui.md's parity
+    // rule for this strip). 0.36 rather than the selector's 0.38 because a toggle's label is a
+    // whole word or two ("TRIM LINK") where a selector's is three or four characters.
     const bool active = button.getToggleState();
     const juce::Colour col = active ? juce::Colour(cOSBtnActive) : juce::Colour(cOSLabel);
     g.setColour(col);
-    g.setFont(juce::Font(juce::FontOptions(8.0f, juce::Font::bold)));
+    g.setFont(juce::Font(juce::FontOptions(juce::jmax(7.5f, (float) button.getHeight() * 0.36f),
+                                           juce::Font::bold)));
 
     auto area = button.getLocalBounds();
     if (down) area = area.translated(0, 1);

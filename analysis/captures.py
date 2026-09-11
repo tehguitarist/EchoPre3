@@ -238,6 +238,18 @@ def render_args(parsed, extra_args=None):
     comparison is meaningful. Mode "none" has no plugin render at all -- compare that capture
     directly against the source signal (the M0 loop check), and this raises rather than inventing
     a setting for it.
+
+    ⚠⚠ EVERY RENDER HERE PINS --load none, AND IT IS LOAD-BEARING. The plugin's `output_load`
+    parameter DEFAULTS to 68k, because that is the behaviour the maker publishes and user reports
+    corroborate (circuit.md note #31) -- but P4's captures were taken into the interface's 1 MOhm,
+    which p4_corners.loading_correction_complex() already corrects out of the CAPTURE side. So the
+    plugin has to be rendered unloaded or the comparison is 7 dB out at the volume peak and tilted
+    on top. Pinned HERE rather than in each script so a new script cannot forget: OfflineRender
+    deliberately follows the plugin's default (it drives a real PedalAudioProcessor and must not
+    describe a different pedal than a user hears), so the responsibility sits on the caller.
+    ⛔ Do not "simplify" this away, and do not change OfflineRender's default to none to avoid it --
+    that would make the measurement tool and the plugin disagree, which is the one thing
+    OfflineRender exists to prevent.
     """
     if parsed["mode"] == "none":
         raise ValueError(
@@ -248,6 +260,7 @@ def render_args(parsed, extra_args=None):
         args = ["--volume", f"{parsed['volume']:.6f}", "--mode", "dark", "--bypass"]
     else:
         args = ["--volume", f"{parsed['volume']:.6f}", "--mode", parsed["mode"]]
+    args += ["--load", "none"]  # see the docstring -- NOT optional
 
     # Drive the plugin as hard as the pedal was driven. --input-scale scales the SIGNAL ahead of
     # the processor and is unbounded, which is what this needs; --input-trim is a [-12, +12]
