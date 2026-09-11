@@ -1609,6 +1609,14 @@ direction the data points, not a fit, and is not a reason to stop.
    mode-shelf gap to show up here (circuit.md note #25/#26c) — that is item 2's decision surfacing,
    not a separate defect to chase twice. ⛔ **Item 2 is now DECIDED (note #28), so that gap is
    ACCEPTED and explicitly out of scope here** — do not close it by moving `gm`.
+5a. 📌 **The voicing decision's price is now measured on FOUR axes, not two — circuit.md note #30.**
+   No action, and the decision is unchanged. Recorded here because items 4 and 5 will keep meeting
+   it: at P4's own gm the per-band THD error collapses from 2.27 to 0.41 dB RMS (DARK core, against
+   a 0.42 dB target), and the same single cause carries BRIGHT's 6.5-10 kHz FR miss and BRIGHT's two
+   phase misses. ⛔ **So band-edge work in BRIGHT above ~4 kHz has nothing to find** — that residual
+   is the decision, not a defect. ⚠ The FR/phase halves of that table are *expected*, not measured:
+   `goal_check.py` has no `--gm`. Add one before acting on it.
+
 6. **Optimisation pass.** Target roughly 2.5 % CPU at the 4× default (currently 6.7–7.5 %, almost
    entirely the transfer law's three `std::pow` calls per sample — note #26b). Look for a cheaper
    evaluation of that law and/or an HQ/Eco toggle per `dsp.md`'s gating rules (measure CPU cost and

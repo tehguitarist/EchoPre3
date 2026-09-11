@@ -1920,6 +1920,72 @@ high, execute routine work cheap) is what should persist.
 > as a report reference line only, now labelled as such in the script — and P4's MID in them is an
 > EXTRAPOLATION, so an average would import an estimate into the one position no capture can check.
 
+> ### ⭐⭐ SESSION 2026-09-11 (part 2): NOTHING IN THE DSP CHANGED, AND THAT IS THE RESULT
+>
+> Detail: circuit.md notes **#29** (+29a–29e) and **#30** (+30a, 30b). **All 11 tests pass. The DSP
+> is BEHAVIOURALLY IDENTICAL to the previous commit** — verified by diff: 8 comment lines in
+> `JfetStage.h`, and **not one numeric literal anywhere in `src/`**. Every number that got tighter
+> this session got tighter because the MEASUREMENT was fixed, not the model.
+>
+> **1. ⭐⭐ The 13:30 DARK outlier was the HARNESS.** `goal_check.py` analysed `sweep_clean` —
+> which is the **−41 dBFS sweep, the QUIETEST of the four**. ⚠⚠ The name is the trap: it means clean
+> of *DISTORTION*, so it reads as "the good one" while being the worst SNR by 25 dB.
+> `p4_corners.FIT_SWEEP` already avoided it and CLAUDE.md already said never to deconvolve against
+> it — **the rule existed; one script did not follow it.** New `--sweep`, defaulting to
+> `sweep_-16`: *the loudest sweep still LINEAR for every capture in the matrix* (`sweep_-6` is
+> 0.3 dB PAST cutoff at pad 0). ✅ **Every DARK capture now passes the core band (0.18–0.43 dB) and
+> none exceeds 1.0 dB anywhere**; 13:30's phase goes 2.33° → 1.02°. ⭐ **BRIGHT is unchanged** — the
+> control that says it fixed what was measurement-limited and left the voicing gap alone.
+> ⚠ Read it as **variance collapsing, not "louder is better"**: the already-good rows get WORSE
+> (9:00 0.05 → 0.18). The statistic is the SPREAD: 18× → 2.4×.
+>
+> **2. ✅ Item 3a closed: the fitter and the verifier AGREE** (+0.019 vs +0.040 dB at a common
+> sweep). The apparent 0.13 dB was the sweep mismatch alone. ⭐ It settles a rule:
+> **`kOutputMakeup` is a LINEAR scalar so its fitter belongs at the more linear sweep (`-26`), while
+> `goal_check`'s FR/phase belong at the higher-SNR `-16` — the two SHOULD differ.**
+>
+> **3. ⚠⚠ A PHASE FIGURE WAS QUOTED AGAINST A BAND IT DID NOT COVER, AGAIN** (note #18's failure
+> mode, second occurrence — mine this time). "Worst 4.05°" is the **200 Hz–12 kHz** statistic; the
+> owner's stated band is **40 Hz–16 kHz**. Now its own column and headline, split by mode.
+> ✅ **DARK over 40 Hz–16 kHz: 0.56–2.74°, target MET with ~2× margin.** BRIGHT misses at 12:00
+> (6.14°) and 13:30 (5.95°) — the voicing gap. ⚠ The headline now EXCLUDES 7:30/8:00: unfiltered it
+> reads 11.70°, all of it 7:30, a position excluded from every other fit for knob-slope error —
+> **a headline that maxes over captures the project already excludes reports a setting error as a
+> model error.**
+>
+> **4. ⭐⭐ THE VOICING DECISION'S PRICE IS FOUR AXES, NOT TWO (note #30).** At P4's own gm the
+> per-band THD error collapses **2.27 → 0.41 dB RMS** (DARK core, against a 0.42 dB target), and the
+> SAME single cause carries BRIGHT's 6.5–10 kHz FR miss and BRIGHT's two phase misses. **One
+> constant moves all four at once.** ➡ So the decision is what costs the 5 % per-band THD target —
+> a bigger consequence than note #28 priced. ⛔ **The decision STANDS**, re-confirmed by the owner
+> with this table in hand; `gm` must not be moved to close any of it. ⚠ The FR/phase halves are
+> *expected*, not measured — `goal_check` has no `--gm`.
+>
+> **5. ⚠⚠ A FLOOR WAS OVERSTATED 12× BY QUOTING IT AS RMS (note #30a).** The known-answer floor is
+> heavy-tailed: **median 0.23 dB, RMS 2.67, p90 5.49.** Quoted as RMS it says the dataset cannot
+> resolve a 0.42 dB target at all; quoted as its median it resolves ~0.25 dB and the target is just
+> above it. ➡ **Quote a heavy-tailed floor by its MEDIAN — an RMS floor is set by its tail and will
+> talk you out of a measurement you can actually make.**
+>
+> **6. 📌 Per-order confidence (note #30b):** H1 **high**, H2 high with a known offset, H3 **good**
+> (out-of-sample: `m` was fitted on H2 @220 Hz alone, yet H3's offset went −11.04 → +0.66 dB),
+> **H4/H5 UNVERIFIED** — the floor gates drop them in nearly every cell, and **THD ≡ H2 to 0.01 dB
+> in every band is the tell**. They are not free parameters, so the risk is structural rather than
+> tuning — except the TRIODE branch, which rests on one cell, so H4/H5 in the load-line region are
+> genuinely unknown.
+>
+> **7. 📌 Harness: `goal_check` renders through the keyed cache now — 600 s → 21 s, output verified
+> BYTE-IDENTICAL across all 106 lines**, guarded so the cache is skipped when `--bin` is overridden.
+> ⚠ **`p4_corners.render` writes straight to its final cache path with no temp-and-rename**, so two
+> concurrent runs sharing a key can have one read a TRUNCATED wav. Not hit yet; do not run two
+> analysis scripts against a cold cache at once.
+>
+> ### ➡ NEXT SESSION: the optimisation pass, and it is the last large item
+> `docs/build-plan.md` §19 item 6. **6.7–7.5 % CPU at the 4× default against a ~2.5 % target**,
+> almost entirely three `std::pow` calls per sample in the transfer law (note #26b). An algorithm
+> hunt, not tuning — `exp2/log2` was measured at ~1.4 points and declined on accuracy grounds, so a
+> better idea is needed. Everything else outstanding is housekeeping.
+
 ### 🗺️ Current plan
 
 > The session-by-session plan — priority order, what's parked, what's explicitly out of scope —

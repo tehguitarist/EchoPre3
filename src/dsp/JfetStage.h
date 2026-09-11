@@ -96,10 +96,15 @@ struct JfetParams
     // ⛔ THIS VALUE IS A RECORDED VOICING DECISION, not merely a fit -- circuit.md note #28.
     // The model is voiced to the NEWER three-position units (P1/P2); the owner's own two-position
     // unit P4 measures K0 = 5.06-5.19, i.e. a ~25% weaker JFET (gm ~ 1146 uS). The consequences are
-    // known, quantified and ACCEPTED: against P4 the model runs up to +1.51 dB bright at 6.5-10 kHz
-    // and makes ~1.26 dB less H2. Do NOT "fix" either by moving gm. Reversing the decision is this
-    // one constant plus a re-run of analysis/absolute_gain.py (gm and kOutputMakeup are both level
-    // scalars in the DARK path). The device law below (mExp, vp) came from P4 either way.
+    // known, quantified and ACCEPTED -- and they are FOUR axes with ONE cause (circuit.md #30):
+    //   * up to +1.51 dB bright at 6.5-10 kHz in BRIGHT (note #25)
+    //   * ~1.26 dB less H2 overall (note #26c)
+    //   * per-band THD vs P4: 2.27 dB RMS in the DARK core, against 0.41 at P4's own gm -- i.e.
+    //     this decision is what costs the 5 % (0.42 dB) per-band THD target (note #30)
+    //   * BRIGHT's only two phase misses, 12:00 and 13:30 (note #29e)
+    // Do NOT "fix" any of them by moving gm. Reversing the decision is this one constant plus a
+    // re-run of analysis/absolute_gain.py (gm and kOutputMakeup are both level scalars in the DARK
+    // path). The device law below (mExp, vp) came from P4 either way.
     double gm = 1.5531069e-3; // S -- (K0 - 1)/R5 with K0 = 6.5912 measured. M2.
 
     // The mode shelf's time constants, MEASURED rather than computed as R5*C. Both branches' fitted

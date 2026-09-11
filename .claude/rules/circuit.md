@@ -2530,3 +2530,73 @@ figures are printed.
 measured the fit window as one of the rungs that moves the number, so it is held fixed for
 continuity. The 40 Hz–16 kHz column therefore contains some extrapolation of that fit at both ends;
 it is the honest statistic for the target, not a flattering one.
+
+### 30. ⭐⭐ THE VOICING DECISION'S PRICE, PROPERLY MEASURED (2026-09-11) — it is FOUR axes, not two
+
+`analysis/thd_band_audit_p4.py --gm 1146e-6`, raw `analysis/reports/thd_band_audit_p4_gm1146u.json`.
+**No constant changed. The note #28 decision stands, unchanged and unreopened** — but the price it
+buys was quantified at "+1.51 dB bright and +1.26 dB H2", and that was an UNDER-count.
+
+Rendering at P4's own measured `gm` = 1146 µS removes the voicing offset and leaves only floor plus
+real error:
+
+| | shipped (P1/P2 voice) | at P4's own gm |
+|---|---|---|
+| per-band THD, **DARK core** | 2.27 dB RMS | **0.41** (target 0.42) |
+| per-band THD, BRIGHT core | 1.61 | **0.64** |
+| per-band THD, BRIGHT LF<200 | 2.00 | **0.45** |
+| per-band THD, DARK LF<200 | 2.15 | 1.04 |
+| H2 overall (note #26c) | +1.26 dB | ~0 |
+
+Per band, DARK collapses from 2.0–2.5 dB to **0.31–0.51 dB across 80 Hz–8 kHz**. ⭐⭐ **So
+essentially the ENTIRE per-band THD deficit against P4 is the voicing offset, not a per-band
+modelling error** — and it is the same single cause as BRIGHT's 6.5–10 kHz FR miss (note #25) and
+BRIGHT's two phase misses at 12:00/13:30 (note #29e). **One constant moves all four axes at once, in
+both modes.**
+
+➡ **What this means for the record: the decision costs the 5 % per-band THD target.** At the shipped
+`gm` that target is missed by ~5×; at P4's it is met in DARK and close in BRIGHT. That is a bigger
+consequence than note #28 priced, and a future reader weighing the decision should see this table
+rather than note #28's two numbers alone. ⛔ It is still not a defect and `gm` must not be moved to
+close it — it is the recorded decision, made deliberately and re-confirmed 2026-09-11 with this
+table in hand.
+
+⚠ **UNCONFIRMED, and flagged rather than assumed:** the BRIGHT FR and phase rows above are
+*expected* to pass at P4's `gm` because they share the single cause — **they have NOT been measured
+that way.** `goal_check.py` has no `--gm`. Anyone acting on this should run that first.
+
+#### 30a. ⚠⚠ THE KNOWN-ANSWER FLOOR WAS OVERSTATED 12× BY QUOTING IT AS RMS
+
+Note #29's THD discussion used the floor probe's **RMS, 2.67 dB**, and concluded the dataset could
+not resolve a 0.42 dB target at all. That is wrong, and the distribution says so:
+
+| statistic | mean | RMS | **median \|·\|** | p75 | p90 | worst |
+|---|---|---|---|---|---|---|
+| floor (bright vs dark below the shelf zero) | +1.44 | 2.67 | **0.23** | 1.56 | 5.49 | 7.54 |
+
+**It is heavy-tailed: the typical cell agrees to 0.23 dB and ~10 % of cells are wild.** So the
+measurement resolves ~0.25 dB, the 0.42 dB target sits just above that, and the gm-corrected
+0.31–0.51 dB residual is REAL SIGNAL rather than floor. ➡ **Quote a heavy-tailed floor by its
+MEDIAN; an RMS floor is set by its tail and will talk you out of a measurement you can actually
+make.** This sits beside note #7's "fit a model, don't threshold" as a statistic-choice trap.
+📌 Likely cause of the tail: the floor compares BRIGHT against DARK, i.e. two DIFFERENT takes, while
+every per-band statistic is WITHIN one take — so the floor carries take-to-take variation the thing
+it is bounding does not.
+
+#### 30b. 📌 PER-ORDER CONFIDENCE, asked directly and answered as a judgement
+
+| order | confidence | basis |
+|---|---|---|
+| **H1** | **High** | measured on three axes — FR passes, all 15 captures pass absolute level ±0.5 dB, compression median −0.024 dB |
+| **H2** | **High**, with a known deliberate offset | note #26c/#30 |
+| **H3** | **Good** | note #26's out-of-sample check: `m` was fitted on **H2 @220 Hz alone**, yet H3 @220 Hz went −11.04 → **+0.66 dB** offset (1.35 shape RMS) and @3150 Hz → −0.21/1.47 |
+| **H4, H5** | ⚠ **UNVERIFIED** | the floor gates drop them in nearly every cell — **THD ≡ H2 to 0.01 dB in every band is the tell**. There is essentially no capture-side data on them. |
+
+⭐ **The structural argument for H4/H5 nonetheless being about right: they are NOT free
+parameters.** They fall out of the device law plus the implicit loop, so there is no coefficient to
+get wrong independently of H2/H3 — the risk is a structural error, which would surface in H2/H3
+first, and does not.
+⚠ **The genuine exception is the TRIODE branch** (note #27 §4): it rests on one capture cell, and
+hard-clipping regions generate high orders disproportionately. ➡ **H4/H5 in the clean region:
+probably fine. In the load-line region — the top ~7 dB of a hot take at a high VOLUME setting —
+genuinely unknown.**
