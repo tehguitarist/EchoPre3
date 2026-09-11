@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <limits>
 
 #include "CircuitValues.h"
@@ -451,12 +453,51 @@ public:
         }
     }
 
-    /** Newton residual at the last solved sample, in AMPS of drain current. Exposed so a test can
-     *  assert the fixed iteration count actually converges on real signal rather than assume it. */
+    /** Newton residual at the last solved sample, in AMPS of drain current. Valid only while
+     *  setResidualTracking(true) -- see solveDrain() for why it is not computed by default. */
     double lastSolveResidual() const noexcept { return solveResidual; }
+
+    /** Compute lastSolveResidual() per sample. TEST/PROBE ONLY: it costs two std::pow per sample,
+     *  which at the shipped exponent is most of what the solve itself costs. Production leaves it
+     *  off; JfetStageTest section 8f turns it on and asserts the solve converges on real signal. */
+    void setResidualTracking(bool shouldTrack) noexcept { trackResidual = shouldTrack; }
 
     /** Test/probe hooks. Production never calls these. */
     void setSolveIters(int n) noexcept { solveIters = (n > 0) ? n : kSolveIters; }
+
+    /** Iterations in the production solve's TRIODE branch. Test/probe only -- kTriodeIters is the
+     *  shipped value, and JfetStageTest section 8c(c) is what sets it, on harmonics. */
+    void setTriodeIters(int n) noexcept { triodeIters = (n > 0) ? n : kTriodeIters; }
+    static constexpr int shippedTriodeIters() noexcept { return kTriodeIters; }
+
+    /** Iterations in the production solve's SATURATION branch. Test/probe only. */
+    void setSatIters(int n) noexcept { satIters = (n > 0) ? n : kSatIters; }
+    static constexpr int shippedSatIters() noexcept { return kSatIters; }
+
+    /** Is the transcendental-free saturation solve in use? True exactly when the transfer-law
+     *  exponent is a small rational (it is: 1.60 = 8/5). ⚠ This is a PERFORMANCE cliff, not an
+     *  accuracy one -- see updateRationalExponent() -- which is why JfetStageTest 8g asserts it for
+     *  the shipped parameters rather than leaving it to be discovered in a DAW. */
+    bool usesRationalSolve() const noexcept { return ratPathActive; }
+    void rationalExponent(int& p, int& q) const noexcept { p = rat.p; q = rat.q; }
+
+    /** Force the std::pow saturation solve even when the exponent is rational. TEST ONLY: the two
+     *  paths solve the same equation and must agree to machine precision. */
+    void setAllowRationalSolve(bool shouldAllow) noexcept
+    {
+        allowRationalPath = shouldAllow;
+        ratPathActive = rat.valid && allowRationalPath;
+    }
+
+    /** The q-th-root START approximation, exposed so its worst error can be ASSERTED rather than
+     *  argued. Test only -- production reaches the same code with cached constants. */
+    static double qRootStart(double x, int q) noexcept
+    {
+        return qRootApprox(x, rootBiasFor(q), rootRecipFor(q), (unsigned) q);
+    }
+
+    /** The factor by which qRootStart() is scaled up to make a TRUE upper bound on y. */
+    static constexpr double rootSlack() noexcept { return kRootSlack; }
     static constexpr int shippedSolveIters() noexcept { return kSolveIters; }
 
     /** Which of the three solves to run. Production is always Shipped; the other two exist so a test
@@ -571,15 +612,24 @@ public:
                                                                   : solvePowerLaw(vGate);
 
         const double vs = srcRd * i + srcOffset();
-        lastVds = params.vdsQuiescent() - i * params.zLoad - vs;
+        lastVds = cached.vdsQ - i * params.zLoad - vs;
         lastW = vGate - vs;
-        double dV = 0.0, dD = 0.0;
-        const double resid = i - (deviceCurrent(params.vov() + lastW, lastVds, params.betaSq(),
-                                                params.mExp, dV, dD)
-                                  - params.id0());
-        // Reported in AMPS OF CURRENT ERROR, not as the raw residual: dF/di runs to ~40 here, so the
-        // bare residual overstates the error by that factor and reads alarming when the answer is exact.
-        solveResidual = resid / (1.0 + srcRd * dV + (params.zLoad + srcRd) * dD);
+        // ⚠⚠ THE RESIDUAL IS OFF BY DEFAULT, AND IT IS NOT A CORNER THAT WAS CUT. Evaluating it
+        // costs a betaSq() (one std::pow) plus a deviceCurrent() (one more) on EVERY sample -- two
+        // of the six pows the stage was paying, for a number production never reads and, until this
+        // was noticed, no test read either (it is exposed "so a test can assert the fixed iteration
+        // count converges"; nothing did). Making it opt-in is what turns that from an aspiration
+        // into something measured: JfetStageTest section 8f now switches it on and asserts it on
+        // real signal, which is strictly more than was being checked when it ran every sample.
+        if (trackResidual)
+        {
+            double dV = 0.0, dD = 0.0;
+            const double resid =
+                i - (deviceCurrent(cached.vov + lastW, lastVds, cached.beta, cached.m, dV, dD) - cached.id0);
+            // In AMPS OF CURRENT ERROR, not the raw residual: dF/di runs to ~40 here, so the bare
+            // residual overstates the error by that factor and reads alarming when the answer is exact.
+            solveResidual = resid / (1.0 + srcRd * dV + (params.zLoad + srcRd) * dD);
+        }
         advanceSource(i, vs);
         return i;
     }
@@ -619,11 +669,10 @@ public:
     {
         const double rd = srcRd;
         const double off = srcOffset();
-        const double vov = params.vov();
-        const double beta = params.betaSq();
-        const double id0 = params.id0();
-        const double A = vov + vGate - off;
-        const double B = params.vdsQuiescent() - off;
+        const double beta = cached.beta;
+        const double id0 = cached.id0;
+        const double A = cached.vov + vGate - off;
+        const double B = cached.vdsQ - off;
         const double R = params.zLoad + rd;
 
         // BOTH roots of a*x^2 + b*x + c, in the cancellation-stable pair q/a and c/q, with NaN for
@@ -680,6 +729,219 @@ public:
         }
         // --- cutoff, or the drain bottomed: the device passes nothing -------------------------
         return -id0;
+    }
+
+    /** m as p/q in lowest terms, when it is one. See updateRationalExponent(). */
+    struct RationalExponent
+    {
+        bool valid = false;
+        int p = 0, q = 0, n = 0, qm2 = 0;
+        unsigned uq = 1;
+        double dq = 0.0, dp = 0.0, dqq1 = 0.0, dpp1 = 0.0;
+        std::uint64_t bias = 0;
+        std::uint64_t recipQ = 0; // floor(2^64/q) + 1 -- see qRootApprox
+    };
+
+    /** See qRootApprox: C = ((q-1)/q)*B - 2^52*dMid*(q-1)/q, with dMid the mid-range value of the
+     *  mantissa linearisation error log2(1+f) - f, which runs 0 .. 0.0861. ONE definition -- the
+     *  production path and JfetStageTest 8g's error bound both come through here. */
+    static std::uint64_t rootBiasFor(int q) noexcept
+    {
+        constexpr double kB = 4607182418800017408.0; // 1023 << 52
+        constexpr double kTwo52 = 4503599627370496.0;
+        constexpr double kLogLinMid = 0.0430;
+        const double frac = (double) (q - 1) / (double) q;
+        return (std::uint64_t) (frac * kB - kTwo52 * kLogLinMid * frac);
+    }
+
+    static std::uint64_t rootRecipFor(int q) noexcept
+    {
+#if defined(__SIZEOF_INT128__)
+        return (std::uint64_t) ((unsigned __int128) ~0ULL / (unsigned) q) + 1u;
+#else
+        (void) q;
+        return 0;
+#endif
+    }
+
+    /** x^e for a small NON-NEGATIVE INTEGER e, by binary powering. e is a per-block constant, so
+     *  the loop's branches are perfectly predicted and its depth is log2(e) multiplies -- for the
+     *  shipped e = 3 that is two, against a std::pow whose DEPENDENT-CHAIN latency is ~32 ns. */
+    static inline double ipow(double x, int e) noexcept
+    {
+        if (e <= 0)
+            return 1.0;
+        // ⚠ Seeded from x rather than from 1.0, and the final squaring is not taken. The textbook
+        // form wastes a multiply by 1.0 and one squaring whose result is never used -- at e = 3,
+        // which is what the shipped exponent needs, that is 2 wasted multiplies out of 4.
+        // ⛔ A switch spelling out e = 0..8 was tried INSTEAD of this loop and measured WORSE
+        // (76.2 ns/sample against 68.6): the jump table costs more than the two predicted branches
+        // it removes. Measured before it was believed, and recorded so it is not tried again.
+        double r = (e & 1) ? x : 1.0;
+        for (e >>= 1; e > 0; e >>= 1)
+        {
+            x *= x;
+            if (e & 1)
+                r *= x;
+        }
+        return r;
+    }
+
+    /** A few-percent approximation to x^(1/q) from the exponent field alone, for x > 0.
+     *
+     *  A double's bit pattern is 2^52*(1023 + log2(x) - d(f)), where d(f) = log2(1+f) - f is the
+     *  error of reading the mantissa as a linear fraction -- zero at both ends of a binade and at
+     *  most 0.0861 in the middle. Dividing the integer by q and adding a constant therefore divides
+     *  log2(x) by q, and matching the d terms on the two sides fixes the constant outright:
+     *
+     *      C = 2^52 * [ 1023*(q-1)/q + d(f_x)/q - d(f_y) ]
+     *
+     *  Taking d at its mid-range value for both leaves C = ((q-1)/q)*B - 2^52*dMid*(q-1)/q, which is
+     *  what kLogLinMid below is. ⭐ It is a DERIVATION, not a tuned magic number: a numeric search
+     *  over the tweak for q = 5 independently lands at -1.6e14 against this formula's -1.55e14.
+     *
+     *  ⚠ It is only ever a STARTING POINT. Its worst error is asserted in JfetStageTest section 8g;
+     *  nothing downstream depends on it being any particular accuracy, only on it being positive and
+     *  in the right decade, because the Halley iteration that follows re-establishes the answer to
+     *  machine precision from wherever it starts. */
+    static inline double qRootApprox(double x, std::uint64_t bias, std::uint64_t recipQ,
+                                     unsigned q) noexcept
+    {
+        std::uint64_t i;
+        std::memcpy(&i, &x, sizeof i);
+        // ⚠ The divide by q is a MULTIPLY-HIGH by a magic constant, not a udiv. q is a per-block
+        // constant but the compiler cannot see that, so `i / q` emits a 64-bit UDIV -- 3.26 ns in a
+        // dependent chain against 1.26 ns for the multiply, and this runs twice per sample. The
+        // magic is floor(2^64/q) rounded up, which differs from the true quotient by at most ONE
+        // integer unit, i.e. 2.2e-16 of the double -- immaterial for something that is only a
+        // starting point, and measured across every exponent field rather than argued.
+#if defined(__SIZEOF_INT128__)
+        (void) q;
+        i = (std::uint64_t) (((unsigned __int128) i * recipQ) >> 64) + bias;
+#else
+        (void) recipQ;
+        i = i / q + bias;
+#endif
+        double y;
+        std::memcpy(&y, &i, sizeof y);
+        return y;
+    }
+
+    /** ⭐⭐ THE SATURATION SOLVE WITH NO TRANSCENDENTAL AT ALL, and it is an identity rather than an
+     *  approximation: substituting u = y^q into u + c*u^m = P at m = p/q turns the transcendental
+     *  into the POLYNOMIAL
+     *
+     *      h(y) = y^q + c*y^p - P = y^(q-2) * y^2 * (1 + c*y^n) - P,     n = p - q
+     *
+     *  whose derivatives share the same two integer powers:
+     *
+     *      h'(y)  = y^(q-1) * (q + p*c*y^n)
+     *      h''(y) = y^(q-2) * (q(q-1) + p(p-1)*c*y^n)
+     *
+     *  The shipped exponent is m = 1.60 = 8/5, so q = 5, p = 8, n = 3 -- and n == q-2, so ONE
+     *  integer power of depth 2 feeds the whole step.
+     *
+     *  📌 WHY THIS IS THE WHOLE OPTIMISATION. std::pow costs 7.4 ns of THROUGHPUT but 31.8 ns of
+     *  LATENCY, and a Halley iteration is a serial dependency chain, so the solve pays the latency
+     *  three times over: measured, the stage cost 146 ns/sample at 192 kHz against a 24 ns floor
+     *  (the m = 2 closed form, which needs only a sqrt). Nothing about that is fixable by making pow
+     *  cheaper -- an inlined exp2(k*log2(x)) was written and measured at 34.6 ns, WORSE than
+     *  std::pow, because its polynomials are themselves long dependency chains. The exponent has to
+     *  leave the inner loop entirely, and being rational is what lets it.
+     *
+     *  ⭐ IT IS ALSO MORE ACCURATE, which is not a coincidence. u = y^q means a relative error in y
+     *  is q times smaller than the same error in u, so the linear-root start -- which is up to 2.3x
+     *  off at the cutoff knee, the worst case solvePowerLaw() records -- arrives in y-space five
+     *  times closer. Worst relative error over the whole drive range against a bisection of the
+     *  original equation: 6.6e-13 at three Halley steps here, against ~1e-10 for the pow form.
+     *
+     *  ⚠ Everything the pow form guaranteed still holds, for the same reasons: h is strictly
+     *  increasing and convex on y > 0 (every term is a positive power greater than one), the bracket
+     *  (0, P^(1/q)] is free because y^q < P, and Halley's denominator is still not sign-definite so
+     *  it still falls back to the Newton step. */
+    inline double satOverdriveRational(double A, double P) const noexcept
+    {
+        const double c = cached.satC;
+
+        // ⭐ TWO STARTS, AND THE CHEAPER ONE IS THE RIGHT ONE EXACTLY WHERE THE OTHER FAILS.
+        // The linear root inverts the dominant term well at ordinary drive, but it does NOT go to
+        // zero with the signal: at the cutoff knee (P -> 0+) it tends to Rd*K*Vov, a positive
+        // constant, while the true u tends to P. That is the "2.3x above the root" worst case
+        // solvePowerLaw() records, and it is the only place the old start needed a third iteration.
+        // The q-th root of P has the opposite character -- u < P always, with u -> P as P -> 0 --
+        // so it is nearly exact at the knee and merely an upper bound elsewhere. Taking whichever
+        // is smaller costs one compare and is the better start EVERYWHERE.
+        const double yP = qRootApprox(P, rat.bias, rat.recipQ, rat.uq);
+        const double yMax = yP * kRootSlack; // y^q < P always, so this is a true upper bound
+        double u0 = A - cached.rdLinK * (A - cached.vov);
+        double y = (u0 > 0.0) ? qRootApprox(u0, rat.bias, rat.recipQ, rat.uq) : yP;
+        if (! (y > 0.0) || y > yP)
+            y = yP;
+
+        // ⚠ Halley's denominator is not sign-definite the way Newton's h' >= 1 is, so it falls back
+        // to the Newton step rather than dividing by something near zero. h'' > 0 and h' >= 1, so
+        // that can only trigger for a large positive h, i.e. a start far above the root.
+        // Hoisted for legibility. 📌 Measured worth ~0.3 ns: the compiler already proves these
+        // loop-invariant. Recorded so it is not "optimised" a second time expecting more.
+        const int eq2 = rat.qm2, en = rat.n, eq = rat.q;
+        const bool shared = (en == eq2);
+        const double dq = rat.dq, dp = rat.dp, dqq1 = rat.dqq1, dpp1 = rat.dpp1;
+
+        const auto step = [&]() noexcept {
+            const double yq2 = ipow(y, eq2);
+            const double yn = shared ? yq2 : ipow(y, en);
+            const double y2 = y * y;
+            const double t = c * yn;
+            const double h = yq2 * y2 * (1.0 + t) - P;
+            const double hp = yq2 * y * (dq + dp * t);
+            const double hpp = yq2 * (dqq1 + dpp1 * t);
+            const double den = 2.0 * hp * hp - h * hpp;
+            y -= (den > 0.0) ? (2.0 * h * hp / den) : (h / hp);
+            if (! (y > 0.0))
+                y = 0.5 * yMax;
+            else if (y > yMax)
+                y = yMax;
+        };
+        // The shipped count is unrolled so the loop counter is not a runtime dependency; the loop is
+        // only for setSatIters(), which exists so a test can SCORE the count instead of assuming it.
+        if (satIters == kSatIters)
+        {
+            step();
+            step();
+            step();
+        }
+        else
+        {
+            for (int it = 0; it < satIters; ++it)
+                step();
+        }
+        return ipow(y, eq);
+    }
+
+    /** The same saturation root via std::pow, for an exponent that is not a small rational. Kept
+     *  because the measurement flags (OfflineRender --exponent) sweep m continuously, and because it
+     *  is the independent implementation JfetStageTest section 8g checks the fast path against. */
+    inline double satOverdrivePow(double A, double P) const noexcept
+    {
+        const double c = cached.satC;
+        const double m = cached.m;
+        double u = A - cached.rdLinK * (A - cached.vov);
+        if (! (u > 0.0) || u > P)
+            u = 0.5 * P;
+        for (int it = 0; it < kSatIters; ++it)
+        {
+            const double up = std::pow(u, cached.mm1);
+            const double h = u + c * u * up - P;
+            const double hp = 1.0 + c * m * up;
+            const double hpp = c * m * (m - 1.0) * up / u;
+            const double den = 2.0 * hp * hp - h * hpp;
+            u -= (den > 0.0) ? (2.0 * h * hp / den) : (h / hp);
+            if (! (u > 0.0))
+                u = 0.5 * P;
+            else if (u > P)
+                u = P;
+        }
+        return u;
     }
 
     /** ⭐⭐ THE PRODUCTION SOLVE at the shipped exponent: ONE unknown in the common case, and it is
@@ -744,47 +1006,25 @@ public:
     {
         const double rd = srcRd;
         const double off = srcOffset();
-        const double vov = params.vov();
-        const double id0 = params.id0();
-        const double beta = params.betaSq();
-        const double m = params.mExp;
+        const double id0 = cached.id0;
+        const double beta = cached.beta;
+        const double m = cached.m;
         const double zl = params.zLoad;
 
-        const double A = vov + vGate - off;
+        const double A = cached.vov + vGate - off;
         const double P = A + rd * id0;
         if (P <= 0.0) // cutoff: the device passes nothing, whatever the drain is doing
             return -id0;
 
-        const double B = params.vdsQuiescent() - off;
+        const double B = cached.vdsQ - off;
         const double R = zl + rd;
 
         // --- saturation, the common case: one unknown, u + c*u^m = P ---------------------------
-        const double c = rd * beta;
-        double u = A - rd * (params.gm * (vGate - off) / (1.0 + params.gm * rd)); // linear root
-        if (!(u > 0.0) || u > P)
-            u = 0.5 * P; // only reachable from a pathological start; the bracket is (0, P]
-        for (int n = 0; n < kSatIters; ++n)
-        {
-            // ⭐ HALLEY, not Newton, and it is free: h, h' and h'' all come out of the SAME single
-            // std::pow, so a cubically-convergent step costs exactly what a quadratic one does.
-            // Two Halley steps reach the same accuracy as three Newton steps (worst relative error
-            // 1.2e-12 against 7.3e-12 over the whole drive range and both extremes of Rd), and the
-            // pow count is what the solve costs: measured 6.29 % -> 5.29 % of realtime at the 4x
-            // default, 13.33 % -> 11.61 % at 8x.
-            const double up = std::pow(u, m - 1.0);
-            const double h = u + c * u * up - P;
-            const double hp = 1.0 + c * m * up;
-            const double hpp = c * m * (m - 1.0) * up / u;
-            const double den = 2.0 * hp * hp - h * hpp;
-            // ⚠ Halley's denominator is not sign-definite the way Newton's h' >= 1 is, so fall back
-            // to the Newton step rather than dividing by something near zero. h'' > 0 and h' >= 1,
-            // so this can only trigger for a large positive h, i.e. a start far above the root.
-            u -= (den > 0.0) ? (2.0 * h * hp / den) : (h / hp);
-            if (!(u > 0.0))
-                u = 0.5 * P;
-            else if (u > P)
-                u = P;
-        }
+        // ⭐ HALLEY, not Newton, in both forms: h, h' and h'' come out of the same work, so a
+        // cubically-convergent step costs what a quadratic one does. Which form runs is decided once
+        // per parameter change, not per sample -- see satOverdriveRational() for why the rational
+        // one is both ~4x faster and better conditioned.
+        const double u = ratPathActive ? satOverdriveRational(A, P) : satOverdrivePow(A, P);
         const double iSat = (A - u) / rd;
         if (B - R * iSat >= u) // Vds_i >= Vov_i: saturation is the valid branch
             return iSat;
@@ -804,16 +1044,32 @@ public:
         double lo = -id0, hi = (iSat < B / R) ? iSat : B / R;
         if (!(hi > lo))
             hi = lo + 1.0e-9;
-        double i = 0.5 * (lo + hi);
-        for (int n = 0; n < kTriodeIters; ++n)
+        // ⭐⭐ START AT THE UPPER BRACKET END, NOT ITS MIDPOINT, AND IT IS WORTH A FACTOR OF TWO IN
+        // ITERATIONS. hi is min(iSat, B/R): either the saturation root -- which in triode is a tight
+        // upper bound, because the device passes LESS than the saturation law at the same overdrive
+        // -- or the current at which the drain has bottomed. The midpoint of a ~980 uA bracket is
+        // just an arbitrary point in it. Scored the way 8c does, H2/H3 error in dB against a
+        // 40-iteration generic Newton at a 0 dBFS peak deep in triode, worst over 3 modes x 2 rates:
+        //
+        //     iterations      1        2        3        4        5        6
+        //     from hi      0.0869   0.0126   0.0005   0.0000   0.0000   0.0000
+        //     from mid    19.06     10.54     7.67     2.02     0.0423   0.0004
+        //
+        // Machine precision in the drain current itself (4.5e-18 A) arrives at 6 from hi, where the
+        // midpoint start needed 8. ⚠ The count is set on the CURRENT, not on the harmonics, for the
+        // reason solvePowerLaw() gives: 4 would be inaudible but only an exact solve can be asserted
+        // against an oracle at machine precision, and that is what makes a future structural error
+        // show up immediately instead of hiding inside a tolerance.
+        double i = hi;
+        for (int n = 0; n < triodeIters; ++n)
         {
             const double uu = A - rd * i;
             const double w = (A - B) + zl * i;
             if (!(uu > 0.0))
                 return -id0;
             const double wc = (w > 0.0) ? w : 0.0;
-            const double upow = std::pow(uu, m - 1.0);
-            const double wpow = (wc > 0.0) ? std::pow(wc, m - 1.0) : 0.0;
+            const double upow = std::pow(uu, cached.mm1);
+            const double wpow = (wc > 0.0) ? std::pow(wc, cached.mm1) : 0.0;
             const double f = i + id0 - beta * (uu * upow - wc * wpow);
             (f > 0.0 ? hi : lo) = i;
             const double next = i - f / (1.0 + beta * m * (rd * upow + zl * wpow));
@@ -830,10 +1086,10 @@ public:
         const double rd = srcRd;
         const double off = srcOffset();
         const double gm = params.gm;
-        const double vov = params.vov();
-        const double beta = params.betaSq();
-        const double id0 = params.id0();
-        const double vdsQ = params.vdsQuiescent();
+        const double vov = cached.vov;
+        const double beta = cached.beta;
+        const double id0 = cached.id0;
+        const double vdsQ = cached.vdsQ;
         const double zl = params.zLoad;
 
         // ⚠⚠ SAFEGUARDED NEWTON, NOT PLAIN NEWTON -- and the difference is the whole solve.
@@ -865,7 +1121,7 @@ public:
             const double vovI = vov + (vGate - vs);
             const double vdsI = vdsQ - i * zl - vs;
             double dIdVov = 0.0, dIdVds = 0.0;
-            const double I = deviceCurrent(vovI, vdsI, beta, params.mExp, dIdVov, dIdVds);
+            const double I = deviceCurrent(vovI, vdsI, beta, cached.m, dIdVov, dIdVds);
             const double f = i - (I - id0);
 
             (f > 0.0 ? hi : lo) = i; // F increases, so a positive residual puts the root to the left
@@ -1173,6 +1429,80 @@ private:
         srcRd = (1.0 - b0) / (params.gm * b0);
         srcC1 = (a1 - b1) / (params.gm * b0);
         srcC2 = -b1 / b0;
+        updateDerived();
+    }
+
+    /** The operating point the current (gm, |Vp|, m) triple implies, CACHED.
+     *
+     *  ⚠⚠ THESE WERE RECOMPUTED PER SAMPLE, AND TWO OF THEM COST A std::pow EACH. JfetParams'
+     *  accessors are a derivation chain -- betaSq() calls id0() calls vov(), and betaSq() itself is
+     *  id0()/pow(vov(), m) -- so every call to betaSq() from inside the solve was a full transcendental
+     *  on quantities that change only when a parameter does, i.e. once per block at most. Measured at
+     *  192 kHz the stage cost 147 ns/sample, of which a dependent-chain std::pow is ~32 ns: the two
+     *  cached-away pows here and the one in the discarded residual (solveDrain) were together most of
+     *  the difference between this and the three the solve actually needs.
+     *  ➡ Anything derived from params and constant within a block belongs here, not in the loop. */
+    void updateDerived() noexcept
+    {
+        cached.vov  = params.vov();
+        cached.id0  = params.id0();
+        cached.beta = params.betaSq();
+        cached.vdsQ = params.vdsQuiescent();
+        cached.m    = params.mExp;
+        cached.mm1  = params.mExp - 1.0;
+        cached.satC = srcRd * cached.beta;
+        // u0 = A - Rd*i_linear with i_linear = gm*(vGate - vOff)/(1 + gm*Rd), and vGate - vOff is
+        // exactly A - Vov, so the whole linear start collapses to one multiply per sample.
+        cached.rdLinK = srcRd * params.gm / (1.0 + params.gm * srcRd);
+        updateRationalExponent();
+        ratPathActive = rat.valid && allowRationalPath;
+    }
+
+    /** Is the transfer-law exponent a small rational p/q? If so the saturation solve needs no
+     *  transcendental at all (satOverdriveRational). Decided once per parameter change.
+     *
+     *  ⚠⚠ THE SHIPPED EXPONENT IS 1.60 = 8/5 AND THIS IS WHY THE PLUGIN IS FAST. A future refit of
+     *  m to something outside this net -- 1.55 = 31/20 is inside it, 1.5837 is not -- is CORRECT but
+     *  silently three times dearer, because it falls back to satOverdrivePow(). That is the right
+     *  failure direction (accuracy never depends on the path taken), but it is a performance cliff,
+     *  so JfetStageTest section 8g asserts which path the SHIPPED parameters take rather than
+     *  leaving it to be discovered in a DAW. ⛔ Do not widen the search to make an arbitrary m fast
+     *  by rounding it -- that would change the fitted device law to buy CPU, which is the one trade
+     *  this project does not make.
+     *
+     *  q is capped at 16 because u = y^q amplifies a relative error in y by q, and p at 32 because
+     *  the integer powers are what the inner loop costs. Both are far beyond any plausible refit. */
+    void updateRationalExponent() noexcept
+    {
+        rat = RationalExponent {};
+        const double m = params.mExp;
+        if (! (m > 1.0) || m > 32.0)
+            return;
+        for (int q = 2; q <= 16; ++q)
+        {
+            const double pr = m * (double) q;
+            const int pi = (int) std::lround(pr);
+            if (pi <= q || pi > 32 || std::fabs(pr - (double) pi) > 1.0e-9)
+                continue;
+            // Lowest terms only, so the cheapest powers are used (1.60 -> 8/5, never 16/10).
+            int a = pi, b = q;
+            while (b != 0) { const int t = a % b; a = b; b = t; }
+            if (a != 1)
+                continue;
+            rat.valid = true;
+            rat.q = q;
+            rat.uq = (unsigned) q;
+            rat.p = pi;
+            rat.n = pi - q;
+            rat.qm2 = q - 2;
+            rat.dq = (double) q;
+            rat.dp = (double) pi;
+            rat.dqq1 = (double) (q * (q - 1));
+            rat.dpp1 = (double) (pi * (pi - 1));
+            rat.bias = rootBiasFor(q);
+            rat.recipQ = rootRecipFor(q);
+            return;
+        }
     }
 
     JfetParams params {};
@@ -1185,6 +1515,21 @@ private:
     double srcRd = circuit::kR5, srcC1 = 0.0, srcC2 = 0.0;
     double srcIdPrev = 0.0, srcVsPrev = 0.0;
     double solveResidual = 0.0;
+
+    /** Per-block constants the per-sample solve reads. See updateDerived(). */
+    struct Derived
+    {
+        double vov = 0.0, id0 = 0.0, beta = 0.0, vdsQ = 0.0, m = 2.0, mm1 = 1.0;
+        double satC = 0.0;   // Rd*beta -- the c of u + c*u^m = P
+        double rdLinK = 0.0; // Rd*gm/(1 + gm*Rd) -- the linear-root start, per sample, in one multiply
+    };
+    Derived cached {};
+
+    RationalExponent rat {};
+
+    // qRootApprox is good to a few percent, so this scales it past its own worst error to make a
+    // TRUE upper bound on y. Asserted in JfetStageTest section 8g rather than assumed.
+    static constexpr double kRootSlack = 1.10;
 
     // Newton iterations per sample. FIXED, for the same reason as before: a convergence loop whose
     // length depends on the signal makes CPU depend on programme material, and a per-sample early-out
@@ -1205,13 +1550,20 @@ private:
     // have been wrong by 10 dB while looking fine everywhere else.
     static constexpr int kSolveIters = 8;
 
-    // Iterations for the production (power-law) solve. Both are set on MEASURED convergence, not on
-    // a residual: see solvePowerLaw()'s table for saturation, and JfetStageTest 8c(b), which scores
-    // the count on H2/H3 against a 40-iteration reference at a 0 dBFS peak deep in triode.
+    // Iterations for the production (power-law) solve. Both are set on MEASURED convergence to
+    // MACHINE PRECISION in the drain current, not on a residual and not on audibility: see
+    // satOverdriveRational() for saturation and the block above the triode loop for triode. Both
+    // counts fell when their STARTS were fixed -- triode 8 -> 6 -- rather than by accepting less.
+    // JfetStageTest 8c(b) and 8g score them; setSatIters()/setTriodeIters() are how.
     static constexpr int kSatIters = 3;
-    static constexpr int kTriodeIters = 8;
+    static constexpr int kTriodeIters = 6;
     int solveIters = kSolveIters;
+    int triodeIters = kTriodeIters;
+    int satIters = kSatIters;
+    bool allowRationalPath = true;
+    bool ratPathActive = false;
     Solver solver = Solver::Shipped;
+    bool trackResidual = false;
 
     // Operating point at the last solved sample, for tests and probes only.
     double lastVds = 0.0, lastW = 0.0;

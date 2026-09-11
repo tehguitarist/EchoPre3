@@ -1617,14 +1617,57 @@ direction the data points, not a fit, and is not a reason to stop.
    is the decision, not a defect. ⚠ The FR/phase halves of that table are *expected*, not measured:
    `goal_check.py` has no `--gm`. Add one before acting on it.
 
-6. **Optimisation pass.** Target roughly 2.5 % CPU at the 4× default (currently 6.7–7.5 %, almost
-   entirely the transfer law's three `std::pow` calls per sample — note #26b). Look for a cheaper
-   evaluation of that law and/or an HQ/Eco toggle per `dsp.md`'s gating rules (measure CPU cost and
-   accuracy delta together; gate only a feature that's a genuine lever). Trading a small, measured
-   accuracy loss for a large CPU win is explicitly acceptable here — look harder for a more
-   efficient algorithm before reaching for a quality toggle as the only answer.
-7. **Everything else**, once 1–6 are settled: refresh the README (status + performance table are
-   both stale), write up everything since §18 into new dated sections here (the capture session,
+6. ✅ **Optimisation pass — DONE 2026-09-11. CPU at the 4× default 6.70–7.48 % → 3.72–4.36 %, the
+   audio BIT-FOR-BIT unchanged (null −242 to −272 dB against the pre-change build across all three
+   modes) and the solve's worst error against its oracle unchanged at ~1.5e-17 A.** No constant
+   moved, no accuracy was traded, and no quality toggle was added. Full reasoning lives in
+   `src/dsp/JfetStage.h`; the reusable parts are now `.claude/rules/dsp.md` §"Cost of a per-sample
+   transcendental".
+
+   | factor | before | after |
+   |---|---|---|
+   | 1× | 1.61–1.89 % | **0.83–1.01 %** |
+   | 2× | 3.60–4.03 % | **2.13–2.46 %** |
+   | **4× (shipped default)** | **6.70–7.48 %** | **3.72–4.36 %** |
+   | 8× | 12.75–14.39 % | **6.82–8.19 %** |
+
+   ⭐⭐ **The win is that the exponent left the inner loop, and it is an IDENTITY.** m = 1.60 is
+   exactly 8/5, so substituting `u = y^5` turns the saturation equation `u + c·u^m = P` into the
+   polynomial `y^5 + c·y^8 = P`, which the same Halley step solves with nothing but multiplies.
+   ⚠ The framing in item 6's original text — "find a cheaper evaluation of the transfer law" — was
+   the wrong target: what the solve pays is `std::pow`'s **latency** (31.8 ns in a dependent chain),
+   not its 7.4 ns throughput, and a hand-written inlined `exp2(k·log2(x))` measured **worse** at
+   34.6 ns. Nothing about making `pow` cheaper was going to work.
+   ⭐ It also came out MORE accurate, for free: `u = y^q` compresses a relative error in the solved
+   variable by q, so the same start lands 5× closer.
+
+   **Also in it:** the triode branch starts at the upper bracket end rather than its midpoint
+   (8 → 6 iterations at machine precision; at 4 the harmonics are already exact where the midpoint
+   start was 2.02 dB out), the derived operating point is cached instead of recomputed per sample
+   (two more pows), the per-sample solve residual is opt-in (a third pow, for a diagnostic nothing
+   read — `JfetStageTest` 8f now switches it on and asserts it), and the bit-trick root's `i / q`
+   is a multiply-high rather than a runtime UDIV.
+
+   ⛔ **NO HQ/ECO TOGGLE, and the measurement is why.** `dsp.md` says to gate only a genuine lever.
+   The one available — dropping the saturation solve from 3 Halley steps to 2 — is worth **0.48
+   points** (3.76 → ~3.28 % at 4×) and costs machine precision in the drain current (1.6e-17 →
+   3.6e-9 A) for a harmonic difference of **0.00001 dB**, i.e. nothing audible. That is exactly the
+   clutter `dsp.md` warns against. **The oversampling factor already IS the quality lever**, and it
+   is the one with a real accuracy axis: 2× meets the old 2.5 % target outright at 2.13–2.46 %, for
+   −0.37 dB at 18 kHz and 3.54° of resampler dispersion there (`OSFidelity` §1, §4) — a real trade
+   against the 5° phase budget, which is why the default stays at 4×.
+
+   ⛔ **Do not go looking for the next factor of two in the solve.** It was measured and it is not
+   there: the stage is 69 ns/sample at 192 kHz, of which 10 ns is plumbing, ~6 ns the start and
+   ~18 ns each for three Halley steps. Cutting to two steps needs a start accurate to ~1 %, and the
+   start's error is **20 %, of which 17 points is the linear root at the cutoff knee** (the bit-root
+   contributes only 3.5 %, so refining it buys nothing). The only thing that fixes that is a
+   tabulated inverse — whose lookup measures about what the step it saves costs, and which would put
+   a ~6 KB table in L1 on every sample. Two smaller ideas measured BACKWARDS and are recorded in
+   `dsp.md` so they are not retried: a `switch` instead of the binary-powering loop (76.2 vs
+   68.6 ns/sample) and hoisting loop-invariant struct fields (~0.3 ns — the compiler already had).
+7. **Everything else**, once 1–6 are settled: refresh the README (the performance table was
+   refreshed with item 6; the status text is still stale), write up everything since §18 into new dated sections here (the capture session,
    the device-law rewrite, the three anchored constants — currently only in `circuit.md` and
    `CLAUDE.md`'s chronological log), check VOLUME automation for zipper noise, and the two parked
    harness defects (`check_capture.py`'s meaningless H2-clearance column on active captures; the

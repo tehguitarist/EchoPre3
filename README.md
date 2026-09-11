@@ -141,15 +141,21 @@ ctest --test-dir build --output-on-failure
 
 CPU usage (% of realtime, stereo, 4 s render) and algorithmic latency at each oversampling factor,
 measured by `PerfBenchmark` (`tests/PerfBenchmark.cpp`) on an Apple Silicon Mac, Release build.
-MODE has negligible effect on CPU; figures will vary by machine. ADAA is measured but shipped off
-(see Features above).
+Figures will vary by machine. The range across the three MODE positions is given because BRIGHT
+drives the JFET solve hardest.
 
 | OS factor | CPU % of realtime | Latency (samples) | Latency (ms @ 48 kHz) |
 |-----------|-------------------:|-------------------:|-----------------------:|
-| 1×        | ~0.4%              | 0                   | 0.00                   |
-| 2×        | ~1.3%              | 49                  | 1.02                   |
-| 4×        | ~2.0%              | 60                  | 1.25                   |
-| 8×        | ~3.5%              | 64                  | 1.33                   |
+| 1×        | 0.8–1.0%           | 0                   | 0.00                   |
+| 2×        | 2.1–2.5%           | 49                  | 1.02                   |
+| 4× (default) | 3.7–4.4%        | 60                  | 1.25                   |
+| 8×        | 6.8–8.2%           | 64                  | 1.33                   |
+
+CPU is mildly level-dependent, because the JFET stage's triode branch — entered only by the top
+few dB at a high VOLUME setting — costs more than its saturation branch. Measured at the stage,
+192 kHz: 69 ns/sample at ordinary playing levels against 129–135 ns at a 0 dBFS peak. The worst
+case is what moved most (it was 219–226 ns); the *ratio* is slightly wider than before, at ~1.9×
+against ~1.5×, because the common case got cheaper faster than the rare one.
 
 Bypass is a flat **~0.10%** at every factor (the DSP chain, including the oversampler, is skipped
 rather than run and crossfaded).

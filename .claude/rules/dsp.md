@@ -352,6 +352,65 @@ frequency) — the two never interact.
 - Reference: Esqueda et al., "Antiderivative Antialiasing in Nonlinear Wave Digital Filters",
   DAFx 2020.
 
+## Cost of a per-sample transcendental: measure LATENCY, not throughput
+
+An implicit-solve stage (Newton/Halley on a device law) is a **serial dependency chain**, so what it
+pays for a `std::pow`/`exp`/`log` is that function's **latency**, not its throughput. The two differ
+by 4x and the cheap-looking benchmark is the wrong one:
+
+```
+std::pow(x, 0.6)   7.4 ns throughput (independent calls pipeline)
+                  31.8 ns LATENCY    (result feeds the next iteration)
+```
+
+Measure it with a loop that feeds each result back in. Consequences, all measured on this project:
+
+- **Optimising the transcendental itself is usually a dead end.** A hand-written inlined
+  `exp2(k*log2(x))` came out at 34.6 ns, *worse* than `std::pow`, because its minimax polynomials
+  are themselves long Horner chains. Estrin's scheme helps the chain but not enough to matter.
+- **Get the transcendental out of the loop instead.** If the exponent is a small rational `p/q` —
+  and a fitted decimal usually is: 1.6 = 8/5, 1.5 = 3/2, 1.75 = 7/4 — substituting `u = y^q` turns
+  `u + c*u^(p/q) = P` into the polynomial `y^q + c*y^p = P`, solvable by the same Halley step with
+  nothing but multiplies. This is an **identity, not an approximation**, so it is a pure speed
+  change with no accuracy axis to trade. On this pedal it took the JFET stage from 145 to 69
+  ns/sample (`src/dsp/JfetStage.h`, `satOverdriveRational`).
+  ⭐ It also improves CONDITIONING for free: `u = y^q` means a relative error in `y` is `q` times
+  smaller than the same error in `u`, so a given start lands `q` times closer in the solved variable.
+  ⚠ Detect the rational exactly and **fall back to `pow` when there isn't one** — never round the
+  exponent to make it fast, and add a test that asserts which path the SHIPPED parameters take, or a
+  later refit turns into a silent 3x performance cliff nobody finds until a DAW.
+- **Cache anything derived from parameters.** Accessor chains like `beta = id0()/pow(vov(), m)` look
+  free and are a transcendental per call. Two of the six pows this stage paid were that, and a third
+  was a diagnostic nobody read.
+- **A per-sample diagnostic is not free.** Make residual/telemetry tracking opt-in with a flag, and
+  then have a test actually switch it on — otherwise it is pure cost.
+
+### Iteration counts: fix the START before cutting the count
+
+When a fixed-count solve needs "a lot" of iterations, the start is usually the problem, and fixing
+it is free where cutting the count is not:
+
+- Starting the triode branch at the **upper bracket end** (the saturation root, a tight upper bound)
+  rather than the bracket midpoint took it from 8 iterations to 6 at machine precision — and at 4
+  iterations the harmonics are already exact to 0.00000 dB, where the midpoint start was 2.02 dB out.
+- Where a linear-root start fails, ask *where* it fails. Here it is only near cutoff, because the
+  linear root tends to a positive constant while the true root tends to zero; the `q`-th root of the
+  forcing term has the opposite character, so `min` of the two is better everywhere for one compare.
+- ⛔ Do NOT make the count adaptive. A convergence loop whose length depends on the signal makes CPU
+  depend on programme material, and the early-out branch is mispredicted exactly where the signal is
+  busiest.
+
+### Two micro-optimisations that measured BACKWARDS
+
+Recorded so they are not tried again: replacing a small binary-powering loop with a `switch` over
+`e = 0..8` measured **worse** (76.2 against 68.6 ns/sample) — the jump table costs more than the two
+well-predicted branches it removes. And hoisting loop-invariant struct fields into locals was worth
+**~0.3 ns**; the compiler had already done it. Both were measured before being believed, and one was
+reverted.
+
+⚠ `i / q` for a runtime `q` emits a 64-bit UDIV (3.26 ns dependent, against 1.26 for a
+multiply-high by a precomputed magic). That one IS worth fixing when it sits in the chain.
+
 ## Pot tapers
 
 - Honour the schematic's taper (audio/log vs linear). Build kits often substitute linear for cost —

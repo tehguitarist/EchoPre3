@@ -22,6 +22,7 @@
 #include <complex>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 #include "dsp/JfetStage.h"
 
@@ -1043,6 +1044,175 @@ int main()
             fail("the fixed iteration count is leaving a mode-dependent compression bias large "
                  "enough to matter -- raise kSolveIters");
         stage.setMode(dsp::Mode::Dark);
+    }
+
+    // 8f. The per-sample solve residual, which is now OPT-IN.
+    //
+    // ⚠⚠ IT USED TO BE COMPUTED ON EVERY SAMPLE AND READ BY NOBODY. Its own doc comment said it was
+    // "exposed so a test can assert the fixed iteration count actually converges on real signal
+    // rather than assume it" -- and no test did, while it cost a betaSq() and a deviceCurrent(),
+    // i.e. two std::pow, on every sample of every render. Making it opt-in only pays for itself if
+    // something actually uses it, so this is that test: it is strictly more checking than was being
+    // done when it ran unconditionally.
+    {
+        std::printf("\n8f. Solve residual on real signal (opt-in; production leaves it off):\n");
+        std::printf("    %-8s %10s %14s\n", "mode", "gate V", "worst |resid| A");
+        double worst = 0.0;
+        for (const auto md : { dsp::Mode::Bright, dsp::Mode::Dark, dsp::Mode::Mid })
+        {
+            for (const double amp : { 0.45, 1.50, 4.016 })
+            {
+                dsp::JfetStage stage;
+                stage.setParams(dsp::JfetParams {});
+                stage.setMode(md);
+                stage.prepare(kFs);
+                stage.setResidualTracking(true);
+                double w = 0.0;
+                const int kN = (int) (kFs / 220.0) * 8;
+                for (int n = 0; n < kN; ++n)
+                {
+                    const double t = 2.0 * M_PI * 220.0 * (double) n / kFs;
+                    stage.processSample(amp * (0.75 * std::sin(t) + 0.25 * std::sin(9.0 * t)));
+                    w = std::max(w, std::abs(stage.lastSolveResidual()));
+                }
+                worst = std::max(worst, w);
+                if (md == dsp::Mode::Dark)
+                    std::printf("    %-8s %10.3f %14.3e\n", "Dark", amp, w);
+            }
+        }
+        std::printf("    worst over 3 modes x 3 levels: %.3e A (quiescent current %.3e A)\n", worst,
+                    dsp::JfetParams {}.id0());
+        // The solve is converged to machine precision, so this is rounding, not iteration error.
+        if (worst > 1.0e-12)
+            fail("the shipped solve is leaving a real residual on ordinary signal");
+
+        // And it must genuinely be OFF by default, or the saving is imaginary.
+        dsp::JfetStage off;
+        off.setParams(dsp::JfetParams {});
+        off.prepare(kFs);
+        for (int n = 0; n < 64; ++n)
+            off.processSample(0.5);
+        if (off.lastSolveResidual() != 0.0)
+            fail("the residual is being computed with tracking off -- the per-sample cost is back");
+    }
+
+    // 8g. ⭐⭐ THE TRANSCENDENTAL-FREE SATURATION SOLVE.
+    //
+    // The shipped exponent m = 1.60 is 8/5, so substituting u = y^5 turns u + c*u^m = P into the
+    // polynomial y^5 + c*y^8 = P -- an IDENTITY, not an approximation, which is why this is a pure
+    // speed change with no accuracy axis to trade against (measured: 145 -> 69 ns/sample at
+    // 192 kHz, and the worst error against the oracle got SMALLER). See satOverdriveRational().
+    //
+    // Three things are asserted, and the first is a PERFORMANCE contract rather than an accuracy
+    // one -- the only one in this file. An exponent outside the small-rational net still solves
+    // correctly, via satOverdrivePow(), but roughly three times slower; that is the right failure
+    // direction, and it is exactly the kind of thing that gets discovered in a DAW instead of here.
+    {
+        std::printf("\n8g. The transcendental-free saturation solve:\n");
+        dsp::JfetStage stage;
+        const dsp::JfetParams shipped {};
+        stage.setParams(shipped);
+        stage.prepare(kFs);
+
+        int rp = 0, rq = 0;
+        stage.rationalExponent(rp, rq);
+        std::printf("    shipped m = %.4f -> p/q = %d/%d, fast path %s\n", shipped.mExp, rp, rq,
+                    stage.usesRationalSolve() ? "ACTIVE" : "OFF");
+        if (! stage.usesRationalSolve())
+            fail("the SHIPPED exponent is not taking the transcendental-free solve -- the stage is "
+                 "~3x dearer than it should be (see updateRationalExponent)");
+        if (rq != 5 || rp != 8)
+            fail("the shipped exponent no longer resolves to 8/5");
+
+        // An exponent that is not a small rational must fall back, not silently round.
+        {
+            dsp::JfetStage irr;
+            auto p2 = shipped;
+            p2.mExp = 1.5837;
+            irr.setParams(p2);
+            irr.prepare(kFs);
+            std::printf("    m = %.4f (not a small rational) -> fast path %s\n", p2.mExp,
+                        irr.usesRationalSolve() ? "ACTIVE" : "OFF (falls back to std::pow)");
+            if (irr.usesRationalSolve())
+                fail("a non-rational exponent was accepted by the fast path -- it would be solving "
+                     "a DIFFERENT device law than the one fitted");
+        }
+
+        // ⭐ The two solves are independent implementations of the same equation, so they must agree
+        // to machine precision. This is also what checks the start and BOTH clamps: if kRootSlack
+        // were not a true upper bound on y the iterate would be capped below the root, and the
+        // rational path would disagree here rather than fail quietly.
+        std::printf("    %-6s %-8s %14s %14s\n", "rate", "mode", "worst rel", "worst abs A");
+        double worstRel = 0.0, worstAbs = 0.0;
+        for (const double fs : { 48000.0, 192000.0, 384000.0 })
+        {
+            for (const auto md : { dsp::Mode::Bright, dsp::Mode::Dark, dsp::Mode::Mid })
+            {
+                double wr = 0.0, wa = 0.0;
+                for (int which = 0; which < 2; ++which)
+                {
+                    // deliberately re-run both from a clean state so the source port's history is
+                    // identical on the two paths
+                    static std::vector<double> a, b;
+                    auto& out = (which == 0) ? a : b;
+                    dsp::JfetStage st;
+                    st.setParams(shipped);
+                    st.setMode(md);
+                    st.prepare(fs);
+                    st.setAllowRationalSolve(which == 0);
+                    const int kN = (int) fs / 8;
+                    out.assign((size_t) kN, 0.0);
+                    for (int n = 0; n < kN; ++n)
+                    {
+                        // a level ramp so the sweep crosses the cutoff knee, saturation and triode
+                        const double t = (double) n / fs;
+                        const double env = 0.02 + 4.0 * (double) (n % (kN / 4)) / (double) (kN / 4);
+                        out[(size_t) n] = st.processSample(
+                            env * (0.75 * std::sin(2.0 * M_PI * 220.0 * t)
+                                   + 0.25 * std::sin(2.0 * M_PI * 1970.0 * t)));
+                    }
+                    if (which == 1)
+                        for (int n = 0; n < kN; ++n)
+                        {
+                            const double d = std::abs(a[(size_t) n] - b[(size_t) n]);
+                            wa = std::max(wa, d);
+                            if (std::abs(b[(size_t) n]) > 1.0e-9)
+                                wr = std::max(wr, d / std::abs(b[(size_t) n]));
+                        }
+                }
+                worstRel = std::max(worstRel, wr);
+                worstAbs = std::max(worstAbs, wa);
+                std::printf("    %-6.0f %-8s %14.2e %14.2e\n", fs / 1000.0,
+                            md == dsp::Mode::Bright ? "Bright" : (md == dsp::Mode::Dark ? "Dark" : "Mid"),
+                            wr, wa);
+            }
+        }
+        std::printf("    worst: %.2e relative, %.2e A absolute\n", worstRel, worstAbs);
+        if (worstAbs > 1.0e-14)
+            fail("the rational and std::pow saturation solves disagree by more than rounding -- "
+                 "they are solving the same equation, so one of them is wrong");
+
+        // The start's own accuracy, and the slack that turns it into a true bound. Asserted rather
+        // than argued, because the bias constant is DERIVED (see rootBiasFor) and a derivation can
+        // be wrong. The bound must hold for every q the fast path will accept.
+        double worstRoot = 0.0;
+        int worstQ = 0;
+        for (int q = 2; q <= 16; ++q)
+            for (int k = 1; k <= 20000; ++k)
+            {
+                const double x = 1.0e-12 * std::pow(10.0, 16.0 * (double) k / 20000.0);
+                const double e = std::abs(dsp::JfetStage::qRootStart(x, q) / std::pow(x, 1.0 / q) - 1.0);
+                if (e > worstRoot)
+                {
+                    worstRoot = e;
+                    worstQ = q;
+                }
+            }
+        std::printf("    q-th-root start: worst relative error %.4f (%.2f%%) at q = %d; slack %.2f\n",
+                    worstRoot, 100.0 * worstRoot, worstQ, dsp::JfetStage::rootSlack());
+        if (1.0 + worstRoot > dsp::JfetStage::rootSlack())
+            fail("kRootSlack no longer bounds the q-th-root start's error, so the in-loop clamp can "
+                 "cap the iterate BELOW the true root");
     }
 
     std::printf(ok ? "\nPASS: JFET stage structure\n" : "\nFAILED: JFET stage structure\n");

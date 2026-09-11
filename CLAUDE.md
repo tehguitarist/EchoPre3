@@ -1986,6 +1986,95 @@ high, execute routine work cheap) is what should persist.
 > hunt, not tuning — `exp2/log2` was measured at ~1.4 points and declined on accuracy grounds, so a
 > better idea is needed. Everything else outstanding is housekeeping.
 
+> ### ⭐⭐ SESSION 2026-09-11 (part 3): THE OPTIMISATION PASS. 6.7-7.5 % → 3.7-4.4 % at 4×, and the
+> ### audio is BIT-FOR-BIT UNCHANGED. No constant moved; no accuracy was traded; no HQ button.
+>
+> Build-plan §19 item 6 is CLOSED. Reasoning lives in `src/dsp/JfetStage.h`; the reusable parts are
+> now `.claude/rules/dsp.md` §"Cost of a per-sample transcendental". New guards: `JfetStageTest`
+> sections **8f** and **8g**. All 11 tests pass, warning-free.
+>
+> | factor | before | after |
+> |---|---|---|
+> | 1× | 1.61–1.89 % | **0.83–1.01 %** |
+> | 2× | 3.60–4.03 % | **2.13–2.46 %** |
+> | **4× (default)** | **6.70–7.48 %** | **3.72–4.36 %** |
+> | 8× | 12.75–14.39 % | **6.82–8.19 %** |
+>
+> ✅ **Verified as a non-change to the audio, not argued:** `OfflineRender` renders of the full test
+> signal, old binary against new, null at **−246.3 / −271.9 / −242.6 dB** (bright / dark / mid at 4×)
+> and −231 to −278 dB at 8×. The solve's worst error against its converged oracle is **1.5e-17 A**,
+> the same as before. Every linear and nonlinear assertion in the suite is untouched.
+>
+> ⭐⭐ **THE WIN IS THAT THE EXPONENT LEFT THE INNER LOOP, AND IT IS AN IDENTITY.** m = 1.60 is
+> exactly **8/5**, so substituting `u = y^5` turns the saturation equation `u + c·u^m = P` into the
+> POLYNOMIAL `y^5 + c·y^8 = P`, which the same Halley step solves with nothing but multiplies. No
+> approximation, so there is no accuracy axis to trade — and it came out **more** accurate for free,
+> because `u = y^q` compresses a relative error in the solved variable by q, so the same start lands
+> 5× closer. Exponent detection is exact (p/q in lowest terms, q ≤ 16); anything else falls back to
+> `std::pow`, which is correct but ~3× dearer.
+>
+> ⚠⚠ **THE ORIGINAL FRAMING OF THE TASK WAS WRONG, AND THAT IS THE TRANSFERABLE LESSON.** §19 item 6
+> and note #26b both said to look for "a cheaper evaluation of the transfer law". What an implicit
+> solve pays is `std::pow`'s **LATENCY — 31.8 ns in a dependent chain — not its 7.4 ns throughput**,
+> and the two differ by 4×. Measure with a loop that feeds each result back in. A hand-written
+> inlined `exp2(k·log2(x))` was written and measured at **34.6 ns, WORSE than `std::pow`**, because
+> its minimax polynomials are themselves long Horner chains. ➡ **No amount of making `pow` cheaper
+> was ever going to work; the transcendental had to leave the loop.**
+>
+> ⭐ **Three smaller things, and two of them were pure waste nobody had counted.** The stage was
+> paying **six** pows per sample, not the three the solve needs: `JfetParams::betaSq()` is
+> `id0()/pow(vov(), m)` and was called per sample from two places, and the per-sample solve residual
+> — a diagnostic **no test read**, despite its own comment saying it existed for one — cost a
+> `betaSq()` plus a `deviceCurrent()`. The derived operating point is cached now and the residual is
+> opt-in (`setResidualTracking`). 📌 Removing them was worth only ~5 ns of 167, because they are not
+> on the serial chain and pipeline in its shadow — which is itself the same lesson from the other
+> side: **only the dependent chain counts.**
+>
+> ⭐⭐ **AND FIX THE START BEFORE CUTTING THE COUNT.** The triode branch started at the MIDPOINT of
+> its bracket; starting at the upper end (the saturation root, a tight upper bound) took it from
+> **8 iterations to 6** at machine precision. Scored the project's way, H2/H3 against a 40-iteration
+> generic Newton at a 0 dBFS peak deep in triode:
+>
+> | iterations | 1 | 2 | 3 | 4 | 5 | 6 |
+> |---|---|---|---|---|---|---|
+> | from `hi` | 0.0869 | 0.0126 | 0.0005 | **0.0000** | 0.0000 | 0.0000 |
+> | from midpoint | 19.06 | 10.54 | 7.67 | 2.02 | 0.0423 | 0.0004 |
+>
+> The count is still set on the CURRENT at machine precision rather than on audibility, for the
+> reason already on record: only an exact solve can be asserted against an oracle.
+> 📌 Saturation's start got the same treatment — the linear root tends to a positive constant at the
+> cutoff knee while the true root tends to zero, so the `q`-th root of the forcing term (which has
+> the opposite character) is taken whenever it is smaller. One compare, better everywhere.
+>
+> ### ⛔ NO HQ/ECO TOGGLE — and the measurement is the argument
+> `dsp.md` says gate only a genuine lever. The one available is dropping saturation from 3 Halley
+> steps to 2: worth **0.48 points** (3.76 → ~3.28 % at 4×), and it costs machine precision in the
+> drain current (1.6e-17 → 3.6e-9 A) for a harmonic difference of **0.00001 dB**. Inaudible, so by
+> `dsp.md`'s own rule it is clutter, not a lever. ⭐ **The oversampling factor already IS the quality
+> control, and it is the one with a real accuracy axis**: 2× meets the old 2.5 % target outright
+> (2.13–2.46 %) for −0.37 dB at 18 kHz and **3.54° of resampler dispersion** there, against a 5°
+> phase budget the model currently meets with ~2× margin. That is a real trade, which is why the
+> default stays at **4×** (0.28° / 0.71° dispersion, −0.07 dB at 18 kHz).
+>
+> ### ⛔ DO NOT GO LOOKING FOR THE NEXT FACTOR OF TWO IN THE SOLVE — it was measured and it is not there
+> The stage is **69 ns/sample at 192 kHz**: ~10 ns plumbing (measured via the cutoff early-return),
+> ~6 ns start, ~18 ns for each of three Halley steps. Two steps would need a start accurate to ~1 %.
+> **The start's error is 20 %, and 17 points of it is the LINEAR ROOT at the cutoff knee** — the
+> bit-trick root contributes only 3.5 %, so refining it buys nothing. The only fix is a tabulated
+> inverse of the 1-D function (it *is* 1-D: `c = Rd·beta` changes only with mode, rate or params,
+> never per block), and its lookup measures about what the step it saves costs, while putting a
+> ~6 KB table in L1 on every sample.
+> ⚠ **Two micro-optimisations measured BACKWARDS and are recorded so they are not retried:** a
+> `switch` over `e = 0..8` instead of the binary-powering loop read **76.2 ns/sample against 68.6**
+> (the jump table costs more than the two predicted branches it removes), and hoisting
+> loop-invariant struct fields into locals was worth **~0.3 ns** — the compiler had already done it.
+> 📌 What *was* worth fixing: `i / q` for a runtime `q` emits a 64-bit UDIV (3.26 ns dependent
+> against 1.26 for a multiply-high by a precomputed magic), and it runs twice per sample.
+>
+> 📌 **Both new guards were verified to FAIL when broken**, not merely to pass: narrowing the
+> rational search so 8/5 is not found trips 8g's performance assertion, and shrinking `kRootSlack`
+> below the root start's measured 4.55 % worst error trips four separate accuracy assertions.
+
 ### 🗺️ Current plan
 
 > The session-by-session plan — priority order, what's parked, what's explicitly out of scope —
