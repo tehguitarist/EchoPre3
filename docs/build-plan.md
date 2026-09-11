@@ -1549,7 +1549,11 @@ direction the data points, not a fit, and is not a reason to stop.
 
 **In order:**
 
-1. **Per-band THD audit.** The one measurement that didn't exist: THD (and H2-only) plugin-vs-P4,
+1. ✅ **Per-band THD audit — DONE (2026-09-10)**, raw numbers in
+   `analysis/reports/thd_band_audit_p4.json`. Plugin-vs-P4 H2 error by group: **bright CORE
+   1.61 dB RMS / 2.86 worst, dark CORE 2.27 / 3.50, bright LF<200 2.00 / 2.85, dark LF<200
+   2.15 / 6.34** (n = 70–154 cells each) — i.e. no band is grossly wrong, and the worst of it
+   is dark below 200 Hz, which feeds item 4. The measurement that didn't exist: THD (and H2-only) plugin-vs-P4,
    by frequency band, at matched drive, with the rig+interface-loading correction applied **per
    harmonic order** — not just at the fundamental, since the correction differs at the harmonic's
    own frequency by up to the size of the whole HF droop. P4 is the primary anchor; P1's
@@ -1563,12 +1567,17 @@ direction the data points, not a fit, and is not a reason to stop.
    real distortion unless both a drive-response (slope) gate and a residual gate are applied, and
    even then the bottom two grid levels stay ambiguous enough that the headline comparison is
    restricted to the loudest two. See the script's own docstring before trusting a quiet cell from
-   it.
-2. **The voicing decision.** Decide `gm`: ship 1.5531 mS (voiced to P1/P2), or move to P4's own
-   measured ~1146 µS (voiced to the owner's unit). If it moves, re-measure `kOutputMakeup` in the
-   same session — the two are coupled level scalars in the DARK path (circuit.md notes #23, #26c).
-   One decision, at most two constants, and `JfetStage.h`'s device law (`m`, `|Vp|`) does not
-   change either way — those came from P4's probe captures regardless of which `gm` ships.
+   it. ➡ Its FINDINGS are not themselves closed — they are the input to items 4 and 5.
+2. ✅ **The voicing decision — DECIDED by the owner 2026-09-11, circuit.md note #28. `gm` STAYS at
+   1.5531 mS; no constant moved.** The rule of record: **voice to the newer three-position units
+   (P1/P2), and fall back to P4 wherever the newer units' data does not make sense, is ambiguous,
+   or is a calibration question NAM cannot answer** — which measurement sharpens into *P1/P2 win
+   only where the observable is a within-unit RATIO; on every absolute axis P4 wins by default*
+   (pairwise agreement table in note #28). ⛔ **Its price is accepted and is not a defect to chase:**
+   BRIGHT up to +1.51 dB bright at 6.5–10 kHz and ~1.26 dB less H2 than the owner's own pedal, both
+   being P4's ~25 % weaker JFET surfacing on two axes. Reversing it is still one constant
+   (`gm` → ~1146 µS) plus a re-run of `analysis/absolute_gain.py`, and `JfetStage.h`'s device law
+   (`m`, `|Vp|`) is unaffected either way — but it is closed, not open.
 3. **The 13:30 DARK outlier.** `goal_check.py --unit p4` shows every DARK knob position passes the
    core-band FR target except 13:30 (0.64 dB worst, at 8127/10240 Hz), and it is neither knob-slope
    error (that's 7:30/8:00 only) nor the BRIGHT voicing gap (DARK isn't touched by the mode shelf).
@@ -1582,7 +1591,8 @@ direction the data points, not a fit, and is not a reason to stop.
 5. **>12 kHz cleanup** (>8 kHz for THD, per item 1's ceiling) — same treatment, same standard: fix
    what's fixable, best-guess what a capture would be needed to pin down. Expect the BRIGHT
    mode-shelf gap to show up here (circuit.md note #25/#26c) — that is item 2's decision surfacing,
-   not a separate defect to chase twice.
+   not a separate defect to chase twice. ⛔ **Item 2 is now DECIDED (note #28), so that gap is
+   ACCEPTED and explicitly out of scope here** — do not close it by moving `gm`.
 6. **Optimisation pass.** Target roughly 2.5 % CPU at the 4× default (currently 6.7–7.5 %, almost
    entirely the transfer law's three `std::pow` calls per sample — note #26b). Look for a cheaper
    evaluation of that law and/or an HQ/Eco toggle per `dsp.md`'s gating rules (measure CPU cost and

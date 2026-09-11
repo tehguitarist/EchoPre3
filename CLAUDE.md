@@ -1876,6 +1876,50 @@ high, execute routine work cheap) is what should persist.
 >    the voicing decision. 7:30 and 8:00 remain excluded for knob-slope error (note #23). ➡ There is no
 >    general LF defect left to chase.
 
+> ### ⭐⭐ THE VOICING RULE IS SETTLED BY THE OWNER (2026-09-11) — circuit.md note **#28**
+>
+> The open NEXT item from the previous block ("the voicing decision is the owner's and is now fully
+> quantified") is **CLOSED**. **No constant moved** — the shipped model already obeyed it. Full
+> record, tables and consequences: circuit.md note #28. `docs/build-plan.md` §19 item 2 updated.
+>
+> **THE RULE, in the form to apply it in:** voice to the NEWER three-position units (P1/P2), and
+> fall back to P4 — the owner's own unit — wherever the newer units' data does not make sense, is
+> ambiguous, or is a calibration question NAM structurally cannot answer.
+>
+> ⭐⭐ **And measurement turns that into something testable rather than a preference: P1/P2 win ONLY
+> where the observable is a within-unit RATIO; on every absolute axis P4 wins BY DEFAULT.** Pairwise
+> RMS agreement between the three units, from `analysis/voicing_compare.py` (pedals against each
+> other, no plugin render):
+>
+> | axis | P1 vs P2 | P1 vs P4 | P2 vs P4 |
+> |---|---|---|---|
+> | **mode shelf (bright−dark), rig-cancelling** | **0.30 dB** | 0.74 | 0.85 |
+> | absolute DARK FR shape | **5.06 dB** | **1.02** | 4.16 |
+> | H2 @800 Hz hot cells, dark | 6.39 dB | **2.58** | 8.49 |
+> | H2 @800 Hz hot cells, bright | 13.14 dB | **1.83** | 11.49 |
+>
+> ⚠⚠ **Only the first row is a pedal comparison** — the rest are absolute, across three rigs, and the
+> THD rows are not matched-drive. **Their SIZE is the finding:** "the newer pedals agree with each
+> other" holds on the rig-free differential and fails by 5–13 dB everywhere else, because those axes
+> measure trainer rigs. ➡ The only axis on which P1/P2 are evidence at all is the one the rule gives
+> them. ⚠ Do NOT later cite 13.14 dB as a unit difference.
+>
+> **The split, and it is clean — no position is a blend of two pedals.** P1/P2 give `gm` and both
+> shelf τ; P4 gives the taper, C10, `kOutputMakeup`, `kInputRef`, `ro`, the load line and the device
+> law. ⚠ **The seam is the device law** (`m` = 1.60, `|Vp|` = 1.942): P4's transistor on P1/P2's
+> `gm`, admitted by the rule's third clause because NAM cannot measure it at all (note #22 refuted
+> the one attempt by 13–20 dB).
+>
+> ⛔ **THE PRICE IS ACCEPTED AND MUST NOT BE RE-RAISED AS A DEFECT:** BRIGHT runs up to **+1.51 dB**
+> bright at 6.5–10 kHz against the owner's own pedal, and the model makes **~1.26 dB less H2**
+> (−2.39 dB at small signal). Both are the same measured unit difference — P4's JFET is ~25 %
+> weaker — on two axes. Reversing is ONE constant (`gm` → ~1146 µS) plus a re-run of
+> `absolute_gain.py`; `m`/`|Vp|` are unaffected either way.
+>
+> 📌 Averaging the units is ruled OUT as a voicing target. `voicing_compare.py`'s `avg_*` curves stay
+> as a report reference line only, now labelled as such in the script — and P4's MID in them is an
+> EXTRAPOLATION, so an average would import an estimate into the one position no capture can check.
+
 ### 🗺️ Current plan
 
 > The session-by-session plan — priority order, what's parked, what's explicitly out of scope —

@@ -92,6 +92,14 @@ struct JfetParams
     // (see outputImpedance()), and under that structure the mode differential this model produces is
     // exactly K0 = 1 + gm*R5. Taking the corrected value would make the model MISS the measurement
     // it was fitted to. ChainTest asserts the plateau lands on K0.
+    //
+    // ⛔ THIS VALUE IS A RECORDED VOICING DECISION, not merely a fit -- circuit.md note #28.
+    // The model is voiced to the NEWER three-position units (P1/P2); the owner's own two-position
+    // unit P4 measures K0 = 5.06-5.19, i.e. a ~25% weaker JFET (gm ~ 1146 uS). The consequences are
+    // known, quantified and ACCEPTED: against P4 the model runs up to +1.51 dB bright at 6.5-10 kHz
+    // and makes ~1.26 dB less H2. Do NOT "fix" either by moving gm. Reversing the decision is this
+    // one constant plus a re-run of analysis/absolute_gain.py (gm and kOutputMakeup are both level
+    // scalars in the DARK path). The device law below (mExp, vp) came from P4 either way.
     double gm = 1.5531069e-3; // S -- (K0 - 1)/R5 with K0 = 6.5912 measured. M2.
 
     // The mode shelf's time constants, MEASURED rather than computed as R5*C. Both branches' fitted

@@ -2310,3 +2310,62 @@ loads a 59–102 kΩ source, so it changes the transfer and must be modelled, no
 measured 2.24 — and both values are P1/P2's own fits, which is the unit the model is voiced to. ➡ The
 "scale MID by the measured cap RATIO 2.24" instruction bites only if the model is retuned to P4,
 which the recorded decision declines. **No position is a blend of two pedals, as note #23 states.**
+
+### 28. ⭐⭐ THE VOICING RULE IS SETTLED (2026-09-11) — and it is FORCED by the data, not chosen
+
+Owner's decision, confirmed 2026-09-11. It does not supersede note #21's recorded decision — it is
+the same decision given an operational form and an explicit tie-break, and it closes
+`docs/build-plan.md` §19 item 2. **No constant moved; the shipped model already obeys it.**
+
+**THE RULE.**
+> Voice to the NEWER three-position units (P1/P2). Fall back to P4 — the owner's own two-position
+> unit — wherever the newer units' data does not make sense, is ambiguous, or is a calibration
+> question NAM structurally cannot answer.
+
+⭐⭐ **Measurement sharpens that into something testable: P1/P2 win ONLY where the observable is a
+within-unit RATIO. On every absolute axis P4 wins BY DEFAULT, not as a tie-break.**
+`analysis/voicing_compare.py` compares the PEDALS against each other (no plugin render at all), and
+the pairwise RMS agreement splits cleanly:
+
+| axis | P1 vs P2 | P1 vs P4 | P2 vs P4 |
+|---|---|---|---|
+| **mode shelf (bright−dark) — rig-cancelling** | **0.30 dB** | 0.74 | 0.85 |
+| absolute DARK FR shape, normalised at 1 kHz | **5.06 dB** | **1.02** | 4.16 |
+| H2 @800 Hz, cells ≥ −16 dBFS, dark | 6.39 dB | **2.58** | 8.49 |
+| H2 @800 Hz, cells ≥ −16 dBFS, bright | 13.14 dB | **1.83** | 11.49 |
+
+⚠⚠ **Only the first row is a pedal comparison.** The lower three are absolute measurements across
+three different rigs, and the THD rows are additionally NOT matched-drive (P2/P3's reamp levels are
+unknown — note #10, and `voicing_compare.py`'s own docstring). **Their SIZE is the finding, not
+their value:** "the newer pedals agree with each other" is true on the rig-free differential
+(0.30 dB) and false by 5–13 dB everywhere else, because those axes are measuring trainer rigs, not
+pedals. P4 lands next to P1 on all three, which is what a measured rig should do against an unknown
+one. ➡ **The only axis on which P1/P2 constitute evidence at all is the one the rule assigns to
+them.** That is why this is not a preference.
+
+**WHAT IT BINDS. The split is clean — no position is a blend of two pedals (note #23).**
+
+| from P1/P2 — the VOICING, all from the rig-free differential | from P4 — everything ABSOLUTE or STRUCTURAL |
+|---|---|
+| `gm` = 1.5531069 mS (K0 = 6.5912) | `kVolumeTaperP` = 2.30, `kC10` as drawn, `kOutputMakeup` = 1.1562, `kInputRef` = 4.4626 |
+| `tauBright` = 85.369 µs, `tauMid` = 38.263 µs | `ro` = 1.1921 MΩ, the load line, the device law `m` = 1.60 / `\|Vp\|` = 1.942 |
+
+⚠ **THE SEAM: the device law is P4's transistor transplanted onto P1/P2's `gm`**, and it is covered
+by the rule's third clause rather than its first. NAM cannot measure it — P1's harmonic data is
+floor throughout (note #7's M5), and the one time `Vov` was fitted off it the answer was refuted by
+13–20 dB (note #22). P4 is the only unit that reaches the nonlinearity at all. Note #26c shows the
+transplant is coherent as a PARTS BIN: one pinch-off, one exponent, IDSS the only thing differing.
+
+**⛔ THE ACCEPTED PRICE — understood and accepted by the owner. These are NOT defects and must not
+be "fixed", nor re-raised as open questions:**
+- **BRIGHT runs up to +1.51 dB bright at 6.5–10 kHz** against the owner's own pedal (note #25).
+- **The model makes ~1.26 dB less H2** than their pedal; −2.39 dB predicted at small signal (#26c).
+
+Both are the same measured unit difference — P4's JFET is ~25 % weaker, K0 5.06–5.19 against 6.59
+(note #21) — surfacing on two axes. ➡ **Reversing the decision is ONE constant, `gm` → ~1146 µS,
+plus a re-run of `analysis/absolute_gain.py`** (`gm` and `kOutputMakeup` are both level scalars in
+the DARK path). Nothing else moves: `m` and `|Vp|` came from P4's probe captures either way.
+
+📌 **Averaging the units is ruled OUT as a voicing target.** `voicing_compare.py`'s `avg_*` curves
+are a report reference line only. Note also that P4's MID there is an EXTRAPOLATION (P4 has no MID
+position), so an average would import an estimate into the one position no capture can ever check.

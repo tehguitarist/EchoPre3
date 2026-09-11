@@ -8,6 +8,9 @@ compares the PLUGIN against one pedal. This one compares the PEDALS against EACH
 different question (circuit.md's "which unit do we voice to") and needs none of the plugin-side
 machinery.
 
+⛔ The `avg_*` curves this writes are a comparison reference line, NOT the voicing target -- the
+model is voiced to P1/P2 per circuit.md note #28. Do not read an average as the intended voicing.
+
 Three things, per unit:
   1. MODE-DIFFERENTIAL SHELF (bright-minus-dark, mid-minus-dark, in dB vs frequency). This cancels
      rig gain, trainer level and unit-to-unit calibration differences (circuit.md note #7), so it is
@@ -121,6 +124,25 @@ def main():
             "diff_db": [float(shelf_db(f, fz, SHIPPED_K0)) for f in fs],
         }
 
+    # AVERAGE shelf, P1+P2+P4 -- A REPORT REFERENCE LINE ONLY, NOT A VOICING TARGET. circuit.md
+    # note #28 rules averaging out: the model is voiced to P1/P2 on the rig-free differential, and
+    # an average would (a) dilute that with P4's measurably different JFET and (b) import P4's
+    # ESTIMATED Mid into the one position no capture can ever check. Keep it for comparison; do not
+    # read it as the intended voicing.
+    # Pointwise mean in dB (all three share the same freq grid, so this
+    # is a plain geometric mean in linear terms, the standard choice for a log quantity). P3 is
+    # excluded: it has no Bright/Dark pair, so it has no shelf to average in. P4's Mid uses its own
+    # ESTIMATED curve, so the Mid average inherits that estimate's uncertainty -- flagged in the UI.
+    for mode, p4_key in (("bright", "p4_bright"), ("mid", "p4_mid_ESTIMATED")):
+        curves = [np.array(out["shelves"][f"p1_{mode}"]["diff_db"]),
+                  np.array(out["shelves"][f"p2_{mode}"]["diff_db"]),
+                  np.array(out["shelves"][p4_key]["diff_db"])]
+        out["shelves"][f"avg_{mode}"] = {
+            "fit": {"note": "pointwise mean of P1, P2, P4 (P3 has no bright/dark pair)"},
+            "freqs": out["shelves"][f"p1_{mode}"]["freqs"],
+            "diff_db": np.mean(curves, axis=0).tolist(),
+        }
+
     # --- 2. absolute DARK FR shape, normalised at 1 kHz ------------------------------------------
     for unit, modes in UNIT_CAPS.items():
         if "dark" not in modes:
@@ -131,6 +153,13 @@ def main():
         curve = curve - A.gain_at(f, mag, 1000.0)
         out["dark_fr"][unit] = {"freqs": fs.tolist(), "db": curve.tolist()}
 
+    # AVERAGE dark FR, P1+P2+P4 (P3 has no dark capture at all).
+    out["dark_fr"]["avg"] = {
+        "freqs": out["dark_fr"]["p1"]["freqs"],
+        "db": np.mean([out["dark_fr"]["p1"]["db"], out["dark_fr"]["p2"]["db"],
+                       out["dark_fr"]["p4"]["db"]], axis=0).tolist(),
+    }
+
     # --- 3. THD vs level at 800 Hz, dark + bright where available --------------------------------
     for unit, modes in UNIT_CAPS.items():
         for mode, name in modes.items():
@@ -140,6 +169,32 @@ def main():
             h3 = [r["h3_dbc"] for r in hv["rows"]]
             out["thd_vs_level"][f"{unit}_{mode}"] = {"levels_dbfs": levels, "h2_dbc": h2,
                                                       "h3_dbc": h3, "slope": hv["h2_slope_db_per_db_top"]}
+
+    # AVERAGE THD, P1+P2+P4 per mode (P3 has no Dark/Bright capture -- only Mid, on its own).
+    for mode in ("dark", "bright"):
+        h2s = [np.array(out["thd_vs_level"][f"{u}_{mode}"]["h2_dbc"]) for u in ("p1", "p2", "p4")]
+        out["thd_vs_level"][f"avg_{mode}"] = {
+            "levels_dbfs": out["thd_vs_level"][f"p1_{mode}"]["levels_dbfs"],
+            "h2_dbc": np.mean(h2s, axis=0).tolist(),
+        }
+
+    # --- pairwise agreement, P1/P2/P4 -- which unit is the outlier, and on which axis? -----------
+    def rms_diff(a, b):
+        return float(np.sqrt(np.mean((np.asarray(a) - np.asarray(b)) ** 2)))
+    print("\n=== pairwise agreement (RMS) -- which unit is the odd one out, per axis ===")
+    print(f"{'axis':<28} {'P1 vs P2':>10} {'P1 vs P4':>10} {'P2 vs P4':>10}")
+    print(f"{'dark FR shape (dB)':<28} "
+          f"{rms_diff(out['dark_fr']['p1']['db'], out['dark_fr']['p2']['db']):>10.2f} "
+          f"{rms_diff(out['dark_fr']['p1']['db'], out['dark_fr']['p4']['db']):>10.2f} "
+          f"{rms_diff(out['dark_fr']['p2']['db'], out['dark_fr']['p4']['db']):>10.2f}")
+    for mode in ("dark", "bright"):
+        idx = [k for k, l in enumerate(out["thd_vs_level"][f"p1_{mode}"]["levels_dbfs"]) if l >= -16]
+        def h2_hot(u):
+            return [out["thd_vs_level"][f"{u}_{mode}"]["h2_dbc"][k] for k in idx]
+        print(f"{'THD H2 @800Hz, ' + mode + ' (dBc)':<28} "
+              f"{rms_diff(h2_hot('p1'), h2_hot('p2')):>10.2f} "
+              f"{rms_diff(h2_hot('p1'), h2_hot('p4')):>10.2f} "
+              f"{rms_diff(h2_hot('p2'), h2_hot('p4')):>10.2f}")
 
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as fh:
