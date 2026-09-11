@@ -2476,3 +2476,57 @@ section to see whether it reproduces the fitter, after which either the fitter m
   analysis scripts against a cold cache at once until it is fixed.
 - 📌 A comment-only edit to a header invalidates every cached render (the key hashes the binary).
   Correct and deliberate, but "rebuild then re-measure" always pays full price once.
+
+#### 29d. ✅ ITEM 3a CLOSED — the fitter and the verifier AGREE; the gap was the sweep mismatch alone
+
+| | DARK level delta |
+|---|---|
+| `absolute_gain.py` (the FITTER) @ `sweep_-26` | **+0.019 dB** |
+| `goal_check.py` @ `sweep_-26` | **+0.040 dB** |
+| `goal_check.py` @ `sweep_-16` | +0.151 dB |
+| `goal_check.py` @ `sweep_clean` | −0.021 dB |
+
+**At a common sweep they agree to 0.021 dB** — an eighth of the fitter's own sd (0.178). There was
+never a disagreement between the instruments; note #29b's 0.13 dB was the sweep mismatch and nothing
+else. **No constant moves.**
+
+⭐ **And the residual is understood rather than merely tolerated: it trends MONOTONICALLY with
+drive** (−0.021 → +0.040 → +0.151 as the sweep rises), so it is a real drive-dependence, not
+scatter. The sign says the MODEL loses more level than the pedal as drive rises, i.e. it
+over-compresses slightly — the same direction as note #27 §4's triode finding, reached from an
+unrelated measurement.
+
+➡ **THE DESIGN RULE THIS SETTLES: `kOutputMakeup` is a LINEAR scalar, so it must be fitted where the
+pedal is most linear.** `absolute_gain.py` staying at `sweep_-26` is therefore correct, and
+`goal_check`'s FR/phase sections staying at `sweep_-16` (chosen for SNR, note #29) is also correct —
+**the two scripts SHOULD use different sweeps, for different reasons, and that is not an
+inconsistency to tidy away.** ⛔ Do NOT "fix" it by moving the fitter to −16: that would bake
+0.15 dB of compression mismatch into a constant that has none.
+
+#### 29e. ⚠⚠ THE PHASE BAND — a figure was quoted against a band it did not cover, AGAIN
+
+The owner's stated phase band is **40 Hz – 16 kHz minimum** (2026-09-11). The figure on record was
+"worst 4.05°", which is the **200 Hz – 12 kHz** statistic — narrower at both ends. This is note #18's
+failure mode repeating, so `goal_check` now prints the owner's band as its own column and headline.
+
+**Over 40 Hz – 16 kHz, `x > 0.1`, at the 4× default... (8× OS, `sweep_-16`):**
+
+| mode | worst | verdict |
+|---|---|---|
+| **DARK** (the model's own error) | **2.74 dB→deg, at 12:00** (0.56–2.74 across 8:00–17:00) | ✅ **MET, ~2× margin** |
+| BRIGHT | 6.14° at 12:00, 5.95° at 13:30 (rest 1.93–4.29) | ⛔ misses at two positions |
+
+⭐ **BRIGHT's two misses are the note #28 voicing gap**, at the same two knob positions and from the
+same cause as its FR miss — not a phase defect. The headline is split by mode for exactly the reason
+the LEVEL section already was.
+
+⚠⚠ **AND THE HEADLINE EXCLUDES 7:30/8:00 (`x <= 0.1`), WHICH IT PREVIOUSLY DID NOT.** Unfiltered it
+reads **11.70°**, all of it `p4_V0730_bright_pad12` — a position excluded from every other fit in
+this project for knob-slope error (±6.75 dB of control law per ±10 min, note #23). **A headline that
+maxes over captures the project already excludes reports a setting error as a model error.** Both
+figures are printed.
+
+📌 The best-fit delay is still fitted over 200 Hz–12 kHz and NOT over the owner's band — note #18
+measured the fit window as one of the rungs that moves the number, so it is held fixed for
+continuity. The 40 Hz–16 kHz column therefore contains some extrapolation of that fit at both ends;
+it is the honest statistic for the target, not a flattering one.

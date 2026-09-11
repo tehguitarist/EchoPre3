@@ -1587,7 +1587,12 @@ direction the data points, not a fit, and is not a reason to stop.
    fixed what was measurement-limited and left the recorded voicing gap alone.
    ⚠ **This supersedes the DARK FR figures in circuit.md notes #25 and #27.**
    ➡ **One thread remains open and is now item 3a below.**
-3a. ⚠ **Settle which sweep the fitters and the verifier share.** `absolute_gain.py` anchors
+3a. ✅ **DONE 2026-09-11 — circuit.md note #29d. They AGREE (+0.019 vs +0.040 dB at a common
+   sweep); the gap was the sweep mismatch alone and NO constant moved. The rule it settles:
+   `kOutputMakeup` is a linear scalar so its fitter belongs at the more linear sweep (`-26`), while
+   `goal_check`'s FR/phase belong at the higher-SNR `-16` — the two SHOULD differ.** ⛔ Do not move
+   the fitter to −16. Historic statement of the question: settle which sweep the fitters and the
+   verifier share. `absolute_gain.py` anchors
    `kOutputMakeup` at `sweep_-26` (`p4_corners.FIT_SWEEP`); `goal_check.py` is now on `sweep_-16`.
    The symptom is goal_check's DARK level mean moving −0.021 → +0.151 dB against the fitter's own
    +0.019 — all inside the ±0.5 target, but a 0.13 dB systematic disagreement on an anchored

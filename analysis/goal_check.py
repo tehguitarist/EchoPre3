@@ -70,6 +70,15 @@ LEVEL_DB = 0.5            # absolute voltage-gain tolerance, now that kOutputMak
 LEVEL_BAND = (200.0, 2000.0)  # above the LF poles, below the 1.9 kHz mode shelf zero
 # The capture-side cable capacitance lives in p4_corners.CABLE_PF -- one definition.
 PHASE_DEG = 5.0           # across all bands
+# The owner's stated phase band (2026-09-11): 40 Hz .. 16 kHz at minimum. Reported as its own
+# column beside the historic 200 Hz-12 kHz one, because circuit.md note #18's whole finding was a
+# phase figure quoted against a band its arithmetic did not cover.
+# ⚠ The best-fit delay is still fitted over PHASE_FIT_BAND (200 Hz-12 kHz) and NOT over this band:
+# note #18 measured the fit window as one of the rungs that moves the number, so it is held fixed
+# for continuity. That means the 40 Hz-16 kHz column includes some EXTRAPOLATION of the delay fit at
+# both ends -- it is the honest statistic for the target, not a tighter one.
+PHASE_BAND_OWNER = (40.0, 16000.0)
+PHASE_FIT_BAND = (200.0, 12000.0)
 # Shape normalisation window. Deliberately inside the core band and away from both roll-offs.
 NORM = (200.0, 5000.0)
 # The absolute anchor. P4 is the owner's own unit, raw-captured through a measured rig.
@@ -222,8 +231,11 @@ def main():
     # session. Read the polarity column FIRST.
     print("\n=== 2. PHASE (best-fit pure delay removed; polarity reported separately) ===")
     print(f"{'capture':>26} {'pol ren':>8} {'pol cap':>8} {'RMS 20-20k':>11} {'worst':>9} {'@Hz':>7} "
-          f"{'200Hz-12k':>10} {'>5deg':>7}  verdict")
+          f"{'200Hz-12k':>10} {'40Hz-16k':>9} {'>5deg':>7}  verdict")
     worst_ph_core = 0.0
+    worst_ph_owner = 0.0
+    worst_ph_owner_inc = 0.0
+    worst_ph_owner_dark = 0.0
     for path, parsed in C.find_captures():
         if parsed["unit"] != unit:
             continue
@@ -241,7 +253,8 @@ def main():
         ratio = Hr[keep] / Hc[keep]
         raw = np.unwrap(np.angle(ratio))
         w = np.abs(Hc[keep])                      # weight by capture magnitude: ignore the noise floor
-        band = (f >= 200.0) & (f <= 12000.0)
+        band = (f >= PHASE_FIT_BAND[0]) & (f <= PHASE_FIT_BAND[1])
+        oband = (f >= PHASE_BAND_OWNER[0]) & (f <= PHASE_BAND_OWNER[1])
         coef = np.polyfit(f[band], raw[band], 1, w=w[band])
         resid = np.degrees(raw - np.polyval(coef, f))
         # ⚠ AGAINST THE SOURCE, not against each other. polarity(render, capture) returns their
@@ -254,12 +267,30 @@ def main():
         rms = float(np.sqrt(np.average(resid ** 2, weights=w)))
         wi = int(np.argmax(np.abs(resid)))
         cw = float(np.max(np.abs(resid[band])))
+        ow = float(np.max(np.abs(resid[oband]))) if np.any(oband) else float('nan')
         nOver = int(np.sum(np.abs(resid) > PHASE_DEG))
         worst_ph_core = max(worst_ph_core, cw)
+        worst_ph_owner = max(worst_ph_owner, ow)
+        # ⚠ 7:30 and 8:00 (x <= 0.1) are excluded from every FIT in this project for knob-slope
+        # error -- the 1 kHz control law moves +-6.75 dB (7:30) and +-2.98 (8:00) per +-10 min of
+        # knob error, against +-1.02 at 9:00 (circuit.md note #23). A headline that maxes over
+        # captures the project already excludes reports a setting error as a model error.
+        if parsed.get("volume", 1.0) > 0.1:
+            worst_ph_owner_inc = max(worst_ph_owner_inc, ow)
+            # ⭐ Split by mode for the same reason the LEVEL section does: DARK is the model's own
+            # error, BRIGHT carries the recorded P1/P2-vs-P4 voicing gap (circuit.md #28) in exactly
+            # this band. Pooling them reports a deliberate decision as a phase failure.
+            if parsed.get("mode") == "dark":
+                worst_ph_owner_dark = max(worst_ph_owner_dark, ow)
         print(f"{name[:26]:>26} {polR:>+8d} {polC:>+8d} {rms:>11.2f} {resid[wi]:>+9.2f} "
-              f"{f[wi]:>7.0f} {cw:>10.2f} {nOver:>7}  "
+              f"{f[wi]:>7.0f} {cw:>10.2f} {ow:>9.2f} {nOver:>7}  "
               f"{'PASS' if (nOver == 0 and polR == polC == -1) else 'miss'}")
     print(f"\n  target: +-{PHASE_DEG:.0f} deg across all bands")
+    print(f"  worst over {PHASE_BAND_OWNER[0]:.0f} Hz - {PHASE_BAND_OWNER[1]/1000:.0f} kHz "
+          f"(the owner's stated band): {worst_ph_owner_inc:.2f} deg  [x > 0.1]"
+          f"   |  {worst_ph_owner:.2f} deg incl. the excluded 7:30/8:00")
+    print(f"    of which DARK (the model's own error): {worst_ph_owner_dark:.2f} deg"
+          f"  -- BRIGHT carries the note #28 voicing gap in this band")
     print(f"  worst over 200 Hz - 12 kHz: {worst_ph_core:.2f} deg")
     print("  ⚠ BOTH polarity columns must read -1 -- a single common-source stage inverts. They are")
     print("    measured against the TEST SIGNAL, not against each other: a relative check reads +1")
