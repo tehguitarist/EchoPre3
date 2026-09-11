@@ -89,8 +89,18 @@ def main():
                          "kept selectable for the historic comparisons only -- note #9 disqualifies "
                          "p2 and p3 for absolute response and note #17 shows p1 is the noisiest "
                          "model in that set.")
+    ap.add_argument("--sweep", default="sweep_-16",
+                    help="which of the signal's four sweeps to analyse. ⚠⚠ NOT "
+                         "`sweep_clean` -- that name means 'clean of DISTORTION', i.e. "
+                         "it is the QUIETEST sweep (-41 dBFS) and therefore the worst "
+                         "SNR in the set. p4_corners.FIT_SWEEP avoids it for the same "
+                         "reason and CLAUDE.md says never to deconvolve against it. "
+                         "-16 dBFS is the loudest sweep that is still LINEAR for every "
+                         "capture in the matrix -- sweep_-6 puts 2.013 V on the gate of "
+                         "a pad-0 capture, past the 1.94 V cutoff onset.")
     args = ap.parse_args()
     unit = args.unit
+    SWEEP = args.sweep
 
     # ⚠ P4 needs the rig deconvolved and the interface load undone before it is the PEDAL. Both are
     # smooth curves on the continuous grid, interpolated onto the 1/3-octave centres below. A NAM
@@ -99,11 +109,11 @@ def main():
     if unit == "p4":
         if not os.path.exists(P.REF_BYPASS):
             sys.exit(f"missing the deconvolution reference {P.REF_BYPASS}")
-        bypass_f, bypass_mag = P.load_fr(P.REF_BYPASS, seg="sweep_clean")
+        bypass_f, bypass_mag = P.load_fr(P.REF_BYPASS, seg=SWEEP)
         _bo = A.load(A.ORIG)
         _bc, _ = A.align(A.load(P.REF_BYPASS), _bo)
-        bypass_cf, bypass_cH = A.transfer_complex(A.seg_of(_bc, "sweep_clean", settled=False),
-                                                  A.seg_of(_bo, "sweep_clean", settled=False))
+        bypass_cf, bypass_cH = A.transfer_complex(A.seg_of(_bc, SWEEP, settled=False),
+                                                  A.seg_of(_bo, SWEEP, settled=False))
 
     # ⚠⚠ BOTH corrections live in p4_corners, in ONE definition each, and this script only calls
     # them. A second copy of a shipped correction is exactly harness fault 4 (circuit.md note #23).
@@ -132,8 +142,27 @@ def main():
             return np.where(np.abs(rig) > 0, corr / rig, 1.0 + 0j)
 
     orig = A.load(A.ORIG)
-    ref_seg = A.seg_of(orig, "sweep_clean", settled=False)
+    ref_seg = A.seg_of(orig, SWEEP, settled=False)
     tmp = tempfile.mkdtemp(prefix="goal_")
+
+    # ⚠⚠ RENDER VIA p4_corners' CACHE when we can -- this script is the acceptance gate and gets
+    # re-run with different --sweep / --os, and an uncached run costs ~10 minutes of renders.
+    # ⛔ But ONLY when --bin is the default: P.render's cache key hashes captures.render_bin_key(),
+    # i.e. C.RENDER_BIN, so calling it with a DIFFERENT binary would serve a render built from the
+    # wrong one under a key that claims otherwise. That is exactly circuit.md note #23's fault 1,
+    # one level further in. With --bin overridden we render uncached, as before.
+    _cacheable = os.path.abspath(args.bin) == os.path.abspath(C.RENDER_BIN)
+
+    def render_for(parsed, name):
+        if _cacheable:
+            return P.render(parsed, name, args.os)
+        out = os.path.join(tmp, name + ".wav")
+        if not os.path.exists(out):
+            subprocess.run([args.bin, A.ORIG, out, "--os", str(args.os)] + C.render_args(parsed),
+                           check=True, capture_output=True)
+        return out
+
+    _rendered = {}
 
     print(f"Goal check | OS {args.os}x | kInputRef {C.plugin_vfs()} V/FS (read from the header)")
     print(f"Anchor: {unit.upper()}"
@@ -150,14 +179,13 @@ def main():
             continue
         name = os.path.splitext(os.path.basename(path))[0]
         cap, _ = A.align(C.load_capture(path), orig)
-        out = os.path.join(tmp, name + ".wav")
-        subprocess.run([args.bin, A.ORIG, out, "--os", str(args.os)] + C.render_args(parsed),
-                       check=True, capture_output=True)
+        out = render_for(parsed, name)
+        _rendered[name] = out
         ren, _ = A.align(A.load(out), orig)
 
-        fc, mc, nc = A.band_fr(A.seg_of(cap, "sweep_clean", settled=False), ref_seg, frac=3)
+        fc, mc, nc = A.band_fr(A.seg_of(cap, SWEEP, settled=False), ref_seg, frac=3)
         mc = mc + pedal_correction_db(fc, parsed)
-        _, mr, nr = A.band_fr(A.seg_of(ren, "sweep_clean", settled=False), ref_seg, frac=3)
+        _, mr, nr = A.band_fr(A.seg_of(ren, SWEEP, settled=False), ref_seg, frac=3)
         # band_average's own docstring: a 0-bin band was INTERPOLATED, not measured. Never quote one.
         valid = (nc > 0) & (nr > 0)
         d = mr - mc
@@ -201,9 +229,9 @@ def main():
             continue
         name = os.path.splitext(os.path.basename(path))[0]
         cap, _ = A.align(C.load_capture(path), orig)
-        ren, _ = A.align(A.load(os.path.join(tmp, name + ".wav")), orig)
-        cs = A.seg_of(cap, "sweep_clean", settled=False)
-        rs = A.seg_of(ren, "sweep_clean", settled=False)
+        ren, _ = A.align(A.load(_rendered[name]), orig)
+        cs = A.seg_of(cap, SWEEP, settled=False)
+        rs = A.seg_of(ren, SWEEP, settled=False)
 
         f, Hc = A.transfer_complex(cs, ref_seg)
         _, Hr = A.transfer_complex(rs, ref_seg)
@@ -259,10 +287,10 @@ def main():
                 continue
             name = os.path.splitext(os.path.basename(path))[0]
             fc, mc, nc = A.band_fr(A.seg_of(A.align(C.load_capture(path), orig)[0],
-                                            "sweep_clean", settled=False), ref_seg, frac=3)
+                                            SWEEP, settled=False), ref_seg, frac=3)
             mc = mc + pedal_correction_db(fc, parsed)
-            ren, _ = A.align(A.load(os.path.join(tmp, name + ".wav")), orig)
-            _, mr, nr = A.band_fr(A.seg_of(ren, "sweep_clean", settled=False), ref_seg, frac=3)
+            ren, _ = A.align(A.load(_rendered[name]), orig)
+            _, mr, nr = A.band_fr(A.seg_of(ren, SWEEP, settled=False), ref_seg, frac=3)
             m = (nc > 0) & (nr > 0) & (fc >= LEVEL_BAND[0]) & (fc <= LEVEL_BAND[1])
             ped = float(np.mean(mc[m])) + parsed["pad_db"] + VOLTS_CORR
             plg = float(np.mean(mr[m])) + parsed["pad_db"]

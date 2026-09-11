@@ -2369,3 +2369,110 @@ the DARK path). Nothing else moves: `m` and `|Vp|` came from P4's probe captures
 📌 **Averaging the units is ruled OUT as a voicing target.** `voicing_compare.py`'s `avg_*` curves
 are a report reference line only. Note also that P4's MID there is an EXTRAPOLATION (P4 has no MID
 position), so an average would import an estimate into the one position no capture can ever check.
+
+### 29. ⭐⭐ THE 13:30 DARK OUTLIER IS THE HARNESS (2026-09-11) — `goal_check` was reading the QUIETEST sweep
+
+`docs/build-plan.md` §19 item 3 asked whether 13:30's core-band FR miss was a real narrow model gap
+or a capture artefact. **It is neither: it is the instrument.** No DSP constant changed, and none
+should. ⚠ **This supersedes the DARK FR figures in notes #25 and #27**, which were all measured on
+`sweep_clean`.
+
+**⛔ FIRST, WHAT IT IS NOT — four routes, two instruments, and the strongest one never renders the
+plugin at all.**
+1. **Not the mode shelf.** 13:30's rig-free mode differential deviates **0.103 dB RMS** from the
+   six-position median — normal, beside 9:00's 0.099 and 12:00's 0.095. ⭐ The differential outlier
+   is **15:00** (0.284), which PASSES. So the fault is common-mode at that position.
+2. **Not the model.** The model's DARK response above 2 kHz is position-independent except through
+   the loading correction, so every corrected DARK capture must lie on top of every other. At
+   `sweep_clean` 13:30 deviates **0.476 dB RMS** against 0.110–0.243 for the rest — and **BRIGHT
+   shows the same deficit** (0.361 RMS), same sign, same size, which a mode-dependent model error
+   cannot do.
+3. **Not knob-setting error.** At 13:30 a ±10 min error moves the 8–10 kHz loading correction by
+   **0.012–0.015 dB**; 15:00 is 7× more sensitive and passes. (13:30 is also the volume peak, where
+   the control law's level slope is ~0 by construction.)
+4. **The sign is right for a capture deficit**: `goal_check` read **+0.54 dB @8127, +0.64 @10240**,
+   i.e. the PLUGIN brighter than the capture.
+
+**⭐⭐ WHAT IT IS: `goal_check.py` analysed `sweep_clean`, and `sweep_clean` is the −41 dBFS sweep —
+the QUIETEST of the signal's four.** It used it for the captures, the renders AND the bypass
+deconvolution. ⚠⚠ **The NAME is the trap: `sweep_clean` means clean of DISTORTION, so it reads as
+"the good one" while being the worst SNR in the set by 25 dB.** `p4_corners.FIT_SWEEP` already
+avoided it for exactly this reason (`sweep_-26`, "well clear of the noise floor"), and CLAUDE.md
+already said "use the reference's −6 or −16 dBFS sweep, never its quietest". The rule existed; one
+script did not follow it.
+
+13:30's capture-side excess loss, by sweep: **−0.50 / −0.22 / −0.11 / −0.11 dB at 8.1 kHz** for
+clean / −26 / −16 / −6.
+
+**➡ THE FIX: `--sweep`, defaulting to `sweep_-16`** — *the loudest sweep that is still LINEAR for
+every capture in the matrix.* ⛔ Not `sweep_-6`: at pad 0 that is 2.013 V on the gate against a
+1.942 V cutoff onset, i.e. **0.3 dB PAST cutoff**. `sweep_-16` leaves 9.7 dB of headroom at pad 0
+and 21.7 at pad 12.
+
+| DARK core worst, dB | `sweep_clean` | `sweep_-26` | `sweep_-16` |
+|---|---|---|---|
+| 7:30 pad12 | 0.90 ⛔ | 0.39 | 0.36 |
+| 9:00 | 0.05 | 0.14 | 0.18 |
+| 10:30 | 0.07 | 0.30 | 0.34 |
+| 12:00 | 0.22 | 0.52 ⛔ | 0.38 |
+| **13:30** | **0.64 ⛔** | **0.63 ⛔** | **0.41 ✅** |
+| 17:00 | 0.20 | 0.18 | 0.19 |
+
+⚠⚠ **READ THAT AS VARIANCE COLLAPSING, NOT AS "LOUDER IS BETTER" — the already-good rows get
+WORSE.** The honest statistic is the SPREAD: **0.05–0.90 (18×) at `sweep_clean` becomes 0.18–0.43
+(2.4×) at −16**, and on the capture side the worst position's deviation goes **0.476 → 0.131 dB**
+with every position tightening 2–4×. A quantity that must be similar across knob positions becomes
+similar — the same argument note #23 used for the taper, and stronger than any single row.
+
+✅ **At `sweep_-16` EVERY DARK capture passes the core band (0.18–0.43 dB) and NO dark capture
+exceeds 1.0 dB anywhere** — so note #27 §3's remaining LF misses (8:00's −1.08 dB at 20 Hz) and the
+13:30 core-HF miss are both gone. 13:30's phase improves **2.33° → 1.02°**.
+⭐ **And the control: BRIGHT is UNCHANGED** (13:30 bright 1.51 → 1.57 dB at 10 kHz). A sweep change
+that improved everything would be suspicious; this one fixed what is measurement-limited and left
+the recorded voicing gap (note #28) exactly where it was.
+
+#### 29a. ✅ The linear response IS level-independent — measured, because it was worth checking
+
+Asked directly: should the model not be accurate at any volume? It is, and so is the pedal. Within
+`p4_V1030_dark_pad12`, where every sweep is genuinely linear, the measured shape moves **0.02 dB at
+1 kHz, 0.13 dB at 8.1 kHz and 0.22 dB at 16 kHz across a 35 dB span**. That residual is the
+measurement floor, the same size as the position scatter above. ➡ **So a sweep must be chosen for
+SNR, not for realism** — choosing for realism would be choosing inside the noise, and would tacitly
+concede a level-dependence the linear path does not have.
+
+⭐ **Two free confirmations fell out.** (a) `sweep_-26` reads **identically** in a pad-0 and a pad-12
+capture (+0.02 / −0.02 / −0.06 / −0.07 / −0.09 dB) despite those sitting at *different* gate drives
+(−26 vs −38 dBFS equivalent) — so the residual tracks the sweep's DIGITAL level, not the drive,
+which is what a measurement artefact does and a pedal does not. (b) The linearity bound was
+confirmed without being told: pad-0's `sweep_-6` is the largest deviation in the table (+0.23 dB at
+16 kHz) while pad-12's same sweep, 12 dB less drive, is +0.10 — independently reproducing the
+cutoff arithmetic that set the default.
+
+📌 ⚠ **And the sweep is NOT the playing zone, which is worth not misremembering.** A pad eats drive
+and recorded level together, so at pad 12 — 22 of the 28 main captures — `sweep_-16` is equivalent
+to a user playing at **−28 dBFS**, 16 dB below the −12 dBFS playing floor. Even pad 0 reaches only
+−16 dBFS. **The playing zone is measured by the NONLINEAR instruments** (`probe_compare.py` on the
+pad-0 and probe captures, which do reach the load line — note #27), never by `goal_check`.
+
+#### 29b. ⚠ STILL OPEN: the fitter and the verifier are on DIFFERENT sweeps
+
+`absolute_gain.py`, which anchored `kOutputMakeup`, calls `P.load_fr(path)` with no segment and so
+uses `p4_corners.FIT_SWEEP` = **`sweep_-26`**. `goal_check.py` was on `sweep_clean` and is now on
+`sweep_-16`. Three scripts, three sweeps. The symptom is `goal_check`'s DARK level mean moving
+**−0.021 → +0.151 dB** (both inside the ±0.5 target, but a 0.13 dB systematic disagreement with the
+fitter's own +0.019). ➡ **Not yet resolved**: it needs `goal_check --sweep sweep_-26`'s level
+section to see whether it reproduces the fitter, after which either the fitter moves to −16 (and
+`kOutputMakeup` is re-measured, per note #23's coupling list) or both settle on one sweep.
+⛔ Do not move `kOutputMakeup` before that comparison exists.
+
+#### 📌 29c. Harness notes from the same session
+- ⭐ **`goal_check` now renders through `p4_corners.render`** instead of a fresh `tempfile.mkdtemp`
+  each run: **600 s → 21 s**, output verified **byte-identical** across all 106 lines. ⛔ Guarded so
+  the cache is used ONLY when `--bin` is the default — `P.render`'s key hashes `C.RENDER_BIN`, so
+  calling it with a different binary would file that render under a key claiming otherwise, which is
+  note #23's fault 1 one level further in.
+- ⚠ **`p4_corners.render` writes straight to its final cache path with no temp-and-rename**, so two
+  concurrent runs sharing a key can have one read a TRUNCATED wav. Not hit yet; do not run two
+  analysis scripts against a cold cache at once until it is fixed.
+- 📌 A comment-only edit to a header invalidates every cached render (the key hashes the binary).
+  Correct and deliberate, but "rebuild then re-measure" always pays full price once.

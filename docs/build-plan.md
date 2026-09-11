@@ -1578,11 +1578,22 @@ direction the data points, not a fit, and is not a reason to stop.
    being P4's ~25 % weaker JFET surfacing on two axes. Reversing it is still one constant
    (`gm` → ~1146 µS) plus a re-run of `analysis/absolute_gain.py`, and `JfetStage.h`'s device law
    (`m`, `|Vp|`) is unaffected either way — but it is closed, not open.
-3. **The 13:30 DARK outlier.** `goal_check.py --unit p4` shows every DARK knob position passes the
-   core-band FR target except 13:30 (0.64 dB worst, at 8127/10240 Hz), and it is neither knob-slope
-   error (that's 7:30/8:00 only) nor the BRIGHT voicing gap (DARK isn't touched by the mode shelf).
-   Diagnose whether it's a real, narrow model gap or a one-off capture artefact before deciding
-   whether it is worth acting on.
+3. ✅ **The 13:30 DARK outlier — DIAGNOSED 2026-09-11, circuit.md note #29. It was the HARNESS,
+   and no DSP constant changed.** `goal_check.py` was analysing `sweep_clean`, which is the −41 dBFS
+   sweep — the QUIETEST of the four (the name means clean of *distortion*). It now takes `--sweep`,
+   defaulting to `sweep_-16`, the loudest sweep still linear for every capture in the matrix.
+   **Every DARK capture now passes the core band (0.18–0.43 dB) and none exceeds 1.0 dB anywhere**,
+   13:30's phase improves 2.33° → 1.02°, and BRIGHT is unchanged — the control that says the change
+   fixed what was measurement-limited and left the recorded voicing gap alone.
+   ⚠ **This supersedes the DARK FR figures in circuit.md notes #25 and #27.**
+   ➡ **One thread remains open and is now item 3a below.**
+3a. ⚠ **Settle which sweep the fitters and the verifier share.** `absolute_gain.py` anchors
+   `kOutputMakeup` at `sweep_-26` (`p4_corners.FIT_SWEEP`); `goal_check.py` is now on `sweep_-16`.
+   The symptom is goal_check's DARK level mean moving −0.021 → +0.151 dB against the fitter's own
+   +0.019 — all inside the ±0.5 target, but a 0.13 dB systematic disagreement on an anchored
+   constant. Run `goal_check --sweep sweep_-26`'s level section first; then either move the fitters
+   to −16 and re-measure `kOutputMakeup` (note #23 lists its couplings), or settle both on −26.
+   ⛔ Do not move `kOutputMakeup` before that comparison exists.
 4. **<200 Hz cleanup** — FR, THD, phase, and compression below 200 Hz, within the limits already on
    record (the LF pole is confounded across the three NAM units and not fittable further without a
    capture that does not exist — notes #19/#19a/#20/#20a; the taper and C10 are already settled
