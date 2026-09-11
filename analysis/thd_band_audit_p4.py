@@ -91,10 +91,15 @@ def pedal_corr_closure(bypass_f, bypass_mag, volume_x):
     return corr
 
 
-def render(binary, parsed, os_factor):
+def render(binary, parsed, os_factor, gm=None):
+    """⚠ `gm` is a MEASUREMENT override, never a ship setting. The model is voiced to P1/P2
+    (circuit.md note #28), which deliberately makes ~1.26 dB less H2 than P4. Rendering at P4's own
+    measured gm removes that known offset so the per-band residual can be compared against the
+    measurement floor without the voicing decision sitting in the middle of it."""
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     tmp.close()
-    subprocess.run([binary, A.ORIG, tmp.name, "--os", str(os_factor)] + C.render_args(parsed),
+    extra = ["--gm", f"{gm:g}"] if gm else []
+    subprocess.run([binary, A.ORIG, tmp.name, "--os", str(os_factor)] + C.render_args(parsed) + extra,
                    check=True, capture_output=True)
     out = A.load(tmp.name)
     os.unlink(tmp.name)
@@ -186,6 +191,10 @@ def corrected_dbc_and_thd(h_dbfs_gated, f0, corr):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--os", type=int, default=8)
+    ap.add_argument("--gm", type=float, default=None,
+                    help="transconductance override in SIEMENS, e.g. 1146e-6 for P4's own measured "
+                         "value. MEASUREMENT ONLY -- it removes the note #28 voicing offset so the "
+                         "residual can be read against the floor. Never a ship setting.")
     ap.add_argument("--bin", default=C.RENDER_BIN)
     ap.add_argument("--floor-margin", type=float, default=10.0,
                     help="dB a capture-side harmonic must clear the capture's own noise floor by")
@@ -212,7 +221,7 @@ def main():
     for path, parsed in caps:
         name = os.path.splitext(os.path.basename(path))[0]
         cap, _ = A.align(C.load_capture(path), orig_loaded)
-        ren = render(args.bin, parsed, args.os)
+        ren = render(args.bin, parsed, args.os, args.gm)
         ren, _ = A.align(ren, orig_loaded)
         corr = pedal_corr_closure(bypass_f, bypass_mag, parsed["volume"])
         noise = A.noise_floor_db(cap)
@@ -336,12 +345,15 @@ def main():
     print(f"\ncaptures used: {', '.join(rows_out)}")
 
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
-    with open(OUT, "w") as fh:
+    # ⚠ A --gm run is a measurement probe, not the shipped audit -- keep it out of the report of
+    # record so a later reader cannot mistake a voicing-corrected residual for the shipped one.
+    out_path = OUT if not args.gm else OUT.replace(".json", f"_gm{args.gm*1e6:.0f}u.json")
+    with open(out_path, "w") as fh:
         json.dump({"generated": datetime.now(timezone.utc).isoformat(), "os": args.os,
-                   "floor_margin_db": args.floor_margin,
+                   "floor_margin_db": args.floor_margin, "gm_override": args.gm,
                    "group_summary": summary, "per_band": per_band,
                    "floor_bright_vs_dark_below_shelf": floor_rows}, fh, indent=2)
-    print(f"\nwrote {OUT}")
+    print(f"\nwrote {out_path}")
 
 
 if __name__ == "__main__":
