@@ -44,6 +44,13 @@ struct Setup
     int modeIndex = 1; // Dark
     double volume = 0.5;
     double inputTrimDb = 0.0;
+    double outputTrimDb = 0.0;
+    // ⚠ The output LOAD is part of the model (it moves the level, C10's corner and the drain-node
+    // impedance -- circuit.md note #31), so it belongs here for the same reason every other field
+    // does. It was missing when the control was added, which meant every probe silently inherited
+    // the plugin's default: harmless while no probe changed it, and a leak waiting to happen the
+    // moment one did. 0 = the shipped 68k default.
+    int loadIndex = 0;
     bool bypass = false;
     int solveIters = 0;        // 0 = the shipped JfetStage::kSolveIters (restored, not inherited)
     bool closedForm = true;    // false selects the iterative reference solve
@@ -66,8 +73,9 @@ inline void configure(PedalAudioProcessor& proc, const Setup& s)
     setPlain("volume", (float)s.volume);
     setPlain("bypass", s.bypass ? 1.0f : 0.0f);
     setPlain("input_trim", (float)s.inputTrimDb);
-    setPlain("output_trim", 0.0f);
+    setPlain("output_trim", (float)s.outputTrimDb);
     setChoice("mode", s.modeIndex);
+    setChoice("output_load", s.loadIndex);
     // Both OS parameters, so the render never depends on whether isNonRealtime() happens to be set.
     setChoice("oversampling", s.osIndex);
     setChoice("render_oversampling", s.osIndex);

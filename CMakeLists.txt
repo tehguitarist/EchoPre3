@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(EchoPre3 VERSION 0.6.0)   # bump VERSION to force Logic to rescan the AU after changes
+project(EchoPre3 VERSION 0.7.0)   # bump VERSION to force Logic to rescan the AU after changes
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -197,6 +197,35 @@ target_link_libraries(BypassClickTest PRIVATE juce::juce_gui_extra juce::juce_au
     chowdsp::chowdsp_wdf PedalAssets juce::juce_recommended_config_flags)
 target_compile_options(BypassClickTest PRIVATE ${PEDAL_WARNING_FLAGS})
 add_test(NAME BypassClickTest COMMAND BypassClickTest)
+
+# VolumeAutomationTest — does the per-block VOLUME update zipper under automation? Carries its own
+# mutation guard (the same measurement with the ramp defeated), so a pass means the instrument can
+# see a zipper and there is not one, rather than only the second half of that.
+juce_add_console_app(VolumeAutomationTest PRODUCT_NAME "VolumeAutomationTest")
+target_sources(VolumeAutomationTest PRIVATE
+    tests/VolumeAutomationTest.cpp src/PluginProcessor.cpp src/PluginEditor.cpp
+    src/ui/PedalLookAndFeel.cpp src/ui/PedalFace.cpp)
+target_include_directories(VolumeAutomationTest PRIVATE src)
+target_compile_definitions(VolumeAutomationTest PRIVATE
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1)
+target_link_libraries(VolumeAutomationTest PRIVATE juce::juce_gui_extra juce::juce_audio_utils juce::juce_dsp
+    chowdsp_wdf PedalAssets)
+target_compile_options(VolumeAutomationTest PRIVATE ${PEDAL_WARNING_FLAGS})
+add_test(NAME VolumeAutomationTest COMMAND VolumeAutomationTest)
+
+# FullSweepTest — build-sequence step 10: every control across its full range through the REAL
+# processor, asserting stability only (finite, no runaway). Output above 0 dBFS is faithful here.
+juce_add_console_app(FullSweepTest PRODUCT_NAME "FullSweepTest")
+target_sources(FullSweepTest PRIVATE
+    tests/FullSweepTest.cpp src/PluginProcessor.cpp src/PluginEditor.cpp
+    src/ui/PedalLookAndFeel.cpp src/ui/PedalFace.cpp)
+target_include_directories(FullSweepTest PRIVATE src)
+target_compile_definitions(FullSweepTest PRIVATE
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_STANDALONE_APPLICATION=1)
+target_link_libraries(FullSweepTest PRIVATE juce::juce_gui_extra juce::juce_audio_utils juce::juce_dsp
+    chowdsp_wdf PedalAssets)
+target_compile_options(FullSweepTest PRIVATE ${PEDAL_WARNING_FLAGS})
+add_test(NAME FullSweepTest COMMAND FullSweepTest)
 
 # UISnapshot — headless editor render to PNG (build.md "UI changes"). Needs juce_gui_extra +
 # PedalAssets and the shared UI/processor sources; it's a smoke test (asserts a non-empty image),

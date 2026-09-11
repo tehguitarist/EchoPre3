@@ -475,6 +475,56 @@ at the knee where the substituted form is polynomial). With the bound fixed the 
 - Internal nominal reference: pick one (e.g. −12 dBu) and stay consistent.
 - Provide input + output trims, visually distinct from the pedal controls.
 
+## A per-block parameter update is a staircase — size it against the control law's SLOPE
+
+A WDF control whose setter re-solves impedances cannot run per sample, so the reflex is to apply it
+once per block and put a SmoothedValue on it. Both halves of that are insufficient, and the failure
+is loudest wherever the control law is steep:
+
+- **The step is `(block / ramp) × range`.** So a 20 ms ramp does nothing at all at a 2048-sample
+  block (42.7 ms), which is exactly where it is needed most: a host writes an automated parameter
+  once per block, so each write arrives as a fresh jump that a short ramp completes inside one
+  block. **Lengthening the ramp cannot fix this alone** — one block would still be one step.
+- **So slice the block.** Apply the parameter every N base-rate samples (16 was right on this
+  pedal) and process the buffer in N-sample pieces; the existing per-block body moves into a
+  `processChunk` unchanged. ⭐ **Skip the slicing unless the control is actually moving** — that
+  keeps the static path bit-for-bit identical, which is what makes the change safe to make late,
+  and it means the cost appears in no steady-state CPU figure. Verify the identity with a null
+  against the previous binary rather than asserting it.
+- **⚠ Sliced meters must ACCUMULATE.** A plain `store()` per chunk reports the last chunk's peak as
+  the block's — a metering bug that only appears while a knob is moving, i.e. precisely when nobody
+  would trust their eyes over the audio.
+- **Size N against `dGain/dx`, not against the range.** A non-monotonic or log-ish law can be
+  extremely steep at one end (this pedal's volume runs to −∞ at full CCW), so a step that is
+  inaudible mid-rotation is several dB near the stop. Measure at the steep end, not a convenient one.
+
+### Measuring it: the metric is the GAIN trajectory, and three traps sit in front of it
+
+- ⚠⚠ **Do not use "peak per-sample jump minus the same render with no move".** The moved render ends
+  at a different amplitude and so has a larger *legitimate* slew; the difference reports that as a
+  step. On this pedal it read 0.126 against the 0.131 a steady tone's own slew gives — essentially
+  all signal. A zipper is a staircase in the applied gain, so measure the gain (a one-period matched
+  filter) and take its largest step.
+- ⚠⚠ **The read grid must be finer than the quantisation being detected.** Reading the envelope once
+  per host block reports the change *across* the block however finely the gain moved inside it — so
+  after the fix the numbers came back byte-identical and the test looked blind to its own fix. Read
+  on the envelope's own window instead. And beware the opposite error: a settle offset of one block,
+  added to avoid straddling boundaries, skipped the transition and returned **0.000 dB for the
+  largest possible step**. A metric that returns zero for the worst case is not conservative.
+- ⭐⭐ **Verdict by CONVERGENCE, not a dB threshold.** The question is whether a residual step is the
+  quantisation or the trajectory, and those want opposite responses. A fixed bound cannot separate
+  them: a large move completed quickly legitimately changes the gain by more than any bound tight
+  enough to catch a staircase. So quarter N and re-measure — a step that does not fall is the
+  trajectory, and nothing is left to win. That is also how to pick N in the first place: model the
+  step as `trajectory + quantisation × N` and halve N while the quantisation term is still a
+  material share of the total. Same shape as the iteration-count argument above.
+- ⚠ **Gate the statistic on absolute level.** A relative step only matters if the signal under it is
+  audible; a law that runs to silence will otherwise report huge dB steps at inaudible amplitudes.
+  Gate on the signal's own level — never on its disagreement with the model, which would be circular.
+- ⚠ **Put the mutation guard at the SMALLEST block.** With the ramp defeated, shipped and defeated
+  are equal by construction at any block longer than the ramp, so a worst-over-all-sizes guard picks
+  that case and declares a working instrument blind.
+
 ## Coupled controls
 
 - Controls sharing a network (e.g. bass + drive in one feedback web) must be modelled as a **single

@@ -210,7 +210,17 @@ void PedalAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     currentOsIndex = -1;
     updateOversamplingFactor(pOversampling != nullptr ? (int) pOversampling->load() : 2);
 
-    volumeSmooth.reset(sampleRate, 0.02);
+    // ⚠ 100 ms, not the template's 20 ms, and the reason is the HOST's update rate rather than
+    // feel. A host writes an automated parameter once per block; at a 2048-sample block that is
+    // every 42.7 ms, so a 20 ms ramp has always finished before the next update arrives and each
+    // update lands as a fresh jump -- the smoother contributes nothing at exactly the block size
+    // where it is needed most. 100 ms spans two to three such blocks. Measured (VolumeAutomationTest,
+    // a 50 ms automated sweep at a 2048-sample block): 6.33 dB per step at 20 ms, 1.66 dB at 100 ms.
+    // ⭐ It is not a substitute for the per-chunk update in processBlock -- the two fix different
+    // halves. The ramp bounds how fast the TARGET can move; the chunking bounds how coarsely the
+    // journey is sampled. Lengthening the ramp alone cannot fix a 2048-sample block at all, because
+    // one block would still be one step.
+    volumeSmooth.reset(sampleRate, 0.10);
     volumeSmooth.setCurrentAndTargetValue(pVolume != nullptr ? (double) pVolume->load() : 0.5);
     bypassMix.reset(sampleRate, kBypassRampSeconds);
     bypassMix.setCurrentAndTargetValue((pBypass != nullptr && pBypass->load() > 0.5f) ? 1.0 : 0.0);
@@ -305,7 +315,63 @@ bool PedalAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) con
     return layouts.getMainInputChannelSet() == out;
 }
 
-void PedalAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer&)
+// ⭐⭐ VOLUME IS APPLIED PER CHUNK, NOT PER BLOCK, AND THAT IS A MEASURED FIX RATHER THAN A
+// PRECAUTION. `setVolume()` re-solves the output network's WDF impedances, so it genuinely cannot
+// run per sample -- but applying it once per HOST block quantises the control law into a staircase
+// at the block rate, and on this pedal the control law is extremely steep near full CCW (the network
+// is non-monotonic and its gain goes to -inf as Ra -> 0, circuit.md validation note #1), so the
+// steps are large. VolumeAutomationTest measured them before this fix: a 0.15 -> 0.35 move stepped
+// 6.4 dB at a 512-sample block and 8.6 dB at 2048, and even a leisurely 1-SECOND automation sweep --
+// the realistic case, a host moving the parameter once per block -- stepped 2.4 dB at 512 and
+// 10.8 dB at 2048. That is an audible staircase at the block rate, not the "may zipper" CLAUDE.md
+// had carried as a residual since the chain was built.
+//
+// ⚠ Lengthening the ramp cannot fix it on its own: the step is (block / ramp) x range, and at a
+// 2048-sample block one block is already 42.7 ms, so no ramp shorter than that produces more than
+// one step at all. The update has to get finer.
+//
+// So the block is SLICED, and processChunk below is the original per-block body, unchanged. ⭐ The
+// slicing is skipped entirely unless VOLUME is actually moving, which is what keeps the static path
+// -- every render, every null, every measurement in this project -- bit-for-bit identical. That was
+// verified rather than assumed: OfflineRender against the pre-change binary nulls at -inf dB.
+void PedalAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midi)
+{
+    const int numSmp = buffer.getNumSamples();
+
+    // Moving, in the sense that matters: either the ramp is still running or the host has just
+    // written a new target. Reading the target directly (rather than waiting for isSmoothing) is
+    // what catches the FIRST chunk of a jump, which is the largest step of the whole transition.
+    const double volTarget = pVolume != nullptr ? (double) pVolume->load() : 0.5;
+    const bool bypassed = pBypass != nullptr && pBypass->load() > 0.5f;
+    const bool volumeMoving = volumeSmoothingEnabled && ! bypassed
+                              && (volumeSmooth.isSmoothing()
+                                  || std::abs(volTarget - volumeSmooth.getCurrentValue()) > 1.0e-12);
+
+    if (! volumeMoving || numSmp <= volumeChunk)
+    {
+        processChunk(buffer, midi, false);
+        return;
+    }
+
+    // ⚠ The meters have to ACCUMULATE across the chunks. Left as a plain store per chunk they would
+    // report the last chunk's peak as the block's, i.e. under-read by however much the signal moved
+    // within the block -- a metering bug that would only ever appear while a knob was being turned,
+    // which is exactly when nobody would trust their eyes over the audio.
+    for (size_t ch = 0; ch < 2; ++ch)
+    {
+        inputLevel[ch].store(0.0f);
+        outputLevel[ch].store(0.0f);
+    }
+
+    for (int start = 0; start < numSmp; start += volumeChunk)
+    {
+        const int m = jmin(volumeChunk, numSmp - start);
+        AudioBuffer<float> sub(buffer.getArrayOfWritePointers(), buffer.getNumChannels(), start, m);
+        processChunk(sub, midi, true);
+    }
+}
+
+void PedalAudioProcessor::processChunk(AudioBuffer<float>& buffer, MidiBuffer&, bool accumulateMeters)
 {
     ScopedNoDenormals noDenormals;
 
@@ -320,8 +386,16 @@ void PedalAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer&)
                                        : (pOversampling != nullptr ? (int) pOversampling->load() : 2);
     updateOversamplingFactor(wantOs);
 
+    // ⚠ skip(numSmp) advances the ramp by the block and returns its END value, which is then
+    // applied to the whole block -- so the 20 ms ramp is quantised to the host's block grid rather
+    // than being a per-sample ramp. That is deliberate (the setter re-solves the WDF network's
+    // impedances, so it cannot run per sample), and VolumeAutomationTest measures what it costs:
+    // the worst excess per-sample step over every block size and every part of the control law.
     volumeSmooth.setTargetValue((double) pVolume->load());
-    const double volume = volumeSmooth.skip(numSmp);
+    const double volume = volumeSmoothingEnabled ? volumeSmooth.skip(numSmp)
+                                                 : (double) pVolume->load();
+    if (! volumeSmoothingEnabled)
+        volumeSmooth.setCurrentAndTargetValue(volume);
     bypassMix.setTargetValue(pBypass->load() > 0.5f ? 1.0 : 0.0);
 
     // ===================== FULLY BYPASSED: skip the DSP (architecture.md) =====================
@@ -383,8 +457,8 @@ void PedalAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer&)
             float peak = 0.0f;
             for (int n = 0; n < numSmp; ++n)
                 peak = jmax(peak, std::abs(dry[n]));
-            inputLevel[(size_t) ch].store(peak);
-            outputLevel[(size_t) ch].store(peak);
+            storeLevel(inputLevel[(size_t) ch], peak, accumulateMeters);
+            storeLevel(outputLevel[(size_t) ch], peak, accumulateMeters);
         }
 
         // buffer already holds the dry signal untouched -- true bypass needs no copy.
@@ -427,7 +501,7 @@ void PedalAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer&)
             inPeak = jmax(inPeak, (float) std::abs(wet));
             dst[n] = wet * kInputRef;
         }
-        inputLevel[(size_t) ch].store(inPeak);
+        storeLevel(inputLevel[(size_t) ch], inPeak, accumulateMeters);
     }
     if (numCh == 1)
         scratch.clear(1, 0, numSmp);
@@ -463,7 +537,7 @@ void PedalAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer&)
             dry[n] = (float) y;
             outPeak = jmax(outPeak, (float) std::abs(y));
         }
-        outputLevel[(size_t) ch].store(outPeak);
+        storeLevel(outputLevel[(size_t) ch], outPeak, accumulateMeters);
     }
     bypassMix.skip(numSmp);
 }

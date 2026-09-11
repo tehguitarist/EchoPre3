@@ -40,10 +40,35 @@ public:
     ~PedalAudioProcessor() override;
 
     void prepareToPlay(double sampleRate, int samplesPerBlock) override;
+
+    /** Base-rate samples per VOLUME update while the control is moving. See processBlock's comment:
+     *  32 samples caps the control law's staircase at ~0.1 dB per step on a 1-second automation
+     *  sweep, against 2.4-10.8 dB per step when the update was once per host block. Paid only while
+     *  the knob or its automation is actually moving. */
+    // ⚠ 16, not 32, and the difference was measured rather than picked. Modelling the step as
+    // (trajectory + quantisation x chunk) against VolumeAutomationTest's chunk sweep puts the
+    // trajectory floor at ~1.36 dB for an instantaneous full-range jump and chunk-32's quantisation
+    // term at ~0.8 dB of that -- i.e. at 32 the quantisation was still a third of the total. At 16
+    // it is ~0.4 dB and the measurement converges. The cost is paid ONLY while the control is
+    // moving, so it does not appear in any steady-state CPU figure.
+    static constexpr int kVolumeChunkDefault = 16;
+
+    /** Test hook: the chunk above. VolumeAutomationTest sweeps it to establish that the residual
+     *  step is the gain TRAJECTORY rather than the quantisation -- if a finer chunk does not reduce
+     *  the step, there is nothing left to win by chunking harder. Production leaves it at the
+     *  default; 0 restores it rather than inheriting whatever the last test set. */
+    void setVolumeChunk(int n) { volumeChunk = n > 0 ? n : kVolumeChunkDefault; }
     void releaseResources() override {}
     /** Test hook: Newton iterations per sample in the JFET solve. Production leaves this at
      *  JfetStage::kSolveIters; FeatureProfile A/Bs it. */
     void setSolveIters(int n);
+
+    /** Test hook: defeat the VOLUME control's 20 ms ramp, so a parameter change lands in one
+     *  block with no smoothing at all. Production leaves this ON. It exists so
+     *  VolumeAutomationTest can run its own measurement against a known-bad configuration --
+     *  without that, "no zipper found" is equally consistent with an instrument that cannot see
+     *  one. ⚠ Not a user control and not a voicing option: unsmoothed volume steps audibly. */
+    void setVolumeSmoothingEnabled(bool b) { volumeSmoothingEnabled = b; }
 
     /** Test hook: closed-form solve vs the iterative reference. ⚠ The closed form is exact only at
      *  the SQUARE law, and the stage ships an exponent of 1.60, so production is now the iterative
@@ -181,7 +206,24 @@ private:
 
     // Trims are read per block as plain gains; only VOLUME (which re-solves the WDF network) and the
     // bypass crossfade need smoothing.
+    /** The original per-block body. processBlock slices the buffer into kVolumeChunk pieces and
+     *  calls this per piece while VOLUME is moving, and hands it the whole block otherwise. */
+    void processChunk(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi,
+                      bool accumulateMeters);
+
+    /** Peak into a meter atomic: max across chunks when the block was sliced, plain store when it
+     *  was not. Sliced stores must accumulate or the meter reads the last chunk, not the block. */
+    static void storeLevel(std::atomic<float>& dest, float peak, bool accumulate)
+    {
+        if (accumulate)
+            dest.store(juce::jmax(dest.load(), peak));
+        else
+            dest.store(peak);
+    }
+
     juce::SmoothedValue<double> volumeSmooth, bypassMix;
+    bool volumeSmoothingEnabled = true;   // see setVolumeSmoothingEnabled -- test hook only
+    int volumeChunk = kVolumeChunkDefault;
 
     // True while the DSP is being skipped because the bypass crossfade has fully settled to dry
     // (architecture.md "Bypass"). It exists only so the chain and the oversampler are reset ONCE on
