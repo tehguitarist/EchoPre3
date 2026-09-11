@@ -54,9 +54,9 @@ transistor's **triode branch** is constrained by a single capture cell, because 
 couples drive depth to output level and only one knob setting reaches that region; and the **MID**
 switch position is scaled from the three-position units, since the calibration unit does not have
 one. The per-band THD figure is also structurally unmeasurable above 8 kHz at 48 kHz, because a
-tone's second harmonic is past Nyquist there. [`CLAUDE.md`](CLAUDE.md) carries the full
-measurement log, and [`.claude/rules/circuit.md`](.claude/rules/circuit.md) every value the model
-uses and where it came from.
+tone's second harmonic is past Nyquist there. [`.claude/rules/circuit.md`](.claude/rules/circuit.md) records
+every value the model uses and what pins it; [`docs/build-plan.md`](docs/build-plan.md) is the dated
+development log, including the conclusions that had to be reversed along the way.
 
 ## Overview
 
@@ -81,7 +81,6 @@ approximating:
   only once — worth 16 dB of excess distortion. Only an independent solve of the transistor equation
   caught it; every linear frequency-response test passed the whole time. That finding is what
   eventually replaced the fitted shaper with the solved device equations described above.
-
 - **The transfer law isn't square.** Textbook JFET models use an exponent of 2; fitted against tone
   captures that actually reach the clipping region this unit comes out at **1.60**, and the fit is
   load-bearing rather than cosmetic — it was made on the second harmonic at one frequency, and the
@@ -122,7 +121,8 @@ approximating:
   loudness while pushing drive
 - **True bypass** with a crossfade and a deterministic oversampler reset, so post-bypass output
   never depends on how long the pedal was off
-- **Resizable UI** from 50% to 250%, remembered per session
+- **Resizable UI** from 50% to 250% — remembered per session, and clamped to what the
+  display can actually show, so a large preset can't put the resize corner off-screen
 
 ## Where to find things
 
@@ -133,22 +133,24 @@ src/
   ui/PedalFace.{h,cpp}       The one-knob-plus-switch centre pedal face
   dsp/
     InputNetwork.h             Input LPF / gate-bias network
-    JfetStage.h                 The fitted 2N5457 common-source stage + MODE shelves
+    JfetStage.h                 The 2N5457 stage — measured transfer law, solved implicitly
     OutputNetwork.h             Coupled output/VOLUME network (not a simple divider)
     OsDroopRestore.h             Derived low-OS top-octave shelf
     EchoPreDsp.h                 Wires the stages into the full signal chain
   utils/TaperUtils.h          Potentiometer taper curves
 
-tests/                      Per-stage validation executables (frequency response + phase,
-                            JFET shelf/shaper checks, bypass click, oversampling fidelity)
+tests/                      13 CTest targets: per-stage transfer functions and phase, the JFET
+                            solve against independent oracles, bypass clicks, VOLUME automation,
+                            oversampling fidelity, CPU, a full control sweep, a UI snapshot
 analysis/                   Offline render tool + Python harness used to compare the plugin
                             against real-pedal captures (FR, THD, phase, compression, null),
                             including the capture set the calibration constants are fitted from
 schematics/                 Source schematic images
 
-.claude/rules/              Detailed circuit/DSP/architecture/UI/build references — read
-                            circuit.md for the full component-by-component schematic breakdown
-                            and every measurement that fed the fitted constants above
+docs/                       Development log, the capture dataset, and the generic engineering
+                            references (measurement discipline, nonlinear modelling, calibration)
+.claude/rules/              Circuit/DSP/architecture/UI/build references — circuit.md is the
+                            source of truth for every component value and measured constant
 ```
 
 ## Building

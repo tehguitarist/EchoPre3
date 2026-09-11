@@ -314,7 +314,7 @@ int main(int argc, char* argv[])
         out.copyFrom(ch, 0, work, ch, latency, numSamples);
 
     // 32-bit float, deliberately: this pedal's output legitimately exceeds 0 dBFS at high volume
-    // settings (a faithful result, not a fault -- CLAUDE.md step 10), and an integer format would
+    // settings (a faithful result, not a fault -- CLAUDE.md build sequence step 10), and an integer format would
     // clip exactly the renders the level calibration is read from.
     outFile.deleteFile();
     outFile.getParentDirectory().createDirectory();

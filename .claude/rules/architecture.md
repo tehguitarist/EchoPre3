@@ -20,8 +20,10 @@ PedalAudioProcessor : AudioProcessor
   std::atomic<float>* cached param pointers (avoid string lookups on audio thread)
   std::atomic<float> inputLevelL/R, outputLevelL/R
   std::atomic<bool>  bypassed
-  static constexpr float kInputRef     = 0.87f; // volts per full-scale — template starting point;
-                                                 // measure YOUR rig and replace (calibration doc §1)
+  static constexpr float kInputRef     = 4.4626f; // volts per full scale — MEASURE this; do not
+                                                  // inherit a number (calibration doc §1). On this
+                                                  // pedal the template's 0.87 was wrong by 14 dB,
+                                                  // which moved the whole load line into range.
   static constexpr float kOutputMakeup // ~0.9 (calibration doc §2)
 ```
 

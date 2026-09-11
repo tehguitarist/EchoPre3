@@ -1,15 +1,26 @@
-# Build Plan — Echo Pre 3
+# Development log — Echo Pre 3
 
-> Written 2026-09-07, at the end of step 1 (schematic analysis), when the only reference data was
-> seven NAM models with no raw pedal captures and no bypass anchor. **That premise is superseded —
-> the owner captured their own unit (P4) on 2026-09-10** (raw WAVs, a measured rig, both calibration
-> figures known), and most of what §1–§18 below call out as NAM-only limitations have since been
-> measured directly. Sections 1–18 are kept as the dated research log (how each constant was
-> actually pinned down, and the traps hit on the way) — that reasoning doesn't go stale even where
-> its NAM-era framing does. **§19 is the live plan and is edited in place, not appended to** — read
-> it first for what to do next; read `.claude/rules/circuit.md` for the current value of anything
-> circuit-related (it is the single source of truth for that, not this file or `CLAUDE.md`); read
-> `CLAUDE.md` only for the chronological reasoning behind a past decision.
+> **The project is complete (v1.0.0).** This file is the dated record of how it got there: what was
+> measured, in what order, and which conclusions had to be reversed. It began life in 2026-09-07 as a
+> forward-looking build plan written when the only reference data was seven NAM models with no raw
+> captures and no bypass anchor, and it kept that name long after the premise changed.
+>
+> **How to read it**
+>
+> | | |
+> |---|---|
+> | **§19** | the plan of record — what was done, what is parked, what is out of scope. **Start here.** |
+> | §1, §3 | the NAM dataset and the six measurements taken from it. §1's limits **L1–L3** are cited by several scripts and are still true *of that subset*. |
+> | §2, §4–§8 | the original forward plan, superseded by events and condensed to a table of where each item was actually closed. |
+> | §9–§18, §20–§21 | dated write-ups, newest last. Never rewritten after the fact. |
+>
+> ⚠⚠ **The section numbers are load-bearing.** `.claude/rules/circuit.md`, several tests and several
+> analysis scripts cite "build-plan §11", "§12", "§15.4", "§19" and the "M1/M2" labels by name, so
+> the numbering is stable even where it makes the ordering odd — which is why **the dated log
+> continues at §20, after the plan at §19**, rather than the plan moving to the end.
+>
+> ➡ For the **current value** of anything circuit-related, read `.claude/rules/circuit.md`. It is the
+> single source of truth; this file and `CLAUDE.md` are history and defer to it.
 
 ---
 
@@ -57,249 +68,57 @@ not the pedal's. Trust the middle; verify the edges before leaning on them.
 
 ---
 
-## 2. Phase 0 — get the renders (start here; it is the human-latency item)
+## 2. Phase 0 — getting the renders ✅ done
 
-Do this before any DSP, because the JFET fit is the long pole and it is blocked on this data.
+The NAM renders and the capture-side tooling that consumed them. Closed long ago; the tooling is
+`analysis/gen_test_signal.py` (the A/B signal) and `analysis/captures.py` (filename parsing and the
+`OfflineRender` argument mapping, including the matched-drive `_pad` convention). What the dataset
+turned out to be able and unable to answer is §1's limits L1–L3 and `docs/capture-dataset.md`.
 
-**0a. Redesign `analysis/gen_test_signal.py` for this pedal — DONE (2026-09-07).** No captures
-existed yet, so this was the one moment the segment layout could change. The signal is now built
-for a subtle clean preamp rather than a distortion. Full layout in `analysis/README.md`; the
-reporting grids are:
+---
 
-| Quantity | Grid |
+## 3. Phase 1 — characterisation ✅ done
+
+Six measurements taken from the NAM set before any DSP was written, cited elsewhere by label
+(`ChainTest` and `JfetStageTest` refer to "M1/M2"). Results and every number:
+`.claude/rules/circuit.md` note **#7**; script `analysis/phase1_characterization.py`.
+
+| | measurement | outcome |
+|---|---|---|
+| **M0** | loop check — null a no-pedal render against the source | never ran on the NAM set; the later capture session's loop and bypass references did the job |
+| **M1** | resolve the mode labels from mode-vs-dark ratios | ⭐ the lever→cap mapping is the **reverse** of what the labels suggest (note #2) |
+| **M2** | `gm` from the mode plateau — the most valuable number in the dataset, because it comes out of a **ratio** and so needs no level calibration | K0 = 6.59, `gm` ≈ 1.55 mS, about **twice** the datasheet-typical self-bias solve |
+| **M3** | input low-pass corner | confirmed by **one** unit only; a second apparent confirmation was an artefact of a shelf-blind estimator (note #9) |
+| **M4** | low-frequency high-pass corner per model | measured 1.3–2.0× above prediction, and provably confounded with unit and rig — **not** a taper error |
+| **M5** | harmonic structure versus level | even-dominance confirmed; the cubic unmeasurable, and P1's harmonic data is **floor throughout** |
+| **M6** | unit spread, on the rig-cancelling mode differential | **0.33 dB RMS / 0.80 dB peak** — the project's pass/fail band, measured rather than invented |
+
+⭐⭐ **The method finding that outlived all six:** the first pass read every corner as "−3 dB below
+the plateau" and produced four plausible scalars, **every one wrong, one of them inverting M1**.
+Nothing on this pedal reaches a plateau inside the audio band — the mode shelf's pole sits at K0 ×
+its zero, i.e. 12.6 kHz and 26.8 kHz — so an 8–10 kHz "plateau" window normalises each branch to a
+different point on its own transition. **Fit a model to the curve and report the residual.** A wrong
+fit shows a bad residual; a wrong threshold just returns a number.
+
+---
+
+## 4–8. The original forward plan ✅ superseded by events
+
+These sections planned the unit choice, the build order, calibration without a bypass anchor, the
+two-way pedal session, and the then-open questions. All are closed, and each was closed somewhere
+more authoritative:
+
+| was | now |
 |---|---|
-| Frequency response | 60 bands, 1/6 octave, 20 Hz–20 kHz, densified to 1/24 octave at the corners |
-| Compression | 16 bands, 2/3 octave, 20 Hz–20 kHz, at 10 input levels |
-| THD | 16 bands, 20 Hz–8 kHz, at 4 input levels, orders H2 through H8 |
-| THD, continuous | Farina swept curve to about 10.4 kHz |
+| §4 which unit are we modelling | **decided in writing** — voice to the newer three-position units, fall back to the calibration unit wherever their data cannot answer. Rule, evidence and price: `circuit.md` note **#28** |
+| §5 the build sequence, re-ordered | the sequence as executed is CLAUDE.md's build-sequence table; §5's one durable finding was that **step 5 needed no scattering matrices** — MODE folds analytically into the source impedance |
+| §6 calibration without a bypass anchor | moot: the capture session provided the anchor. `kInputRef` = 4.4626 V/FS and `kOutputMakeup` = 1.1562 are both measured — note **#23** |
+| §7 the two-way pedal session | it happened (2026-09-10). What it settled: notes **#21–#28**. What it is: `docs/capture-dataset.md` |
+| §8 open questions | all closed; the only remaining item is §19's parked twin-tone segment |
 
-Removed: the SMPTE intermodulation pair, the plucked decay notes, and the single 1 kHz level
-ladder. All three were distortion-pedal instruments; the per-band compression ladder measures the
-same physics across sixteen bands instead of one.
-
-Two limits are physics, not choices. **THD is unmeasurable above about 12 kHz at 48 kHz**, because
-the second harmonic of a 12.5 kHz tone is already past Nyquist, so the tone grid stops at 8 kHz and
-unmeasurable orders return as missing rather than as zero. And **every tone cell carries a 0.15 s
-settle head that the analyzer discards**, which exceeds the 132 ms receptive field of the reference
-NAM models so no cell inherits the previous one's tail.
-
-The new instruments in `analysis/analyze.py` all pass a known-answer self-test
-(`python analysis/analyze.py --selftest`): frequency response recovers a known bandpass to 0.037 dB
-and harmonic levels recover a known cubic shaper to 0.003 dB. Run it after touching either file.
-
-Signal length is 4.8 minutes. That matters for the reamp session below, not for the NAM renders.
-
-**0b. Write `analysis/captures.py`** — `parse_capture` reusing the clock convention, plus
-`render_args` for the OfflineRender CLI once that exists.
-
-**0c. Render protocol.** Eight WAVs total: the seven models plus one pass-through. Every one of
-these settings matters:
-
-- NAM plugin input gain and output gain at **0.0 dB**, output **normalize OFF**. Normalize applies
-  the stored loudness figure and destroys the only absolute level information we have.
-- Noise gate off, tone stack off or bypassed, no IR.
-- Whatever quality or CPU setting the plugin exposes at **maximum, and identical across all seven**
-  — each file packs two submodels, and we need every render to use the same one.
-- 48 kHz session, 32-bit float, offline bounce, nothing on the master bus.
-- **Render the test signal once with no plugin at all.** That null render proves the loop is unity
-  and sample-aligned, and it costs one bounce.
-
-Name them so the existing parser reads them, e.g. `p1_V1430_bright.wav`, `p3_V1000_mid.wav`,
-`null_V0000_mid.wav`, into `analysis/captures/`.
-
----
-
-## 3. Phase 1 — characterisation, before a line of DSP is written
-
-Analysis only. Each item below is a number we need in hand before the stage that consumes it.
-
-**M0. Loop check.** Null render against the source: expect a null well under −100 dB. If it does
-not null, stop — everything downstream inherits the error.
-
-**M1. Resolve the mode labels.** Take Bright/Dark and Mid/Dark magnitude ratios at low level, for
-P1 and P2. Each should be a shelf; the corners should land near **4.42 kHz** (10 nF) and
-**2.01 kHz** (22 nF), reaching the same plateau. **Whichever label shows the lower corner is the
-22 nF cap.** This settles the lever-to-lug mapping left open in `circuit.md` note #2.
-
-> A hypothesis worth ten minutes, not a conclusion: the stored loudness figures put Bright above
-> Mid above Dark in *both* units. The 22 nF cap lifts a wider band and should therefore win a
-> broadband loudness comparison, so that ordering hints the labels map to the caps the opposite
-> way from what `circuit.md` currently assumes. The ratio measurement decides it properly.
-
-**M2. Get `gm` from the mode plateau — this is the most valuable number in the dataset.** With the
-drain output resistance far above R6, the stage's loaded gain ratio between fully bypassed and
-unbypassed is just `k = 1 + gm·R5`. R5 is known at 3.6 kΩ, so the plateau height of the M1 shelf
-**hands us `gm` directly, as a ratio, with no level calibration needed at all.** That sidesteps
-limits L1 and L2 entirely for the one parameter the datasheet spread makes least predictable. The
-shelf's corner frequency independently cross-checks R5 against the drawn value.
-
-**M3. Input low-pass corner** from the low-level clean sweep. Expect ~7.3 kHz, confounded with each
-trainer's converter response — comparing P1 against P2 separates the pedal's corner from theirs.
-
-**M4. Low-frequency high-pass corner** per model, as a level-independent probe of where each
-unit's VOLUME pot actually sits. Predicted corners are roughly 28 Hz at 10:00, 24 Hz at 10:30 and
-13 Hz at 2:30, so the two extremes differ by a factor of two and should be clearly separable.
-**Validate the LF tones behave sanely first** (limit L3) before believing this.
-
-**M5. Harmonic structure versus level.** Expect the even-dominant square-law signature, with H2
-above H3. Record the sign of the cubic before choosing a limiter, per
-`docs/nonlinear-component-modeling.md` §2.
-
-**M6. Unit spread.** P1 against P2, Dark mode, level-normalised, in third octaves. **That spread
-becomes the project's pass/fail band.** If two real pedals differ by 2 dB in the top octave,
-chasing 0.5 dB against either one is measuring noise.
-
----
-
-### 3b. Phase 1 — RESULTS (2026-09-07). M1–M6 are complete; two of the six changed the plan.
-
-Full write-up in `.claude/rules/circuit.md` note #7; raw numbers in
-`analysis/reports/phase1_characterization.json`; the script is `analysis/phase1_characterization.py`.
-Headlines only here:
-
-| | Result | Consequence |
-|---|---|---|
-| **M0** | Reinterpreted: no bypass render exists to null against, so it is an alignment/length pass plus a new known-answer LF probe. All seven full length, lag +3..+19 samples. | none |
-| **M1** | ⭐ **Labels swapped.** BRIGHT = C1 22 nF (zero 1.86 kHz), MID = C2 10 nF (zero 4.17 kHz). Both units, shelf fits to ≤0.25 dB. | `JfetStage::bypassCap()` swapped; enum order untouched |
-| **M2** | ⭐ **K0 = 1 + gm·R5 = 6.59**, so gm ≈ 1.5–1.7 mS — about **2× the nominal placeholder**, not below it. | unblocks step 4b and §9.3 |
-| **M3** | Input LP confirmed at 6.7 kHz (P1) and 7.2 kHz (P3) vs 7.3 kHz drawn. **P2 carries a 3.2 kHz output-load pole** (542 pF on a 92 kΩ output), so it is disqualified for absolute HF but is still the best differential capture. | §4 anchor reversed; output load is NOT negligible on this pedal |
-| **M4** | C10 corner measures 1.3–2.0× high in all three, but volume is 1:1 confounded with unit and rig. | **do not retune the taper** |
-| **M5** | Even-dominance confirmed (H2 rises 0.75 dB/dB). H3 is under the models' error floor. | cubic sign only weakly settled |
-| **M6** | Tolerance band = **0.33 dB RMS / 0.8 dB peak on the mode differential.** The 13.8 dB absolute figure is rig, not units. | `kHfBudgetDb` stays tight |
-
-**The method lesson, which is the durable part.** The first pass extracted every corner as a naive
-"−3 dB below the plateau" threshold and returned four plausible scalars, all wrong, one of them
-inverting M1. Nothing on this pedal reaches a plateau inside the audio band — the mode shelf's pole
-sits at K0 × its zero, i.e. 12.6–26.8 kHz — so an 8–10 kHz "plateau" window normalises each branch
-to a different point on its own transition. **Fit a model and report its residual.** A wrong fit is
-visible as a bad residual; a wrong threshold just returns a number.
-
-**What phase 1 could NOT deliver, and why it is the dataset rather than the analysis.** Anything
-requiring an absolute or cross-unit level: L1 and L2 stand untouched. Beyond those, M4 found a third
-confound the plan did not anticipate — **the LF corner is rig-sensitive, so it is not the
-level-independent volume probe §3 assumed.** Two rigs at nearly the same knob position (P1 at 10:30,
-P3 at 10:00) disagree by 16% in the opposite direction to the 17% the circuit predicts between them.
-The mode differential escapes every one of these because it is a within-unit ratio; nothing else in
-this dataset does. That makes the two-way pedal's VOLUME sweep (§7) load-bearing rather than
-optional — it is now the only route to the taper.
-
-### 3c. What phase 2 (the JFET fit) can and cannot take from this
-
-- ✅ **Take `K0 ≈ 6.6` and the two measured shelf time constants** (τ = 85.4 µs and 38.2 µs, i.e. the
-  zeros at 1864 and 4166 Hz). Those three numbers fully specify the mode shelf and are all measured.
-- ✅ **Take the H2-versus-level slope from P2 only** for the shaper's quadratic term. It is a shape,
-  so it survives having no level anchor.
-- ⛔ **Do not fit the cubic to H3** — it is below both models' error floors. The only cubic evidence
-  is 0.09–0.35 dB of top-cell compression, which fixes the sign (compressive) and not much else.
-- ⛔ **Do not fit anything to P1's harmonics.** Its H2 does not move with level, so it is floor.
-- ⛔ **Do not touch `kVolumeTaperP`, `kInputRef` or `kOutputMakeup`.** Nothing here anchors them.
-- 📌 **§9.3's per-mode low-OS shelf restore is now unblocked.** It was waiting on M2 because the
-  droop's target depends on where the JFET's 1/k(s) pole sits, and that pole is at K0 × the bypass
-  corner. K0 is measured, so the pole is now known: **12.6 kHz in Bright and 26.8 kHz in Mid.** Note
-  Mid's sits *above* Nyquist at 48 kHz, so the base-rate warp there is worse than §9.3 assumed at the
-  old placeholder K0 of 3.93. Re-run `OSFidelity` after the stage is refitted, before fitting a shelf.
-
-## 4. Which unit are we modelling?
-
-Ship one pedal, not an average of three.
-
-- **Mode differentials (M1, M2): fit to P1 and P2 together.** These measure R5, C1, C2 and the
-  degeneration ratio — shared circuit physics, so two units is genuinely two samples of the same
-  quantity.
-- **Absolute response: anchor to P1 (`thelamehorse`, 10:30) — REVERSED 2026-09-07, and this matters.**
-  This section originally said to anchor to danielnguyen's unit as the most recent, with its trainer
-  describing it honestly as a clean boost. Phase-1 M3 disqualifies it for that job: its capture rolls
-  off at −8.6 to −10.7 dB/octave above 6 kHz, which no single RC can do, so its top three octaves are
-  its rig, not the pedal (`circuit.md` note #7). P1 and P3 independently fit first-order low-passes
-  at 6.7 kHz and 7.2 kHz against the drawn 7.3 kHz, so **P1 is the unit whose absolute response is
-  usable**. ⛔ **"with P3 corroborating it" is STRUCK — REFUTED 2026-09-08, `circuit.md` note #9.**
-  P3 has only a MID capture and M3's estimator has no mode-shelf term, so it cannot recover the pole
-  from a bypassed mode at all (on the plugin, whose pole is 7300 Hz by construction: DARK recovers
-  7295 Hz at 0.01 dB, MID returns 9e12 Hz at 1.14 dB). **P1 alone is the absolute anchor**; P3 joins
-  P2 as differential-only.
-- **Hold P2 (`danielnguyen`, 2:30) back as validation, and cross-check it on the MODE DIFFERENTIAL
-  only.** Its differential is the cleanest in the set (0.03–0.08 dB shelf-fit residuals, versus
-  0.24–0.25 dB for P1) because the ratio cancels the rig that ruins its absolute response. Do not
-  read an absolute-FR disagreement with P2 above ~2 kHz as unit variance — it is known rig response,
-  and M6 measures the real unit variance at 0.33 dB RMS on the differential.
-- **P3 is a level sanity check only.** One mode, unknown rig, demonstrably offset gain.
-
----
-
-## 5. The build sequence, re-ordered
-
-Steps keep `CLAUDE.md`'s numbering; the change is that phase 0 and 1 run first and in parallel
-with the cheap scaffolding.
-
-| Step | Work | Gate |
-|---|---|---|
-| 2 | CMake scaffold, APVTS: VOLUME float, MODE 3-way choice, trims, OS, bypass, HQ | Loads in Logic |
-| 3 | chowdsp_wdf smoke test, RC lowpass | −3 dB point within 1% |
-| 4a | Input network + output/VOLUME network as **one coupled two-node solve** | Matches M3, M4 |
-| 4b | JFET stage: Norton drain current with `Zout = ro·k(s) ∥ R6` stamped into 4a's solve | Matches M2, M5 |
-| 5 | Three MODE topologies, precomputed scattering matrices | Matches M1 shelves |
-| 6 | Oversampling + ADAA, AccurateOmega | Aliasing measured, not assumed |
-| 7 | Integration and calibration | See §6 |
-| 8 | UI: reuse peripherals, new centre face | Headless render at 0.5× and 2.5× |
-| 9 | Reference validation against P2 holdout | Inside the M6 band |
-| 10 | Full control sweep | No NaN, no clicks |
-
-Step 4a and 4b are deliberately one coupled network, per the ⭐⭐⭐ trap in `circuit.md`: driving
-the volume network from an ideal voltage source and applying the mode lift as a shelf double-counts
-it, and on this pedal that error is worth about 20 dB.
-
-Per `CLAUDE.md`'s tiering: plan and topology calls at the top tier, the `schematic-checker` and
-`dsp-validator` agents at high effort on every stage gate, mechanical scaffolding and formatting
-cheap.
-
----
-
-## 6. Calibration, given no bypass anchor
-
-`docs/calibration-and-gain-staging.md` assumes a unity capture exists. It does not here, so:
-
-- **`kInputRef` cannot be measured.** Keep the template's 0.87 V/FS as a declared assumption, and
-  record it as an assumption in the code comment, not as a measurement. Nothing downstream should
-  read as if it were anchored.
-- **Output makeup is level-matched to P1**, not to volts. State the reference explicitly: P1, mode
-  as resolved by M1, VOLUME at 2:30.
-- **The VOLUME taper is fitted to the maker's four published points**, not to the NAM data — with
-  the peak placed at 1–2 o'clock, needing `p ≈ 2.0` at the physical drive impedance. The three NAM
-  volume points serve only as an M4 shape check.
-- **Leave the 3.9 dB versus 1–2 dB fall-back discrepancy open.** `circuit.md` note #1 is explicit
-  that it is invariant to every assumption tested. Do not tune other constants to close it.
-
----
-
-## 7. The old two-way pedal — now planned, not contingent
-
-Confirmed 2026-09-07 that reamping and capturing is possible, which changes this from a fallback to
-scheduled work. It is the only source for the two things the NAM models structurally cannot give:
-**a VOLUME sweep and a bypass anchor.** The gain stage may well differ between revisions, but the
-output and VOLUME network is the original EP-3 wiring, and that is the part in question.
-
-The session is bounded. At 4.8 minutes per pass:
-
-| Pass | Count | Purpose |
-|---|---|---|
-| Bypass | 1 | Anchors `kInputRef` and the output makeup for the first time |
-| VOLUME sweep, one mode fixed | 10 | Taper shape, rotation direction, the fall-back discrepancy |
-| Both switch positions, volume fixed | 2 | Cross-checks the mode differential against a second revision |
-
-That is 13 passes, about 63 minutes of rendering plus setup. Capture the bypass pass first: if it
-does not null cleanly against the source, the loop is wrong and every later pass inherits it.
-
-Note the revision caveat in `circuit.md`: this unit has a two-way switch, so its source-bypass
-network is not the three-position one modelled. Use it for the volume network and the level anchor.
-Do not fit the MODE topology to it.
-
-## 8. Open questions
-
-1. Which cap the "Bright" label actually engages — M1 answers it, and the loudness metadata hints
-   the current assumption is backwards.
-2. Whether the LF corner probe survives the receptive-field limit — pre-checked in M4.
-3. Where each trainer's reamp level sat, which bounds how hot a render we can believe.
-4. Whether the old pedal's volume network matches the schematic, if we get that far.
+⚠ §1's limits L1–L3 still describe the NAM subset of the data and are still cited by several
+scripts — they have **not** been superseded, because those seven renders still carry those limits.
+What changed is that the project no longer depends on them.
 
 ---
 
@@ -1438,7 +1257,7 @@ reports the wrong answer without failing.**
 
 ## 18. Three measurements, no new data (2026-09-09): Vov fitted, the HF dip explained, phase reconciled
 
-The three items `docs/HANDOVER.md` listed are closed. Instruments `analysis/vov_fit.py`,
+The three items the then-current handover note listed are closed. Instruments `analysis/vov_fit.py`,
 `analysis/hf_shape_fit.py`, `analysis/phase_reconcile.py`; raw JSON alongside them in
 `analysis/reports/`. Circuit consequences are `.claude/rules/circuit.md` notes **#16–#18**, and the
 `Vov` reasoning lives in `src/dsp/JfetStage.h` where the parameter is. **No DSP constant changed.
@@ -1751,7 +1570,7 @@ measurements that closed each one.
    - ✅ **VOLUME automation: measured, and it was a real defect — §21.6/§21.7.** Not a zipper but a
      several-dB staircase. Fixed by applying VOLUME every 16 samples while it moves (`processChunk`)
      plus a 20 → 100 ms ramp, with the static render verified bit-for-bit identical. Guarded by
-     `tests/VolumeAutomationTest.cpp`. `CLAUDE.md`'s residual #3 is closed.
+     `tests/VolumeAutomationTest.cpp`. The long-standing "VOLUME may zipper" residual is closed.
    - ✅ **`check_capture.py`'s H2-clearance column** is now printed only for REFERENCE captures. It
      is a headroom check ("is this chain's own distortion far enough below the pedal's?"), which on
      an active capture compares the pedal against itself and flags agreement as BAD.
@@ -1991,7 +1810,7 @@ is read on the fundamental and *needs* the quiet cell as its reference.
 
 ### 21.6 ⭐⭐ VOLUME automation was a real audible defect, not the "zipper" it was filed as
 
-`CLAUDE.md` carried this as residual #3 from the day the chain was built: *"VOLUME updates per
+The project log carried this as a known residual from the day the chain was built: *"VOLUME updates per
 block, not per sample (it re-solves WDF impedances). Fast automation may zipper. Normal WDF
 practice; revisit only if it is audible."* Measured (`tests/VolumeAutomationTest.cpp`, new), it is
 audible, and "zipper" understates it — the control law is steep near full CCW (the network is

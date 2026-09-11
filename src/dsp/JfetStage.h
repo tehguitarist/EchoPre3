@@ -374,11 +374,11 @@ struct JfetParams
     // measurement (circuit.md note #22a). OfflineRender grew a guard for it. Parameterised on |Vp|
     // the bias point CANNOT collapse, so that guard is now belt-and-braces rather than load-bearing.
     //
-    // ⚠⚠ MEASURED ON P4, SHIPPED AT P1/P2's gm -- a deliberate MIXING, per CLAUDE.md's two-position
+    // ⚠⚠ MEASURED ON P4, SHIPPED AT P1/P2's gm -- a deliberate MIXING, per circuit.md note #28's voicing
     // block, and this is what it costs. P4 is the only unit whose harmonic data clears its own
     // floor; the recorded decision voices the model to the newer P1/P2 units, whose gm is 36 %
     // higher. Transplanting the device's own (m, |Vp|) onto their gm re-solves the bias to
-    // Vov = 0.4328 V, Id0 = 420 uA, IDSS = 4.65 mA, Vds_q = 11.25 V -- every one inside the
+    // Vov = 0.4321 V, Id0 = 419.4 uA, IDSS = 4.64 mA, Vds_q = 11.26 V -- every one inside the
     // datasheet. ⭐ It is coherent as a PARTS BIN: one pinch-off and one exponent, with IDSS the only
     // thing that differs between units, which is exactly what "cherry picked to cream-of-the-crop
     // specs" selects on. P1 implies 4.31 mA, the shipped mean 4.65, P2 5.03.

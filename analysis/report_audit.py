@@ -3,7 +3,7 @@
 GENERATE analysis/reports/executive_summary.txt (`--write`).
 
 The old executive_summary.txt had NO generator script — it was produced by inline python, which
-CLAUDE.md forbids ("ALWAYS write analysis commands as standalone scripts in analysis/"). That is
+the project forbids ("ALWAYS write analysis commands as standalone scripts in analysis/"). That is
 exactly why it drifted: it still claimed a 3000 Hz Farina ceiling, republished the 2874 Hz artefact
 as a finding (see analyze.harmonic_thd_curve / L-006), and had NO harmonic section at all despite
 the per-order data sitting in the JSON. This script is now the single source of that file.

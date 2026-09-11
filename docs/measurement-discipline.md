@@ -93,6 +93,25 @@
   structure and finding it flat to 0.0002 dB certifies the reconstruction, the band mapping, the
   sweep handling and the provenance correction at once, for one subtraction. Look down the chain for
   a stage whose physics forbids something, and measure that.
+- ⭐⭐ **A known-answer probe has a VALIDITY CONDITION, and "close to where the physics applies" is
+  not it — derive where the probe stops being a floor.** A probe reading "these two configurations
+  must agree here" is only a floor while the thing that differs between them is genuinely out of
+  circuit. On this project a bright/dark probe was read over every band below a shelf's ZERO, but its
+  premise needed the bypass cap's impedance to swamp a resistor — true two decades down, and false at
+  the zero, where the two are equal by definition. The tell is decisive and cheap: **the measured
+  "floor" tracked the circuit's own closed-form prediction of the contamination across four decades**,
+  and a measurement floor does not track a circuit prediction. Compute the contamination from shipped
+  constants, print it beside the measurement, and mark each band valid or not.
+- ⚠⚠ **A metric's sample grid must be FINER than the effect it is meant to detect**, and the
+  temptation runs the other way because a coarse grid is what avoids straddling boundaries. Reading a
+  gain envelope once per processing block reports the change *across* the block however finely the
+  quantity moved inside it — so a fix that made the steps 32× finer produced **byte-identical**
+  figures and the test looked blind to its own fix. ⭐ The tell that it was the instrument: the same
+  build nulled bit-for-bit against the previous one, so the code had definitely changed. And the
+  natural dodge is worse — adding a settle offset of one block to avoid straddling skipped the
+  transition entirely and returned **0.000 for the largest possible step**. **A metric that returns
+  zero for the worst case is not conservative, it is broken.**
+
 - ⭐⭐⭐ **When the quantity is a CHANGE in a linear functional, everything that does not vary cancels
   EXACTLY.** Before building a perturbation screen, ask whether your statistic is a *difference* and
   whether the operator producing it is *linear* in what the fixed parts contribute. If both, the fixed
@@ -189,6 +208,18 @@
     (exact counts, named exclusions, one row per condition).
   - **A "cost of change X" estimate is itself a membership-dependent aggregate.** Re-measure it
     against the CURRENT baseline at the moment the decision is taken.
+- ⭐⭐ **Before choosing a statistic to tame a spread, check whether the spread is a DISTRIBUTION at
+  all.** A two-population mixture and a heavy tail look identical in a summary and want opposite
+  fixes — change the estimator versus restrict the measurement. This project quoted a known-answer
+  floor as an RMS (2.67 dB), concluded from it that a 0.42 dB target was unmeasurable, then corrected
+  to the median (0.23 dB) on the reasoning that the distribution was heavy-tailed. Both readings were
+  wrong: the spread was a monotone **trend along frequency**, half the bands were outside the probe's
+  validity region, and restricted properly the floor is **0.034 dB** — 7× better than the "robust"
+  figure and 78× better than the RMS. ➡ **A robust statistic over a mixture still reports the invalid
+  population, just more quietly.** Plot the spread against every axis you have before summarising it.
+  ⚠ And note which way the error ran: an over-stated floor talks you out of a measurement you can
+  actually make, which is the *cautious*-looking failure and therefore the hard one to catch.
+
 - ⭐⭐⭐ **A conclusion ABOUT FREQUENCY cannot be drawn from a statistic that averages over frequency**
   — and when it is, it writes the next session's workplan. Before quoting a pooled residual as
   evidence about *where* a defect lives, plot it. The same applies to any axis: a pooled statistic
@@ -271,6 +302,25 @@
 - **`computed-verdicts-not-narrated`.** A conclusion hard-coded into a tool's output outlives the
   condition it described and prints above a table contradicting it. Derive every verdict from the
   data, and make it state the opposite when the data says so.
+- ⭐⭐ **Prefer a CONVERGENCE verdict to a threshold when the question is "is this residual the
+  artefact or the signal".** Those want opposite responses, and a fixed bound cannot separate them: a
+  large quantity legitimately moving fast produces the same per-window change as a staircase, so any
+  bound tight enough to catch the artefact also fails an ideal implementation. Instead re-measure with
+  the suspected cause refined — quarter the step, quadruple the iterations — and require the statistic
+  not to move. ⭐ It also sizes the constant: model the residual as `signal + artefact × step`, fit it
+  against the sweep, and refine while the artefact term is still a material share.
+  - ⚠⚠ **But a convergence verdict has its own validity condition, and "the two configurations agree"
+    is indistinguishable from "the two configurations were the same".** With a fix deliberately
+    reverted, this project's convergence section reported ratios of exactly **1.00 and PASSED**,
+    because both the shipped and the refined step exceeded the block they were measured at, so neither
+    took effect and the two renders were identical. **Assert the precondition** (the refined step must
+    actually be finer than the thing it is measured against). Same shape as an exactly-zero
+    self-comparison, which is a hook that does nothing rather than a perfect result.
+- ⭐⭐ **Verify a guard FAILS on the defect it was written for, and check WHICH assertion caught it.**
+  Reverting the fix here tripped two of three sections; had only the vacuous one existed, the suite
+  would have certified a known-broken build. "The guard fires" is a claim about one assertion, not
+  about the test.
+
 - ⭐⭐⭐ **A classifier's verdict must be a comparison against the TARGET, not a property of the
   candidate.** If you can delete the target from the code and the classification still runs, it is
   narration. ⚠ A **normalisation** can delete the target while the target is still visibly in the code

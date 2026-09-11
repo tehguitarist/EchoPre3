@@ -34,7 +34,7 @@ git submodule update --init --recursive
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --target <Pedal>_AU      # AU (primary)
+cmake --build build --target EchoPre3_AU     # AU (primary)
 cmake --build build                          # everything (incl. test exes)
 ```
 `COPY_PLUGIN_AFTER_BUILD TRUE` installs the AU to `~/Library/Audio/Plug-Ins/Components/` on build.
@@ -105,9 +105,8 @@ included in the template root.
 
 ## CI / release (GitHub Actions)
 
-`.github/workflows/ci.yml` and `release.yml` are included as templates (replace `<Pedal>`/`<Cod1>`/
-`<Mfr1>`). They're inert inside the template folder — GitHub only reads `.github` at a repo root, so
-they activate once you copy the template out.
+`.github/workflows/ci.yml` and `release.yml` are **live in this repo** (they were templates; the
+`<Pedal>`/`<Cod1>`/`<Mfr1>` placeholders are filled in).
 
 - **ci.yml** — builds + runs `ctest` on macOS/Windows/Linux on every push/PR. Register each pass/fail
   test exe with `add_test()` (see `CMakeLists.txt.template`) so the whole suite runs as one gate.
@@ -177,8 +176,8 @@ scripts/configs, wired into `release.yml`'s "Build installer" step in each platf
   (preinstalled on `ubuntu-latest`).
 
 All three scripts take `<version> [artefacts-dir] [output-dir]` and expect the relevant build
-targets already built. Rename `<Pedal>` placeholders throughout (including inside `Pedal.nsi`'s
-filename and `installer/linux/control`'s package name/maintainer) when copying the template out.
+targets already built. ✅ All placeholders are filled in for this repo (`installer/windows/EchoPre3.nsi`,
+`installer/linux/control`); rename them throughout if this tree is ever reused for another pedal.
 
 ## Validation gates (do not skip ahead)
 

@@ -323,7 +323,7 @@ bool PedalAudioProcessor::isBusesLayoutSupported(const BusesLayout& layouts) con
 // steps are large. VolumeAutomationTest measured them before this fix: a 0.15 -> 0.35 move stepped
 // 6.4 dB at a 512-sample block and 8.6 dB at 2048, and even a leisurely 1-SECOND automation sweep --
 // the realistic case, a host moving the parameter once per block -- stepped 2.4 dB at 512 and
-// 10.8 dB at 2048. That is an audible staircase at the block rate, not the "may zipper" CLAUDE.md
+// 10.8 dB at 2048. That is an audible staircase at the block rate, not the "may zipper" the project log
 // had carried as a residual since the chain was built.
 //
 // ⚠ Lengthening the ramp cannot fix it on its own: the step is (block / ramp) x range, and at a

@@ -45,7 +45,7 @@ import lf_pole_attribution as LFA
 
 OUT = "analysis/reports/p4_corners.json"
 REF_BYPASS = "analysis/captures/p4_V1030_bypass.wav"
-ZIN = 1.0e6          # measured interface input impedance (CLAUDE.md, confirmed 2026-09-10)
+ZIN = 1.0e6          # measured interface input impedance (docs/capture-dataset.md, confirmed 2026-09-10)
 FIT_SWEEP = "sweep_-26"   # 25 dB below full drive: clean, and well clear of the noise floor
 
 
@@ -63,7 +63,7 @@ def loading_correction_db(f, x, cable_pf=0.0):
 
     NOT a scalar: it moves with the knob (0.341 dB across the sweep) AND with frequency, because
     the pedal's own output impedance does both. Generated from the network model per capture rather
-    than read off a table, exactly as CLAUDE.md's table says to.
+    than read off a table, exactly as docs/capture-dataset.md says to.
     """
     f = np.asarray(f, dtype=float).copy()
     f[f <= 0] = 1e-6          # DC is not a measurement point; keep the solve finite

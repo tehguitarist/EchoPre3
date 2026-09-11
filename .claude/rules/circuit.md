@@ -1,8 +1,40 @@
 # Circuit Reference — Echo Pre 3 (Echoplex EP-3 preamp)
 
-> This file is the **source of truth** for component values and topology. Fill every `<...>`
-> placeholder by reading the schematic directly. Do NOT approximate or copy values from a build
-> kit / forum trace without confirming against the primary schematic.
+> This file is the **source of truth** for component values, topology and every measured constant.
+> Where it disagrees with `CLAUDE.md` or `docs/build-plan.md`, **this file wins** — those two are
+> history and are never retroactively edited.
+>
+> ⚠ Values come from the primary schematic only. Do NOT copy a value from a build kit or a forum
+> trace without confirming it against `schematics/schematic.png`.
+
+## ⭐ The shipped model, in one table
+
+Every one of these is measured. **The header is still the authority** — these are parsed from it by
+several analysis scripts precisely so there is one definition; if a value here disagrees with the
+header, the header is right and this table is stale.
+
+| constant | value | what pins it | note |
+|---|---|---|---|
+| `kInputRef` | **4.4626 V/FS** | the owner's tracking calibration, +12.20 dBu, meter-confirmed | #23 |
+| `kOutputMakeup` | **1.1562** (+1.261 dB) | P4's rotation, DARK only, sd 0.175 dB | #23 |
+| `kVolumeTaperP` | **2.30** | P4's VOLUME sweep, two independent bands agreeing to 2 % | #21, #23 |
+| `gm` | **1.5531069 mS** (K0 = 6.5912) | the rig-free mode differential across P1/P2 | #7, #23 |
+| `tauBright` / `tauMid` | **85.369 / 38.263 µs** | two-parameter shelf fits, P1/P2 | #2 |
+| transfer-law exponent `m` | **1.60** (not 2) | P4's probe captures; fitted on H2 at 220 Hz, five unfitted observables improved | #26 |
+| `\|Vp\|` | **1.942 V** — the single amplitude parameter, and exactly the cutoff onset in gate volts | P4's probe captures | #26, #26a |
+| `ro` | **1.1921 MΩ** | re-derived at the fitted bias point | #26 |
+| `C10`, `R5` and every other R/C | **as drawn** | the schematic; C10 re-confirmed against a six-position fit | #21 |
+| `output_load` default | **68 kΩ** (user-selectable 68k / 1M / None) | ⚠ **fitted** to the maker's published control law, not identified as a component | #31 |
+
+**Derived at the shipped values** (recomputed from the header, not copied): `Vov` **0.4321 V**, `Id0` **419.4 µA**, `IDSS` **4.64 mA**, `Vds_q` **11.26 V**.
+⚠ Every one of those moves with `gm`, so re-derive rather than quoting them if `gm` ever changes.
+
+⛔ **Two standing prohibitions**, both the result of measurement rather than caution:
+- **Do not move `gm`** to close BRIGHT's 6.5–10 kHz brightness or its ~1.3 dB H2 deficit against the
+  calibration unit. That is the recorded voicing decision and its accepted price — notes #28, #30.
+- **Do not model an input source impedance or an output load capacitance.** Both were decided
+  explicitly: the loading is already somewhere else (a DI track carries the guitar's) or nowhere at
+  all (the plugin's output goes to a DAW digitally) — stages 1 and 3 below.
 
 Target circuit: the Echoplex EP-3 tube preamp, reimagined as a JFET preamp — traced via the
 **Chase Tone Secret Preamp** schematic. Single gain stage, no clipping diodes; a high-voltage
@@ -242,7 +274,7 @@ NOTE #26.** The transfer law is measured at **m = 1.60**, not 2, and the amplitu
 **|Vp| (cutoff onset in gate volts), not `Vov`** — `Vov` is now a DERIVED quantity,
 `Vov = |Vp| / (1 + gm·R5/m)`. The shipped pair is **`m` = 1.60, `|Vp|` = 1.942 V**, fitted from P4's
 probe captures (note #26), at the voicing decision's shipped `gm` = 1.5531 mS this gives
-**`Vov` = 0.4328 V, `Id0` ≈ 420 µA, `IDSS` ≈ 4.65 mA, `Vd` ≈ 11.25 V** (note #26c) — i.e. the drain
+**`Vov` = 0.4321 V, `Id0` = 419.4 µA, `IDSS` = 4.64 mA, `Vds_q` = 11.26 V** (note #26c) — i.e. the drain
 sits close to mid-rail after all, not the square-law fit's 14.4 V. `ro` = 1.1921 MΩ (re-derived at
 this `Id0`, not the square law's 1.4407 MΩ). These four numbers (`m`, `|Vp|`, `gm`, `ro`) are the
 complete device model; do not reconstruct a square-law bias point from first principles here —
@@ -1323,7 +1355,7 @@ noise-free, so what is left is systematic — and here the systematic part is id
 output is a LOW-pass — it darkens the top octave (note #7's P2 finding, 542 pF at 3.2 kHz). Removing
 bass needs a *series* element. Wrong axis; no amount of it produces this.
 
-➡ **What this changes for the capture session.** The bypassed capture (`CLAUDE.md` ask #2) is now
+➡ **What this changes for the capture session.** The bypassed capture (`docs/capture-dataset.md`) is now
 the direct test rather than a general anchor: capture bypassed **through the identical reamp chain**
 and its LF rolloff IS the rig's high-pass, measured rather than inferred. ⭐ If the owner's own rig
 turns out to have a corner in this same 20–30 Hz decade, that is confirmation — and the correct
@@ -1557,7 +1589,7 @@ the maker's own estimation of a midway point, not a historical EP-3 setting.
 pedal carries both authentic voicings; the position their capture cannot reach is the synthesised
 one. So the model's authenticity is fully testable against their captures, and only the invented
 position stays inferred from P1/P2 (scale MID by the measured cap RATIO of 2.24, not by an absolute
-τ — see the CLAUDE.md two-position block).
+τ — see note #28's voicing rule).
 ⚠ It also means their BRIGHT is the same physical position as P1/P2's, so its shelf zero should land
 near the measured 1.86 kHz. **Fit it rather than assuming it** — note #2's label reasoning was
 confidently wrong once already.
@@ -1568,7 +1600,7 @@ Instruments: `analysis/p4_corners.py`, `analysis/unit_compare.py`, `analysis/p4_
 `analysis/volume_sweep.py` (+ their JSON in `analysis/reports/`). **Every one passes a `--self-test`
 that puts plugin renders where the captures go**, recovering the shelf zero to 0.04 %, the taper to
 p = 2.00 exactly, C10 to 100.0 nF, the load capacitance to 0 pF and the LF corner ratio to 1.000.
-**No DSP constant changed yet** — this note is the measurement; the decisions are in CLAUDE.md.
+**No DSP constant changed yet** — this note is the measurement; note #28 records the decisions.
 
 Twenty-one P4 captures, one pedal, one rig, one session, both calibration figures written down.
 The complete VOLUME rotation 7:30 → 17:00 in DARK and BRIGHT, all pad 12, plus three pad-0 takes.
@@ -1635,7 +1667,7 @@ size, and MEASURED this time rather than inferred.
 that error lives in exactly the same band, so the fit returns 0 pF at a 4.6 dB residual. The guard
 works; DARK is the only valid HF probe until `gm` is settled.
 
-**⛔ 7:30 IS UNUSABLE FOR ITS CORNER TOO — this reverses CLAUDE.md's "read its CORNER, never its
+**⛔ 7:30 IS UNUSABLE FOR ITS CORNER TOO — this reverses the earlier "read its CORNER, never its
 LEVEL".** Its two takes fit LF corners **68.79 and 63.19 Hz, 8.9 % apart**, and mode shelves whose
 K0 spans 4.82–6.08 across takes and sweeps, where 9:00's two takes agree to **0.1 %** and its shelf
 to 0.05. At Ra = 1.25 kΩ the network is on its steepest slope, so the physical knob-setting error at
@@ -2233,8 +2265,8 @@ a digit or two of the machine-precision agreement, and `build.md`'s rule is that
 #### 26c. ⚠⚠ WHAT IT COSTS AGAINST THE OWNER'S OWN PEDAL — a voicing consequence, now measured
 
 The device parameters are measured on P4; the recorded decision voices the model to P1/P2, whose gm
-is 36 % higher. Transplanting P4's (m, |Vp|) onto their gm re-solves the bias to **Vov = 0.4328 V,
-Id0 = 420 µA, IDSS = 4.65 mA, Vds_q = 11.25 V** — every one inside the datasheet. ⭐ It is coherent
+is 36 % higher. Transplanting P4's (m, |Vp|) onto their gm re-solves the bias to **Vov = 0.4321 V,
+Id0 = 419.4 µA, IDSS = 4.64 mA, Vds_q = 11.26 V** — every one inside the datasheet. ⭐ It is coherent
 as a PARTS BIN: one pinch-off and one exponent, with **IDSS the only thing that differs** between
 units (P1 → 4.31 mA, shipped mean → 4.65, P2 → 5.03), which is exactly what "cherry picked to
 cream-of-the-crop specs" selects on.
@@ -2481,7 +2513,7 @@ plugin at all.**
 the QUIETEST of the signal's four.** It used it for the captures, the renders AND the bypass
 deconvolution. ⚠⚠ **The NAME is the trap: `sweep_clean` means clean of DISTORTION, so it reads as
 "the good one" while being the worst SNR in the set by 25 dB.** `p4_corners.FIT_SWEEP` already
-avoided it for exactly this reason (`sweep_-26`, "well clear of the noise floor"), and CLAUDE.md
+avoided it for exactly this reason (`sweep_-26`, "well clear of the noise floor"), and `docs/capture-dataset.md`
 already said "use the reference's −6 or −16 dBFS sweep, never its quietest". The rule existed; one
 script did not follow it.
 

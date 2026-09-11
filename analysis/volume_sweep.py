@@ -21,7 +21,7 @@ the derivation and the bypass capture's known answer that verifies it.
 
 ⛔ 7:30 IS EXCLUDED FROM THE TAPER FIT. At Ra = 1.25 kOhm the network sits on its steepest slope, so
 knob-setting error dominates: its two takes fit LF corners 8.9 % apart, where 9:00's two takes agree
-to 0.1 %. CLAUDE.md predicted this for the LEVEL and it is true of the CORNER as well.
+to 0.1 %. circuit.md note #21 predicted this for the LEVEL; it is true of the CORNER as well.
 """
 import argparse, json, os, sys
 

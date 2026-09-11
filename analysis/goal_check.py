@@ -103,7 +103,7 @@ def main():
                          "`sweep_clean` -- that name means 'clean of DISTORTION', i.e. "
                          "it is the QUIETEST sweep (-41 dBFS) and therefore the worst "
                          "SNR in the set. p4_corners.FIT_SWEEP avoids it for the same "
-                         "reason and CLAUDE.md says never to deconvolve against it. "
+                         "reason and docs/capture-dataset.md says never to deconvolve against it. "
                          "-16 dBFS is the loudest sweep that is still LINEAR for every "
                          "capture in the matrix -- sweep_-6 puts 2.013 V on the gate of "
                          "a pad-0 capture, past the 1.94 V cutoff onset.")
