@@ -159,7 +159,7 @@ docs/                       Development log, the capture dataset, and the generi
 
 Requires CMake 3.15+, a C++17 compiler, and the JUCE, chowdsp_wdf, and xsimd submodules
 (xsimd accelerates the WDF matrix math). Builds as an Audio Unit + VST3 on macOS, VST3 on
-Windows/Linux.
+Windows, VST3 + LV2 on Linux.
 
 ```bash
 git clone --recurse-submodules https://github.com/tehguitarist/EchoPre3

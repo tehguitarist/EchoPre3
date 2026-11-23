@@ -425,14 +425,17 @@ jobs:
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build VST3
-        run: cmake --build build --config Release --target EchoPre3_VST3 --parallel
+      - name: Build VST3 and LV2
+        run: |
+          cmake --build build --config Release --target EchoPre3_VST3 --parallel
+          cmake --build build --config Release --target EchoPre3_LV2 --parallel
 
       - name: Package
         run: |
           VERSION="${{ needs.version.outputs.version }}"
           (cd build/EchoPre3_artefacts/Release/VST3 && \
             zip -r "${GITHUB_WORKSPACE}/EchoPre3-Linux-v${VERSION}.zip" "Echo Pre 3.vst3")
+          (cd build/EchoPre3_artefacts/Release/LV2 && zip -r "${GITHUB_WORKSPACE}/EchoPre3-Linux-v${VERSION}.zip" "Echo Pre 3.lv2")
 
       - name: Build installer
         run: |

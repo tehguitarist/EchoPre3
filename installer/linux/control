@@ -4,6 +4,6 @@ Section: sound
 Priority: optional
 Architecture: amd64
 Maintainer: Leigh Pierce <leighpierce@me.com>
-Description: Echo Pre 3 plugin (VST3)
+Description: Echo Pre 3 plugin (VST3, LV2)
  Circuit-level emulation of the Echoplex EP-3 preamp (Chase Tone Secret Preamp schematic),
  built with JUCE and chowdsp_wdf WDF circuit modelling.

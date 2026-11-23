@@ -51,12 +51,19 @@ juce_add_binary_data(PedalAssets
         assets/ui/texture.jpg
 )
 
+# LV2 is built on Linux only (an empty value elsewhere, so the FORMATS list below is unchanged).
+set(PLUGIN_LV2_FORMAT "")
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(PLUGIN_LV2_FORMAT LV2)
+endif()
+
 juce_add_plugin(EchoPre3
     COMPANY_NAME "Leigh Pierce"
     BUNDLE_ID com.leighpierce.echopre3
     PLUGIN_MANUFACTURER_CODE Lprc   # 4 chars, one uppercase
     PLUGIN_CODE Ep3p                # 4 chars, one uppercase, unique per plugin
-    FORMATS AU VST3
+    FORMATS AU VST3 ${PLUGIN_LV2_FORMAT}
+    LV2URI "https://github.com/tehguitarist/EchoPre3"   # permanent: hosts identify the plug-in by it
     PRODUCT_NAME "Echo Pre 3"
     COPY_PLUGIN_AFTER_BUILD TRUE      # installs the AU to ~/Library/Audio/Plug-Ins/Components/
 )
