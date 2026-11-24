@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/License-AGPLv3-blue.svg)](https://opensource.org/license/agpl-v3)
 [![Downloads](https://img.shields.io/github/downloads/tehguitarist/EchoPre3/total)](https://somsubhra.github.io/github-release-stats/?username=tehguitarist&repository=EchoPre3&page=1&per_page=30)
 
-Echo Pre 3 is a circuit-level emulation of the Echoplex EP-3 preamp (AU/VST3), traced from the
+Echo Pre 3 is a circuit-level emulation of the Echoplex EP-3 preamp (AU/VST3, plus LV2 on Linux), traced from the
 **Chase Tone Secret Preamp** schematic. It's a single-JFET, high-headroom clean preamp — no
 clipping diodes anywhere in the signal path — so the entire character comes from a 2N5457
 common-source gain stage and a three-position source-bypass tone switch, both solved sample by
@@ -167,6 +167,7 @@ cd EchoPre3
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target EchoPre3_AU    # macOS only
 cmake --build build --target EchoPre3_VST3  # all platforms
+cmake --build build --target EchoPre3_LV2   # Linux only
 ```
 
 The AU is copied into `~/Library/Audio/Plug-Ins/Components/` automatically after the build.
